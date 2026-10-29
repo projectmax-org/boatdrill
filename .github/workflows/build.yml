@@ -22,6 +22,17 @@ jobs:
       - name: Install restic, rclone and 7-Zip
         run: sudo apt-get update -qq && sudo apt-get install -y -qq restic rclone 7zip
 
+      # And the Kopia adapter against the real kopia: a pinned release, checked against its published SHA-256.
+      - name: Install kopia
+        env:
+          KOPIA_VERSION: 0.23.1
+          KOPIA_SHA256: 416d0f84a3dbb321a8b2d8f0997b1a0a6e915babe79ee76fa6e4d2bd1e1c5178
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/kopia.tar.gz" "https://github.com/kopia/kopia/releases/download/v$KOPIA_VERSION/kopia-$KOPIA_VERSION-linux-x64.tar.gz"
+          echo "$KOPIA_SHA256  $RUNNER_TEMP/kopia.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/kopia.tar.gz" -C "$RUNNER_TEMP"
+          echo "BOATDRILL_KOPIA=$RUNNER_TEMP/kopia-$KOPIA_VERSION-linux-x64/kopia" >> "$GITHUB_ENV"
+
       # The engine has no Windows dependency, so the quickest check runs here.
       - name: Test
         run: dotnet test tests/Boatdrill.Core.Tests -c Release --nologo
@@ -40,12 +51,24 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The restic, rclone and 7z tests again, on Windows paths (restic's snapshots name them /C/Users/...).
+      # The restic, rclone, 7z and Kopia tests again, on Windows paths (restic's snapshots name them /C/Users/...).
       # Should an install fail, those tests are skipped rather than failing the build.
       - name: Install restic, rclone and 7-Zip
         shell: pwsh
         continue-on-error: true
         run: choco install restic rclone 7zip --no-progress -y
+
+      - name: Install kopia
+        shell: pwsh
+        env:
+          KOPIA_VERSION: 0.23.1
+          KOPIA_SHA256: f0369d9657dbe47a1b8b6ff4e308c5958a4813b405d4e32ae9d81b3f2b3d8251
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'kopia.zip'
+          Invoke-WebRequest "https://github.com/kopia/kopia/releases/download/v$env:KOPIA_VERSION/kopia-$env:KOPIA_VERSION-windows-x64.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:KOPIA_SHA256) { throw 'The kopia download does not match its published SHA-256.' }
+          Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
+          "BOATDRILL_KOPIA=$env:RUNNER_TEMP\kopia-$env:KOPIA_VERSION-windows-x64\kopia.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Install Inno Setup
         shell: pwsh

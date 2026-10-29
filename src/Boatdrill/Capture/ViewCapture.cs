@@ -99,19 +99,22 @@ internal static class ViewCapture
             }
         }
 
-        // Adding a restic repository: the form that opens in Settings.
+        // Adding a restic or a Kopia repository: the form that opens in Settings.
         ThemeManager.Apply(AppTheme.Light);
         viewModel.Section = AppSection.Settings;
-        viewModel.Settings.AddingKind = Core.DestinationKind.Restic;
-        await Settle(window);
-        if (window.CurrentView?.FindName("ToolPassword") is FrameworkElement password)
+        foreach (var (kind, name) in new[] { (Core.DestinationKind.Restic, "restic"), (Core.DestinationKind.Kopia, "kopia") })
         {
-            password.BringIntoView(new Rect(0, -220, 10, 420));
+            viewModel.Settings.AddingKind = kind;
             await Settle(window);
-        }
+            if (window.CurrentView?.FindName("ToolPassword") is FrameworkElement password)
+            {
+                password.BringIntoView(new Rect(0, -220, 10, 420));
+                await Settle(window);
+            }
 
-        Save(window, Path.Combine(output, "settings-add-restic-light.png"));
-        viewModel.Settings.CancelTool();
+            Save(window, Path.Combine(output, $"settings-add-{name}-light.png"));
+            viewModel.Settings.CancelTool();
+        }
 
         // A first run: folders chosen, no destination yet.
         ThemeManager.Apply(AppTheme.Light);

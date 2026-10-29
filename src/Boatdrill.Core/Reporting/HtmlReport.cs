@@ -218,7 +218,7 @@ public static class HtmlReport
         var path = kind switch
         {
             DestinationKind.FileHistory => "M8.4 3.6 H17.6 A1.6 1.6 0 0 1 19.2 5.2 V14.4 M5.6 6.8 H14.8 A1.6 1.6 0 0 1 16.4 8.4 V18.8 A1.6 1.6 0 0 1 14.8 20.4 H5.6 A1.6 1.6 0 0 1 4 18.8 V8.4 A1.6 1.6 0 0 1 5.6 6.8 Z M10.2 11 V14.2 L12.2 15.4",
-            DestinationKind.Restic => "M4.8 6.4 C4.8 3.9 19.2 3.9 19.2 6.4 C19.2 8.9 4.8 8.9 4.8 6.4 Z M4.8 6.4 V17.6 C4.8 20.1 19.2 20.1 19.2 17.6 V6.4 M4.8 12 C4.8 14.5 19.2 14.5 19.2 12",
+            DestinationKind.Restic or DestinationKind.Kopia => "M4.8 6.4 C4.8 3.9 19.2 3.9 19.2 6.4 C19.2 8.9 4.8 8.9 4.8 6.4 Z M4.8 6.4 V17.6 C4.8 20.1 19.2 20.1 19.2 17.6 V6.4 M4.8 12 C4.8 14.5 19.2 14.5 19.2 12",
             DestinationKind.Rclone => CloudIcon,
             DestinationKind.Archive => ArchiveIcon,
             _ => "M3.2 13.6 L5.7 5.9 A1.8 1.8 0 0 1 7.4 4.6 H16.6 A1.8 1.8 0 0 1 18.3 5.9 L20.8 13.6 M3.2 13.6 H20.8 V18 A1.6 1.6 0 0 1 19.2 19.6 H4.8 A1.6 1.6 0 0 1 3.2 18 Z M16.6 16.6 H16.61 M13.6 16.6 H13.61",

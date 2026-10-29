@@ -114,7 +114,7 @@
                     <StackPanel>
                         <TextBlock Text="{ui:Say 'WHERE YOUR BACKUPS ARE', '백업 위치'}" Style="{StaticResource Text.SectionLabel}" />
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,-4,0,12"
-                                   Text="{ui:Say 'An external drive, a network share, a folder that OneDrive, Dropbox or Google Drive keeps in step, a File History drive, a restic repository, an rclone remote or a folder of zip or 7z archives. Boatdrill only ever reads from these.', '외장 드라이브, 네트워크 공유 폴더, OneDrive·Dropbox·Google Drive가 동기화하는 폴더, 파일 히스토리 드라이브, restic 저장소, rclone 원격 저장소, zip·7z 압축 파일이 있는 폴더를 쓸 수 있습니다. Boatdrill은 이곳들을 읽기만 합니다.'}" />
+                                   Text="{ui:Say 'An external drive, a network share, a folder that OneDrive, Dropbox or Google Drive keeps in step, a File History drive, a restic or Kopia repository, an rclone remote or a folder of zip or 7z archives. Boatdrill only ever reads from these.', '외장 드라이브, 네트워크 공유 폴더, OneDrive·Dropbox·Google Drive가 동기화하는 폴더, 파일 히스토리 드라이브, restic이나 Kopia 저장소, rclone 원격 저장소, zip·7z 압축 파일이 있는 폴더를 쓸 수 있습니다. Boatdrill은 이곳들을 읽기만 합니다.'}" />
 
                         <ItemsControl ItemsSource="{Binding Destinations}" Focusable="False">
                             <ItemsControl.ItemTemplate>
@@ -246,6 +246,12 @@
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Repository}" />
                                     <TextBlock Text="{ui:Say 'Add a restic repository', 'restic 저장소 추가'}" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding StartKopiaCommand}" Margin="0,0,8,8" AutomationProperties.Name="{ui:Say 'Add a Kopia repository', 'Kopia 저장소 추가'}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Repository}" />
+                                    <TextBlock Text="{ui:Say 'Add a Kopia repository', 'Kopia 저장소 추가'}" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding StartRcloneCommand}" Margin="0,0,8,8" AutomationProperties.Name="{ui:Say 'Add an rclone remote', 'rclone 원격 저장소 추가'}">

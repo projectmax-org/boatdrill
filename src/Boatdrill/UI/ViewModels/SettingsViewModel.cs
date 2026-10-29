@@ -49,10 +49,10 @@ public sealed class DestinationRowViewModel : ViewModelBase
         PasswordMissing = IsPasswordMissing(destination);
         PasswordNote = destination.Kind switch
         {
-            DestinationKind.Restic or DestinationKind.Rclone when PasswordMissing => Language.Pick(
+            DestinationKind.Restic or DestinationKind.Kopia or DestinationKind.Rclone when PasswordMissing => Language.Pick(
                 "No password is saved that this Windows account can read. Add it again with its password.",
                 "이 Windows 계정으로 읽을 수 있는 암호가 저장되어 있지 않습니다. 암호와 함께 다시 추가하세요."),
-            DestinationKind.Restic => Language.Pick(
+            DestinationKind.Restic or DestinationKind.Kopia => Language.Pick(
                 "Its password is saved, encrypted so that only your Windows account can read it. Add the repository again to change it.",
                 "암호는 사용자의 Windows 계정만 읽을 수 있도록 암호화해 저장했습니다. 바꾸려면 저장소를 다시 추가하세요."),
             DestinationKind.Rclone when destination.Secret is not null => Language.Pick(
@@ -68,7 +68,7 @@ public sealed class DestinationRowViewModel : ViewModelBase
     /// <summary>A repository with no password, or a password this Windows account cannot decrypt (settings from elsewhere).</summary>
     public static bool IsPasswordMissing(DestinationSetting destination) => destination.Kind switch
     {
-        DestinationKind.Restic => Dpapi.Unprotect(destination.Secret) is null,
+        DestinationKind.Restic or DestinationKind.Kopia => Dpapi.Unprotect(destination.Secret) is null,
         DestinationKind.Rclone => destination.Secret is not null && Dpapi.Unprotect(destination.Secret) is null,
         _ => false,
     };
@@ -117,7 +117,11 @@ public sealed class DestinationRowViewModel : ViewModelBase
     }
 }
 
-/// <summary>The words of the form for a backup read through a tool, for one kind.</summary>
+/// <summary>
+/// The words of the form for a backup read through a tool, for one kind. <see cref="ToolWith"/> is the tool's name
+/// with 으로 or 로 after it, for Korean sentences: restic (레스틱) and rclone (알클론) end in a consonant, kopia (코피아)
+/// in a vowel.
+/// </summary>
 public sealed record ToolForm(
     string Title,
     string Intro,
@@ -131,7 +135,8 @@ public sealed record ToolForm(
     string AddText,
     bool CanBrowse,
     string Tool,
-    string Noun);
+    string Noun,
+    string ToolWith);
 
 /// <summary>Everything on the Settings page. Each change is saved as it is made.</summary>
 public sealed class SettingsViewModel : ViewModelBase, IDisposable
@@ -156,7 +161,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             Language.Pick("Where it is", "위치"), Language.Pick("E:\\restic, or sftp:nas:/srv/restic", "E:\\restic 또는 sftp:nas:/srv/restic"),
             Language.Pick("Password", "암호"), string.Empty, PasswordRequired: true,
             Language.Pick("restic itself", "restic 프로그램"), Language.Pick("Leave empty when restic is on the PATH", "restic이 PATH에 있으면 비워 두세요"),
-            Language.Pick("Add the repository", "저장소 추가"), CanBrowse: true, "restic", Language.Pick("repository", "저장소")),
+            Language.Pick("Add the repository", "저장소 추가"), CanBrowse: true, "restic", Language.Pick("repository", "저장소"), "restic으로"),
         [DestinationKind.Rclone] = new(
             Language.Pick("An rclone remote", "rclone 원격 저장소"),
             Language.Pick(
@@ -165,7 +170,16 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             Language.Pick("Remote and path", "원격 저장소와 경로"), "gdrive:Backups/Laptop",
             Language.Pick("Config password", "설정 파일 암호"), Language.Pick("Only if your rclone config is encrypted", "rclone 설정 파일이 암호화되어 있을 때만"), PasswordRequired: false,
             Language.Pick("rclone itself", "rclone 프로그램"), Language.Pick("Leave empty when rclone is on the PATH", "rclone이 PATH에 있으면 비워 두세요"),
-            Language.Pick("Add the remote", "원격 저장소 추가"), CanBrowse: false, "rclone", Language.Pick("remote", "원격 저장소")),
+            Language.Pick("Add the remote", "원격 저장소 추가"), CanBrowse: false, "rclone", Language.Pick("remote", "원격 저장소"), "rclone으로"),
+        [DestinationKind.Kopia] = new(
+            Language.Pick("A Kopia repository", "Kopia 저장소"),
+            Language.Pick(
+                "Boatdrill reads it with kopia, which KopiaUI installs with itself. Give the repository's folder, or, for a repository in the cloud, the .config file of a connection KopiaUI already has. Boatdrill makes a read-only connection of its own: yours, its cache and its saved password are left alone, and nothing is written to the repository.",
+                "Boatdrill은 kopia로 이 저장소를 읽습니다. kopia는 KopiaUI를 설치하면 함께 설치됩니다. 저장소 폴더를 적거나, 클라우드에 있는 저장소라면 KopiaUI가 이미 쓰고 있는 연결의 .config 파일을 적으세요. Boatdrill은 따로 읽기 전용 연결을 만들기 때문에 사용자의 연결과 캐시, 저장된 암호는 그대로 두며, 저장소에는 아무것도 쓰지 않습니다."),
+            Language.Pick("Where it is", "위치"), Language.Pick("E:\\Kopia, or …\\kopia\\repository.config", "E:\\Kopia 또는 …\\kopia\\repository.config"),
+            Language.Pick("Password", "암호"), string.Empty, PasswordRequired: true,
+            Language.Pick("kopia itself", "kopia 프로그램"), Language.Pick("Leave empty when kopia is on the PATH or KopiaUI is installed", "kopia가 PATH에 있거나 KopiaUI가 설치되어 있으면 비워 두세요"),
+            Language.Pick("Add the repository", "저장소 추가"), CanBrowse: true, "kopia", Language.Pick("repository", "저장소"), "kopia로"),
     };
 
     public SettingsViewModel(AppServices services)
@@ -194,6 +208,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         AddArchivesCommand = new AsyncRelayCommand(AddArchivesAsync);
         StartResticCommand = new RelayCommand(() => AddingKind = DestinationKind.Restic, () => AddingKind is null);
         StartRcloneCommand = new RelayCommand(() => AddingKind = DestinationKind.Rclone, () => AddingKind is null);
+        StartKopiaCommand = new RelayCommand(StartKopia, () => AddingKind is null);
         BrowseToolCommand = new RelayCommand(BrowseTool);
         RemoveSourceCommand = new RelayCommand(p => RemoveSource(p as SourceRowViewModel));
         RemoveDestinationCommand = new RelayCommand(p => RemoveDestination(p as DestinationRowViewModel));
@@ -222,6 +237,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     public RelayCommand StartResticCommand { get; }
 
     public RelayCommand StartRcloneCommand { get; }
+
+    public RelayCommand StartKopiaCommand { get; }
 
     public RelayCommand BrowseToolCommand { get; }
 
@@ -260,6 +277,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             Raise(nameof(IsAddingTool), nameof(Form));
             StartResticCommand.RaiseCanExecuteChanged();
             StartRcloneCommand.RaiseCanExecuteChanged();
+            StartKopiaCommand.RaiseCanExecuteChanged();
         }
     }
 
@@ -518,6 +536,13 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             $"{destination.Name} 백업을 추가했습니다: {probe.Detail}. 복원 훈련마다 보호하는 폴더가 담긴 가장 최근 압축 파일을 읽습니다."), warning: false);
     }
 
+    /// <summary>Opens the Kopia form with KopiaUI's own connection filled in when there is one, so only the password is left to type.</summary>
+    private void StartKopia()
+    {
+        AddingKind = DestinationKind.Kopia;
+        if (NewToolLocation.Length == 0 && KopiaAdapter.DefaultConnection() is { } connection) NewToolLocation = connection;
+    }
+
     private void BrowseTool()
     {
         if (Shell.PickFolder(Language.Pick("Choose the folder that holds the repository", "저장소가 있는 폴더 고르기")) is { } folder) NewToolLocation = folder;
@@ -556,9 +581,12 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         {
             var tool = NewToolPath.Trim();
             var stored = password.Length == 0 ? null : Dpapi.Protect(password);
-            destination = kind == DestinationKind.Rclone
-                ? DestinationSetting.ForRclone(location, stored, toolPath: tool.Length == 0 ? null : tool)
-                : DestinationSetting.ForRestic(location, stored, toolPath: tool.Length == 0 ? null : tool);
+            destination = kind switch
+            {
+                DestinationKind.Rclone => DestinationSetting.ForRclone(location, stored, toolPath: tool.Length == 0 ? null : tool),
+                DestinationKind.Kopia => DestinationSetting.ForKopia(location, stored, toolPath: tool.Length == 0 ? null : tool),
+                _ => DestinationSetting.ForRestic(location, stored, toolPath: tool.Length == 0 ? null : tool),
+            };
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or InvalidOperationException)
         {
@@ -581,24 +609,28 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         });
         CancelTool();
         var name = existing?.Name ?? destination.Name;
-        // restic (레스틱) and rclone (알클론) both end in a consonant: 으로.
         Say((existing is null, Language.IsKorean) switch
         {
             (true, false) => $"Opening {name} with {form.Tool}…",
-            (true, true) => $"{form.Tool}으로 {Korean.Object(name)} 여는 중…",
+            (true, true) => $"{form.ToolWith} {Korean.Object(name)} 여는 중…",
             (false, false) => $"{name} is updated. Opening it with {form.Tool}…",
-            (false, true) => $"{Korean.Object(name)} 바꿨습니다. {form.Tool}으로 여는 중…",
+            (false, true) => $"{Korean.Object(name)} 바꿨습니다. {form.ToolWith} 여는 중…",
         }, warning: false);
 
         IsTestingTool = true;
         try
         {
             var target = destination.ToDestination(_ => password.Length == 0 ? null : password);
-            IDestinationAdapter adapter = kind == DestinationKind.Rclone ? new RcloneAdapter() : new ResticAdapter();
+            IDestinationAdapter adapter = kind switch
+            {
+                DestinationKind.Rclone => new RcloneAdapter(),
+                DestinationKind.Kopia => new KopiaAdapter(),
+                _ => new ResticAdapter(),
+            };
             var probe = await Task.Run(() => adapter.ProbeAsync(target, CancellationToken.None));
             Say(probe.Reachable
                     ? Language.Pick($"{name} is ready: {probe.Detail}. Boatdrill only ever reads from it.", $"{name} 준비 완료: {probe.Detail}. Boatdrill은 이곳을 읽기만 합니다.")
-                    : Language.Pick($"{name} is in the list, but {form.Tool} could not open it: {probe.Detail}.", $"{name} 백업을 목록에 넣었지만 {form.Tool}으로 열지 못했습니다: {probe.Detail}."),
+                    : Language.Pick($"{name} is in the list, but {form.Tool} could not open it: {probe.Detail}.", $"{name} 백업을 목록에 넣었지만 {form.ToolWith} 열지 못했습니다: {probe.Detail}."),
                 warning: !probe.Reachable);
         }
         finally

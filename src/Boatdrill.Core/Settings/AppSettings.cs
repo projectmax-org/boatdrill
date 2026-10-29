@@ -155,6 +155,14 @@ public sealed class DestinationSetting
     }
 
     /// <param name="storedSecret">The password as it is to be stored, already protected by the caller.</param>
+    public static DestinationSetting ForKopia(string location, string? storedSecret, string? name = null, string? toolPath = null)
+    {
+        var setting = From(Destination.Kopia(location, null, name, toolPath));
+        setting.Secret = storedSecret;
+        return setting;
+    }
+
+    /// <param name="storedSecret">The password as it is to be stored, already protected by the caller.</param>
     public static DestinationSetting ForRestic(string repository, string? storedSecret, string? name = null, string? toolPath = null)
     {
         var setting = From(Destination.Restic(repository, null, name, toolPath));

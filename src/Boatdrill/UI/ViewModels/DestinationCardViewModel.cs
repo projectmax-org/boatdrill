@@ -200,7 +200,7 @@ public sealed class DestinationCardViewModel : ViewModelBase
         {
             DestinationKind.Restic => !Destination.IsRepositoryUrl(destination.Folder),
             DestinationKind.Rclone => Directory.Exists(destination.Folder),
-            DestinationKind.Archive => File.Exists(destination.Folder) || Directory.Exists(destination.Folder),
+            DestinationKind.Archive or DestinationKind.Kopia => File.Exists(destination.Folder) || Directory.Exists(destination.Folder),
             _ => true,
         };
         Result = result;

@@ -19,6 +19,9 @@ public enum DestinationKind
 
     /// <summary>Zip or 7z archives in a folder, the newest that holds a folder's files read as its backup; or one archive.</summary>
     Archive,
+
+    /// <summary>A Kopia repository in a folder, or the one an existing Kopia connection's configuration file reaches.</summary>
+    Kopia,
 }
 
 /// <summary>How a mirror destination lays out the copies of one source.</summary>
@@ -93,6 +96,17 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
         };
     }
 
+    /// <param name="location">A filesystem repository's folder, or the configuration file of an existing Kopia connection.</param>
+    public static Destination Kopia(string location, string? password, string? name = null, string? toolPath = null)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(location));
+        return new Destination(IdFor(DestinationKind.Kopia, full), name ?? DefaultName(DestinationKind.Kopia, full), DestinationKind.Kopia, full)
+        {
+            Secret = password,
+            ToolPath = toolPath,
+        };
+    }
+
     /// <summary>The same id for the same place on every run, so history lines up.</summary>
     public static string IdFor(DestinationKind kind, string location)
     {
@@ -102,6 +116,10 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
             DestinationKind.Restic when IsRepositoryUrl(normalised) => Source.IdForText("restic:" + normalised),
             DestinationKind.Rclone => Source.IdForText("rclone:" + normalised),
             DestinationKind.Archive => Source.IdForText("archive:" + normalised),
+            // Kept apart from a restic repository in the same folder, and the same however the folder is typed.
+            DestinationKind.Kopia => Source.IdForText("kopia:" + (OperatingSystem.IsWindows()
+                ? Path.TrimEndingDirectorySeparator(normalised).ToUpperInvariant()
+                : Path.TrimEndingDirectorySeparator(normalised))),
             _ => Source.IdForPath(normalised),
         };
     }
@@ -115,6 +133,9 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
             var cut = tail.LastIndexOfAny(['/', '\\', ':']);
             return cut >= 0 && cut < tail.Length - 1 ? tail[(cut + 1)..] : tail;
         }
+
+        // A connection's file is named "repository.config" whatever it connects to.
+        if (kind == DestinationKind.Kopia && IsKopiaConfig(location)) return "Kopia";
 
         return Source.DisplayName(location);
     }
@@ -144,6 +165,8 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
             DestinationKind.Rclone => $"{location}의 rclone 원격 저장소",
             DestinationKind.Archive when IsArchiveFile(location) => location,
             DestinationKind.Archive => $"{location}의 압축 파일",
+            DestinationKind.Kopia when IsKopiaConfig(location) => $"{Korean.Toward(location)} 연결하는 Kopia 저장소",
+            DestinationKind.Kopia => $"{location}의 Kopia 저장소",
             _ => location,
         }
         : kind switch
@@ -153,6 +176,8 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
             DestinationKind.Rclone => "rclone remote at " + location,
             DestinationKind.Archive when IsArchiveFile(location) => location,
             DestinationKind.Archive => "Archives in " + location,
+            DestinationKind.Kopia when IsKopiaConfig(location) => "Kopia repository connected by " + location,
+            DestinationKind.Kopia => "Kopia repository at " + location,
             _ => location,
         };
 
@@ -160,6 +185,9 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
     public static bool IsArchiveFile(string path) =>
         Path.GetExtension(path) is var extension &&
         (extension.Equals(".zip", StringComparison.OrdinalIgnoreCase) || extension.Equals(".7z", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A Kopia connection's configuration file, such as KopiaUI's repository.config, rather than a repository folder.</summary>
+    public static bool IsKopiaConfig(string path) => Path.GetExtension(path).Equals(".config", StringComparison.OrdinalIgnoreCase);
 
     [GeneratedRegex(@"(?<=://[^/@:\s]+:)[^/@\s]+(?=@)")]
     private static partial Regex UrlPassword();

@@ -400,17 +400,8 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         return (parts.Count > 0 ? 1 : 0, parts);
     }
 
-    /// <summary>
-    /// restic records Go's host name; .NET's machine name is the 15-character NetBIOS form of it and, on Linux,
-    /// stops at the first dot.
-    /// </summary>
-    internal static bool TakenHere(string hostname)
-    {
-        var host = hostname.Split('.')[0];
-        var here = Environment.MachineName;
-        return string.Equals(host, here, StringComparison.OrdinalIgnoreCase) ||
-               (here.Length == 15 && host.StartsWith(here, StringComparison.OrdinalIgnoreCase));
-    }
+    /// <summary>restic records Go's host name, which <see cref="HostNames"/> matches with this PC's.</summary>
+    internal static bool TakenHere(string hostname) => HostNames.IsThisPc(hostname);
 
     /// <summary>How restic names a path inside a snapshot: C:\Users\max becomes /C/Users/max; a Unix path stays as it is.</summary>
     internal static string TreePath(string fullPath)

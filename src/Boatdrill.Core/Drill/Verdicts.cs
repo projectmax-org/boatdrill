@@ -55,14 +55,14 @@ public static class Verdicts
             case Verdict.Unreachable when korean:
                 return r.Kind switch
                 {
-                    DestinationKind.Restic => "설정에서 저장소를 확인한 다음 복원 훈련을 다시 실행하세요.",
+                    DestinationKind.Restic or DestinationKind.Kopia => "설정에서 저장소를 확인한 다음 복원 훈련을 다시 실행하세요.",
                     DestinationKind.Rclone => "설정에서 원격 저장소를 확인한 다음 복원 훈련을 다시 실행하세요.",
                     _ => "드라이브를 연결하거나 공유 폴더를 확인한 다음 복원 훈련을 다시 실행하세요.",
                 };
             case Verdict.Unreachable:
                 return r.Kind switch
                 {
-                    DestinationKind.Restic => "Check the repository in Settings, then run a drill.",
+                    DestinationKind.Restic or DestinationKind.Kopia => "Check the repository in Settings, then run a drill.",
                     DestinationKind.Rclone => "Check the remote in Settings, then run a drill.",
                     _ => "Plug it in or check the share, then run a drill.",
                 };

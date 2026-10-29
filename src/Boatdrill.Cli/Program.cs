@@ -23,8 +23,13 @@ public static class Program
           --dest <folder>           a folder of plain copies: a drive, a NAS share, a synced cloud folder
           --file-history <folder>   a Windows File History drive, or its FileHistory folder
           --restic <repository>     a restic repository: a folder, or a URL such as sftp:host:/srv/restic
-          --password-file <file>    the restic password, on the first line; without it, RESTIC_PASSWORD
+          --password-file <file>    the restic or Kopia password, on the first line; without it, RESTIC_PASSWORD
+                                    or KOPIA_PASSWORD
           --restic-tool <path>      restic itself, when it is not on the PATH
+          --kopia <repository>      a Kopia repository: its folder, or the .config file of a Kopia connection
+                                    (KopiaUI's is %APPDATA%\kopia\repository.config), read through a read-only
+                                    connection of Boatdrill's own
+          --kopia-tool <path>       kopia itself, when it is not on the PATH
           --rclone <remote:path>    an rclone remote from your rclone config, such as gdrive:Backups/Laptop
           --rclone-tool <path>      rclone itself, when it is not on the PATH
           --archives <folder>       a folder of zip or 7z archives (the newest that holds the files is read), or one archive
@@ -323,7 +328,8 @@ public static class Program
             long capMb = 512;
             int? seed = null;
             var churnHours = 2.0;
-            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, rcloneTool = null, sevenZip = null, html = null, folder = null;
+            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, rcloneTool = null, sevenZip = null, html = null, folder = null,
+                kopiaTool = null;
             long batchMb = RehearsalRunner.DefaultBatchBytes / 1024 / 1024;
             bool canaries = false, json = false;
 
@@ -342,6 +348,8 @@ public static class Program
                     case "--7z": sevenZip = Next(); break;
                     case "--password-file": passwordFile = Next(); break;
                     case "--restic-tool": resticTool = Next(); break;
+                    case "--kopia": destinations.Add((DestinationKind.Kopia, Next())); break;
+                    case "--kopia-tool": kopiaTool = Next(); break;
                     case "--sample": sampleSize = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--cap-mb": capMb = long.Parse(Next(), CultureInfo.InvariantCulture); break;
                     case "--seed": seed = int.Parse(Next(), CultureInfo.InvariantCulture); break;
@@ -372,16 +380,15 @@ public static class Program
             }
 
             // The password never goes on the command line, where other programs can read it.
-            var password = passwordFile is not null
-                ? File.ReadLines(passwordFile).FirstOrDefault()?.TrimEnd('\r') ?? string.Empty
-                : Environment.GetEnvironmentVariable("RESTIC_PASSWORD");
+            var filed = passwordFile is not null ? File.ReadLines(passwordFile).FirstOrDefault()?.TrimEnd('\r') ?? string.Empty : null;
 
             return new Options(
                 sources.Select(s => Source.FromPath(s)).ToList(),
                 destinations.Select(d => d.Kind switch
                 {
                     DestinationKind.FileHistory => Destination.FileHistory(d.Location),
-                    DestinationKind.Restic => Destination.Restic(d.Location, password, toolPath: resticTool),
+                    DestinationKind.Restic => Destination.Restic(d.Location, filed ?? Environment.GetEnvironmentVariable("RESTIC_PASSWORD"), toolPath: resticTool),
+                    DestinationKind.Kopia => Destination.Kopia(d.Location, filed ?? Environment.GetEnvironmentVariable("KOPIA_PASSWORD"), toolPath: kopiaTool),
                     DestinationKind.Rclone => Destination.Rclone(d.Location, toolPath: rcloneTool),
                     DestinationKind.Archive => Destination.Archive(d.Location, toolPath: sevenZip),
                     _ => Destination.MirrorFolder(d.Location),

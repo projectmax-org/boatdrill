@@ -20,9 +20,10 @@ back into a scratch folder on this PC, compares SHA-256 hashes with the original
 **Reads the backups people actually have.** A folder of plain copies (an external drive, a NAS share, a
 OneDrive or Dropbox folder), a Windows File History drive, whose newest version of each file is the one
 read, a [restic](https://restic.net) repository, local or remote, which a drill restores its sample from
-with restic itself, an [rclone](https://rclone.org) remote (Google Drive, S3, B2 and the rest), read with
-rclone, or a folder of zip or 7z archives, whose newest archive holding a folder is its backup. A password
-is kept encrypted with DPAPI for your Windows account.
+with restic itself, a [Kopia](https://kopia.io) repository, in a folder or wherever KopiaUI's connection
+reaches, read through a read-only connection of Boatdrill's own, an [rclone](https://rclone.org) remote
+(Google Drive, S3, B2 and the rest), read with rclone, or a folder of zip or 7z archives, whose newest
+archive holding a folder is its backup. A password is kept encrypted with DPAPI for your Windows account.
 
 **Says what it found.** One score and one sentence per destination, such as *"Backup drive would restore.
 397 of 400 sampled files read back correctly and 3 are older than the original. The oldest change not yet
@@ -78,8 +79,10 @@ is most likely to be missing.
 
 - It never writes into a destination. The one place a drill or a rehearsal writes is its scratch folder on
   this PC, which is emptied when it ends. A restic repository is read with `--no-lock`, so not even a lock
-  file is left in it; an rclone remote is only listed and downloaded from; an archive is only opened for
-  reading. The opt-in canary file goes into your *source* folders only.
+  file is left in it; a Kopia repository through a connection made read-only, with no cache, no log in the
+  repository and no notifications, and kopia is never pointed at a folder that holds no repository; an
+  rclone remote is only listed and downloaded from; an archive is only opened for reading. The opt-in
+  canary file goes into your *source* folders only.
 - It never phones home. There is no network code in the app at all.
 - It never pulls a cloud placeholder down from OneDrive or Dropbox to check it.
 - It never polls. Between drills there is one timer, armed for the moment the next drill is due.
@@ -91,8 +94,9 @@ is most likely to be missing.
 Once 1.0 is released, the [Releases page](https://github.com/projectmax-org/project_01/releases) has the
 installer, which installs for you alone and needs no administrator, and the app as a single file to run
 without installing; `winget install ProjectMax.Boatdrill` will do the same once the package is in winget.
-Each release lists its files' SHA-256 checksums. Reading restic repositories, rclone remotes or 7z
-archives needs restic, rclone or [7-Zip](https://7-zip.org) installed; zip archives need nothing extra.
+Each release lists its files' SHA-256 checksums. Reading restic or Kopia repositories, rclone remotes or
+7z archives needs restic, kopia (KopiaUI brings it along), rclone or [7-Zip](https://7-zip.org) installed;
+zip archives need nothing extra.
 [docs/RELEASING.md](docs/RELEASING.md) describes how a release is made and checked.
 
 ## Using the app
@@ -125,6 +129,7 @@ The same engine from a terminal, on Windows, Linux and macOS, with the [.NET 10 
 dotnet run --project src/Boatdrill.Cli -- drill --source ~/Documents --dest /mnt/backup/Documents
 dotnet run --project src/Boatdrill.Cli -- drill --source C:\Users\you\Pictures --dest E:\ --sample 300 --json
 dotnet run --project src/Boatdrill.Cli -- drill --source ~/Documents --restic sftp:nas:/srv/restic --password-file ~/.restic-pw
+dotnet run --project src/Boatdrill.Cli -- drill --source ~/Documents --kopia ~/.config/kopia/repository.config --password-file ~/.kopia-pw
 dotnet run --project src/Boatdrill.Cli -- drill --source ~/Documents --rclone gdrive:Backups/Laptop --html drill.html
 dotnet run --project src/Boatdrill.Cli -- drill --source ~/Documents --archives /mnt/backup/weekly-zips
 dotnet run --project src/Boatdrill.Cli -- only-here --source ~/Documents --dest /mnt/backup/Documents
@@ -133,10 +138,11 @@ dotnet run --project src/Boatdrill.Cli -- report --history drills.jsonl --html r
 ```
 
 `--source` repeats, and so do the destinations: `--dest` for a folder, `--file-history` for a File
-History drive, `--restic` for a repository, whose password comes from `--password-file` or else
-`RESTIC_PASSWORD`, `--rclone` for a remote from your rclone config, and `--archives` for a folder of zip or
-7z archives, or one archive (`--restic-tool`, `--rclone-tool` and `--7z` name the tools when they are not on
-the PATH). `--history <file>` appends the report to a JSON-lines file, which is what makes the
+History drive, `--restic` for a restic repository, whose password comes from `--password-file` or else
+`RESTIC_PASSWORD`, `--kopia` for a Kopia repository's folder or a Kopia connection's `.config` file, its
+password from `--password-file` or else `KOPIA_PASSWORD`, `--rclone` for a remote from your rclone config,
+and `--archives` for a folder of zip or 7z archives, or one archive (`--restic-tool`, `--kopia-tool`,
+`--rclone-tool` and `--7z` name the tools when they are not on the PATH). `--history <file>` appends the report to a JSON-lines file, which is what makes the
 reachability part of the score meaningful over time; `--ledger <file>` keeps the hash ledger;
 `--canaries` keeps canary files; `--html <file>` also writes the drill as a one-page report. `rehearse`
 restores every file of one source, or of `--folder` inside it, from one destination, and `report` turns the
@@ -157,9 +163,9 @@ dotnet run --project src/Boatdrill
 ```
 
 The engine, its tests, the command-line runner and the icon generator build and run on any OS; the app
-compiles anywhere and runs on Windows 10 and 11. The restic, rclone and 7z tests drive the real tools and
-are skipped where they are not installed (on the PATH, or named by `BOATDRILL_RESTIC`, `BOATDRILL_RCLONE`
-or `BOATDRILL_7Z`); CI installs them on Linux and Windows. `Boatdrill.exe --capture <folder>` loads every
+compiles anywhere and runs on Windows 10 and 11. The restic, Kopia, rclone and 7z tests drive the real tools
+and are skipped where they are not installed (on the PATH, or named by `BOATDRILL_RESTIC`, `BOATDRILL_KOPIA`,
+`BOATDRILL_RCLONE` or `BOATDRILL_7Z`); CI installs them on Linux and Windows. `Boatdrill.exe --capture <folder>` loads every
 view against sample results, writes a PNG of each in the light and the dark theme, in English and then in
 Korean (into `ko`), and fails on a XAML error or a binding to a missing property. CI runs it on every push
 and keeps the images as an artifact. On Linux, `tools/capture-under-wine.sh` does the same under Wine,
@@ -171,7 +177,7 @@ with Liberation Sans and Nanum Gothic standing in for Segoe UI and Malgun Gothic
 src/Boatdrill.Core/          the engine (net10.0: no UI, no Windows API)
   Sampling/                  one-pass weighted reservoir sampling, byte cap, per-folder floor
   Adapters/                  IDestinationAdapter: folder copies (layout detection), File History, restic,
-                             rclone, zip and 7z archives
+                             Kopia, rclone, zip and 7z archives
   Tools/                     runs a command-line tool: arguments one by one, secrets in its environment
   Drill/                     DrillRunner, the rehearsal, canary files, the scratch folder, the sentence writer
   Reporting/                 the one-page HTML report
@@ -187,8 +193,8 @@ src/Boatdrill/               the WPF app (net10.0-windows)
   Tray/ UI/                  notification-area icon and menu, views, view models, theme
   Capture/                   --capture: sample data and the view renderer
 src/Boatdrill.Cli/           boatdrill-cli, the same engine from a terminal
-tests/Boatdrill.Core.Tests/  xunit; drills run against temp folders, real restic repositories, rclone remotes
-                             and zip and 7z archives, broken ones too
+tests/Boatdrill.Core.Tests/  xunit; drills run against temp folders, real restic and Kopia repositories,
+                             rclone remotes and zip and 7z archives, broken ones too
 installer/                   the Inno Setup installer
 packaging/                   winget manifests, filled in for each release
 tools/IconGen/               draws app.ico and the title-bar logo with plain arithmetic
@@ -209,9 +215,9 @@ Shell_NotifyIcon directly, the theme swaps one palette dictionary, and nothing r
 - **v0.2** Windows File History and restic destinations with passwords kept by DPAPI, a hash ledger that
   catches bit rot, opt-in canary files that measure backup lag directly, and the "only on this PC" scan.
   Built; waiting for a test against real drives and repositories on Windows.
-- **v1.0** an exportable report, a full-restore rehearsal, rclone remotes, zip and 7z archives, an
-  installer with a release workflow and winget manifests, and Korean. Built; the installer is waiting for
-  a first install on a real PC. Still to come: Kopia repositories, and code signing, which needs a
+- **v1.0** an exportable report, a full-restore rehearsal, rclone remotes, zip and 7z archives, Kopia
+  repositories, an installer with a release workflow and winget manifests, and Korean. Built; the
+  installer is waiting for a first install on a real PC. Still to come: code signing, which needs a
   certificate.
 
 ## Licence

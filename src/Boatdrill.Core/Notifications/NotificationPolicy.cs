@@ -51,7 +51,7 @@ public static class NotificationPolicy
         {
             var advice = d.Kind switch
             {
-                DestinationKind.Restic => "설정에서 저장소를 확인하세요.",
+                DestinationKind.Restic or DestinationKind.Kopia => "설정에서 저장소를 확인하세요.",
                 DestinationKind.Rclone => "설정에서 원격 저장소를 확인하세요.",
                 _ => "드라이브를 연결하거나 공유 폴더를 확인하세요.",
             };
@@ -60,7 +60,7 @@ public static class NotificationPolicy
 
         var fix = d.Kind switch
         {
-            DestinationKind.Restic => "Check the repository in Settings",
+            DestinationKind.Restic or DestinationKind.Kopia => "Check the repository in Settings",
             DestinationKind.Rclone => "Check the remote in Settings",
             _ => "Plug it in or check the share",
         };

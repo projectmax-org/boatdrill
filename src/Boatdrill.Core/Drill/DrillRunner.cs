@@ -41,7 +41,7 @@ public sealed class DrillRunner
 
     /// <summary>One adapter per kind of destination Boatdrill can read.</summary>
     public static IReadOnlyList<IDestinationAdapter> DefaultAdapters() =>
-        [new MirrorFolderAdapter(), new FileHistoryAdapter(), new ResticAdapter(), new RcloneAdapter(), new ArchiveAdapter()];
+        [new MirrorFolderAdapter(), new FileHistoryAdapter(), new ResticAdapter(), new RcloneAdapter(), new ArchiveAdapter(), new KopiaAdapter()];
 
     public async Task<DrillReport> RunAsync(DrillPlan plan, IProgress<DrillProgress>? progress = null, CancellationToken ct = default)
     {

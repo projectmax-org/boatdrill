@@ -14,8 +14,10 @@ dotnet run --project src/Boatdrill.Cli -- drill --source <folder> --dest <folder
 .\build.ps1 -Capture                            # Windows: tests, dist\Boatdrill.exe, screenshots of every view
 ```
 
-The restic tests drive the real restic and are skipped without it: install it (`apt install restic`,
-`choco install restic`, `brew install restic`) or point `BOATDRILL_RESTIC` at the executable.
+The restic, Kopia, rclone and 7z tests drive the real tools and are skipped without them: install restic
+(`apt install restic`, `choco install restic`, `brew install restic`), kopia (from
+[kopia.io](https://kopia.io/docs/installation/); KopiaUI carries one too), rclone and 7-Zip, or point
+`BOATDRILL_RESTIC`, `BOATDRILL_KOPIA`, `BOATDRILL_RCLONE` or `BOATDRILL_7Z` at the executable.
 
 `README.md` describes the layout. The short version: Core decides (sampling, adapters, drills, scores,
 the schedule, notifications) and is tested anywhere; the app shows and schedules, and is Windows only.

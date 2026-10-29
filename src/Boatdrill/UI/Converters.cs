@@ -33,7 +33,7 @@ public sealed class DestinationIconConverter : IValueConverter
         Application.Current?.TryFindResource(value switch
         {
             Core.DestinationKind.FileHistory => "Icon.Versions",
-            Core.DestinationKind.Restic => "Icon.Repository",
+            Core.DestinationKind.Restic or Core.DestinationKind.Kopia => "Icon.Repository",
             Core.DestinationKind.Rclone => "Icon.Cloud",
             Core.DestinationKind.Archive => "Icon.Archive",
             _ => "Icon.Drive",

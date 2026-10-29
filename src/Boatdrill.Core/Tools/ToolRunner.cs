@@ -31,6 +31,8 @@ internal static class ToolRunner
     {
         var info = new ProcessStartInfo(tool)
         {
+            // Standard input is closed at once, so a tool that asks for a password fails instead of waiting for an answer.
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             // Tools like restic write UTF-8; the console code page (437, 949, ...) would garble file names.
@@ -50,6 +52,7 @@ internal static class ToolRunner
         try
         {
             process.Start();
+            process.StandardInput.Close();
         }
         catch (Win32Exception ex)
         {

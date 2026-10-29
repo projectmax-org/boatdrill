@@ -18,9 +18,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The restic and rclone adapters are tested against the real tools; without them those tests are skipped.
-      - name: Install restic and rclone
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq restic rclone
+      # The restic, rclone and 7z adapters are tested against the real tools; without them those tests are skipped.
+      - name: Install restic, rclone and 7-Zip
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq restic rclone 7zip
 
       # The engine has no Windows dependency, so the quickest check runs here.
       - name: Test
@@ -40,12 +40,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The restic and rclone tests again, on Windows paths (restic's snapshots name them /C/Users/...).
+      # The restic, rclone and 7z tests again, on Windows paths (restic's snapshots name them /C/Users/...).
       # Should an install fail, those tests are skipped rather than failing the build.
-      - name: Install restic and rclone
+      - name: Install restic, rclone and 7-Zip
         shell: pwsh
         continue-on-error: true
-        run: choco install restic rclone --no-progress -y
+        run: choco install restic rclone 7zip --no-progress -y
 
       # Tests again on Windows, then publishes the single-file executables.
       - name: Test and publish

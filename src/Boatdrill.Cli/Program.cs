@@ -27,6 +27,8 @@ public static class Program
           --restic-tool <path>      restic itself, when it is not on the PATH
           --rclone <remote:path>    an rclone remote from your rclone config, such as gdrive:Backups/Laptop
           --rclone-tool <path>      rclone itself, when it is not on the PATH
+          --archives <folder>       a folder of zip or 7z archives (the newest that holds the files is read), or one archive
+          --7z <path>               7-Zip's 7z.exe, for 7z archives, when it is not on the PATH or in Program Files
 
         drill rehearses restoring a sample of files from every source out of every destination and says
         whether the backup would work. It never writes to a destination; it writes the scratch folder and,
@@ -321,7 +323,7 @@ public static class Program
             long capMb = 512;
             int? seed = null;
             var churnHours = 2.0;
-            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, rcloneTool = null, html = null, folder = null;
+            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, rcloneTool = null, sevenZip = null, html = null, folder = null;
             long batchMb = RehearsalRunner.DefaultBatchBytes / 1024 / 1024;
             bool canaries = false, json = false;
 
@@ -336,6 +338,8 @@ public static class Program
                     case "--restic": destinations.Add((DestinationKind.Restic, Next())); break;
                     case "--rclone": destinations.Add((DestinationKind.Rclone, Next())); break;
                     case "--rclone-tool": rcloneTool = Next(); break;
+                    case "--archives": destinations.Add((DestinationKind.Archive, Next())); break;
+                    case "--7z": sevenZip = Next(); break;
                     case "--password-file": passwordFile = Next(); break;
                     case "--restic-tool": resticTool = Next(); break;
                     case "--sample": sampleSize = int.Parse(Next(), CultureInfo.InvariantCulture); break;
@@ -379,6 +383,7 @@ public static class Program
                     DestinationKind.FileHistory => Destination.FileHistory(d.Location),
                     DestinationKind.Restic => Destination.Restic(d.Location, password, toolPath: resticTool),
                     DestinationKind.Rclone => Destination.Rclone(d.Location, toolPath: rcloneTool),
+                    DestinationKind.Archive => Destination.Archive(d.Location, toolPath: sevenZip),
                     _ => Destination.MirrorFolder(d.Location),
                 }).ToList(),
                 new SampleOptions

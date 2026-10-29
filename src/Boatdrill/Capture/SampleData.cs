@@ -12,9 +12,9 @@ namespace Boatdrill.Capture;
 
 /// <summary>
 /// Settings, six weeks of drill history and a scan for the view capture: a drive that would restore, a NAS
-/// that has been falling behind and has a rotting photo, a restic repository offsite, and a File History
-/// drive that is not plugged in. Scores and sentences come from the real scorer and sentence writers, so
-/// the screenshots show what a user would see.
+/// that has been falling behind and has a rotting photo, a restic repository offsite, a File History drive
+/// that is not plugged in, weekly zips a few days behind, and a Google Drive remote not drilled yet. Scores
+/// and sentences come from the real scorer and sentence writers, so the screenshots show what a user would see.
 /// </summary>
 internal static class SampleData
 {
@@ -37,6 +37,7 @@ internal static class SampleData
                 new DestinationSetting { Id = "offsite", Name = "Offsite repository", Kind = DestinationKind.Restic, Folder = "sftp:backup@cabin.example:/srv/restic", Secret = Protect("sample password") },
                 new DestinationSetting { Id = "history", Name = "File History (F:)", Kind = DestinationKind.FileHistory, Folder = @"F:\" },
                 new DestinationSetting { Id = "gdrive", Name = "Google Drive", Kind = DestinationKind.Rclone, Folder = "gdrive:Backups/Laptop" },
+                new DestinationSetting { Id = "zips", Name = "Weekly zips", Kind = DestinationKind.Archive, Folder = @"D:\Weekly zips" },
             ],
             UseCanaries = true,
             HasCompletedFirstRun = true,
@@ -105,6 +106,8 @@ internal static class SampleData
                     ? Reached("history", "File History (F:)", @"F:\", finished, verified: 400, outdated: 0, missing: 0,
                         lag: null, reachability: 1.0, bytesPerSecond: 380d * 1024 * 1024, [], kind: DestinationKind.FileHistory)
                     : Unreached("history", "File History (F:)", @"F:\", finished, reachability: weeksAgo == 3 ? 0.8 : 0.5, kind: DestinationKind.FileHistory),
+                Reached("zips", "Weekly zips", @"D:\Weekly zips", finished, verified: 396, outdated: 4, missing: 0,
+                    lag: TimeSpan.FromDays(4), reachability: 1.0, bytesPerSecond: 140d * 1024 * 1024, ZipFindings(), kind: DestinationKind.Archive),
             ],
         };
     }
@@ -114,7 +117,6 @@ internal static class SampleData
         int rechecked = 0, int rotted = 0, DateTimeOffset? canaryCopied = null, DestinationKind kind = DestinationKind.MirrorFolder)
     {
         var sampled = verified + outdated + missing;
-        var restic = kind == DestinationKind.Restic;
         var result = new DestinationResult
         {
             DestinationId = id,
@@ -122,18 +124,30 @@ internal static class SampleData
             Kind = kind,
             RootPath = root,
             Reachable = true,
-            ProbeDetail = restic ? root + " holds 214 snapshots" : root + " is reachable",
-            Bindings = restic
-                ?
+            ProbeDetail = kind switch
+            {
+                DestinationKind.Restic => root + " holds 214 snapshots",
+                DestinationKind.Archive => root + " holds 9 archives",
+                _ => root + " is reachable",
+            },
+            Bindings = kind switch
+            {
+                DestinationKind.Restic =>
                 [
                     new BoundSource("documents", "Documents", MirrorLayout.FullPath, $"{root}, snapshot 4f1c2a9e of {at.AddHours(-11):d MMMM yyyy, HH:mm} UTC", 25, 25),
                     new BoundSource("pictures", "Pictures", MirrorLayout.FullPath, $"{root}, snapshot 4f1c2a9e of {at.AddHours(-11):d MMMM yyyy, HH:mm} UTC", 25, 25),
-                ]
-                :
+                ],
+                DestinationKind.Archive =>
+                [
+                    new BoundSource("documents", "Documents", MirrorLayout.RootFolder, Path.Combine(root, $"Laptop {at.AddDays(-4):yyyy-MM-dd}.zip", "Documents"), 25, 25),
+                    new BoundSource("pictures", "Pictures", MirrorLayout.RootFolder, Path.Combine(root, $"Laptop {at.AddDays(-4):yyyy-MM-dd}.zip", "Pictures"), 25, 25),
+                ],
+                _ =>
                 [
                     new BoundSource("documents", "Documents", MirrorLayout.RootFolder, Path.Combine(root, "Documents"), 25, 25),
                     new BoundSource("pictures", "Pictures", MirrorLayout.RootFolder, Path.Combine(root, "Pictures"), 25, 25),
                 ],
+            },
             Sampled = sampled,
             Verified = verified,
             Outdated = outdated,
@@ -184,6 +198,18 @@ internal static class SampleData
             Outdated(@"Documents\Notes\Q4 planning.docx", edited, 1),
             Outdated(@"Documents\Taxes\2026 return draft.xlsx", edited.AddHours(-5), 1),
             Outdated(@"Pictures\Screenshots\Screenshot 2026-10-26 101422.png", edited.AddHours(-9), 1),
+        ];
+    }
+
+    private static IReadOnlyList<FileFinding> ZipFindings()
+    {
+        var edited = DateTimeOffset.UtcNow.AddDays(-2);
+        return
+        [
+            Outdated(@"Documents\Notes\Q4 planning.docx", edited, 3),
+            Outdated(@"Documents\Letters\Landlord 2026-10.docx", edited.AddHours(-20), 2),
+            Outdated(@"Pictures\Screenshots\Screenshot 2026-10-26 101422.png", edited.AddHours(-30), 2),
+            Outdated(@"Pictures\Phone\IMG_4471.jpg", edited.AddHours(-41), 1),
         ];
     }
 

@@ -235,6 +235,12 @@
                                     <TextBlock Text="Add File History" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
+                            <Button Command="{Binding AddArchivesCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a folder of zip or 7z archives">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Archive}" />
+                                    <TextBlock Text="Add zip or 7z archives" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
                             <Button Command="{Binding StartResticCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a restic repository">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Repository}" />

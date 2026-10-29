@@ -42,13 +42,7 @@ public sealed class DestinationRowViewModel : ViewModelBase
         _settings = settings;
         Id = destination.Id;
         Kind = destination.Kind;
-        Folder = destination.Kind switch
-        {
-            DestinationKind.FileHistory => "File History on " + destination.Folder,
-            DestinationKind.Restic => "restic repository at " + Destination.Redact(destination.Folder),
-            DestinationKind.Rclone => "rclone remote at " + destination.Folder,
-            _ => destination.Folder,
-        };
+        Folder = Destination.Describe(destination.Kind, destination.Folder);
         PasswordMissing = IsPasswordMissing(destination);
         PasswordNote = destination.Kind switch
         {
@@ -186,6 +180,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         AddSourceCommand = new RelayCommand(AddSource);
         AddDestinationCommand = new RelayCommand(AddDestination);
         AddFileHistoryCommand = new AsyncRelayCommand(AddFileHistoryAsync);
+        AddArchivesCommand = new AsyncRelayCommand(AddArchivesAsync);
         StartResticCommand = new RelayCommand(() => AddingKind = DestinationKind.Restic, () => AddingKind is null);
         StartRcloneCommand = new RelayCommand(() => AddingKind = DestinationKind.Rclone, () => AddingKind is null);
         BrowseToolCommand = new RelayCommand(BrowseTool);
@@ -210,6 +205,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     public RelayCommand AddDestinationCommand { get; }
 
     public AsyncRelayCommand AddFileHistoryCommand { get; }
+
+    public AsyncRelayCommand AddArchivesCommand { get; }
 
     public RelayCommand StartResticCommand { get; }
 
@@ -470,6 +467,35 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
         _services.Settings.Update(s => s.Destinations.Add(destination));
         Say($"{destination.Name} is added. Each drill reads the newest version of every sampled file.", warning: false);
+    }
+
+    private async Task AddArchivesAsync()
+    {
+        var folder = Shell.PickFolder("Choose the folder your zip or 7z backups are saved in");
+        if (folder is null) return;
+
+        var destination = DestinationSetting.ForArchives(folder);
+        if (Settings.Destinations.Any(d => d.Id == destination.Id))
+        {
+            Say($"{destination.Name} is already in the list.", warning: false);
+            return;
+        }
+
+        var probe = await Task.Run(() => new ArchiveAdapter().ProbeAsync(destination.ToDestination(), CancellationToken.None));
+        if (!probe.Reachable)
+        {
+            Say($"{probe.Detail}. Choose the folder your backup program saves its zip or 7z archives in.", warning: true);
+            return;
+        }
+
+        _services.Settings.Update(s => s.Destinations.Add(destination));
+        if (Settings.Sources.FirstOrDefault(s => SameOrInside(destination.Folder, s.Folder)) is { } protectedFolder)
+        {
+            Say($"{destination.Folder} is inside {protectedFolder.Name}, which Boatdrill protects. A backup on the same disk as the files it keeps would be lost with them.", warning: true);
+            return;
+        }
+
+        Say($"{destination.Name} is added: {probe.Detail}. Each drill reads the newest archive that holds each protected folder.", warning: false);
     }
 
     private void BrowseTool()

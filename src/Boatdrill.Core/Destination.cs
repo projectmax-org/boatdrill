@@ -15,6 +15,9 @@ public enum DestinationKind
 
     /// <summary>An rclone remote (Google Drive, OneDrive, S3, B2 and rclone's other back ends), read through rclone itself.</summary>
     Rclone,
+
+    /// <summary>Zip or 7z archives in a folder, the newest that holds a folder's files read as its backup; or one archive.</summary>
+    Archive,
 }
 
 /// <summary>How a mirror destination lays out the copies of one source.</summary>
@@ -78,6 +81,17 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
         };
     }
 
+    /// <param name="location">A folder of zip or 7z archives, or one archive.</param>
+    /// <param name="toolPath">7-Zip's 7z, for 7z archives, when it is neither on the PATH nor in Program Files.</param>
+    public static Destination Archive(string location, string? name = null, string? toolPath = null)
+    {
+        var full = Path.GetFullPath(location);
+        return new Destination(IdFor(DestinationKind.Archive, full), name ?? DefaultName(DestinationKind.Archive, full), DestinationKind.Archive, full)
+        {
+            ToolPath = toolPath,
+        };
+    }
+
     /// <summary>The same id for the same place on every run, so history lines up.</summary>
     public static string IdFor(DestinationKind kind, string location)
     {
@@ -86,6 +100,7 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
         {
             DestinationKind.Restic when IsRepositoryUrl(normalised) => Source.IdForText("restic:" + normalised),
             DestinationKind.Rclone => Source.IdForText("rclone:" + normalised),
+            DestinationKind.Archive => Source.IdForText("archive:" + normalised),
             _ => Source.IdForPath(normalised),
         };
     }
@@ -118,6 +133,22 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
 
     /// <summary>rest:https://max:secret@nas:8000/ becomes rest:https://max:***@nas:8000/.</summary>
     public static string Redact(string location) => UrlPassword().Replace(location, "***");
+
+    /// <summary>Where a backup is, in words: "File History on F:\", "restic repository at …", "Archives in …".</summary>
+    public static string Describe(DestinationKind kind, string location) => kind switch
+    {
+        DestinationKind.FileHistory => "File History on " + location,
+        DestinationKind.Restic => "restic repository at " + Redact(location),
+        DestinationKind.Rclone => "rclone remote at " + location,
+        DestinationKind.Archive when IsArchiveFile(location) => location,
+        DestinationKind.Archive => "Archives in " + location,
+        _ => location,
+    };
+
+    /// <summary>A zip or 7z archive, by its name.</summary>
+    public static bool IsArchiveFile(string path) =>
+        Path.GetExtension(path) is var extension &&
+        (extension.Equals(".zip", StringComparison.OrdinalIgnoreCase) || extension.Equals(".7z", StringComparison.OrdinalIgnoreCase));
 
     [GeneratedRegex(@"(?<=://[^/@:\s]+:)[^/@\s]+(?=@)")]
     private static partial Regex UrlPassword();

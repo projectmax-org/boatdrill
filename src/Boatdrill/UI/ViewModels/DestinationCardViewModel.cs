@@ -46,7 +46,7 @@ public sealed class DestinationCardViewModel : ViewModelBase
     {
         Id = id;
         ToggleFindingsCommand = new RelayCommand(() => ShowFindings = !ShowFindings);
-        OpenFolderCommand = new RelayCommand(() => Shell.OpenFolder(_location));
+        OpenFolderCommand = new RelayCommand(() => Shell.OpenFolder(_location, selectFile: Kind == DestinationKind.Archive));
     }
 
     public string Id { get; }
@@ -195,17 +195,12 @@ public sealed class DestinationCardViewModel : ViewModelBase
         Name = destination.Name;
         Kind = destination.Kind;
         _location = destination.Folder;
-        Folder = destination.Kind switch
-        {
-            DestinationKind.FileHistory => "File History on " + destination.Folder,
-            DestinationKind.Restic => "restic repository at " + Destination.Redact(destination.Folder),
-            DestinationKind.Rclone => "rclone remote at " + destination.Folder,
-            _ => destination.Folder,
-        };
+        Folder = Destination.Describe(destination.Kind, destination.Folder);
         CanOpenFolder = destination.Kind switch
         {
             DestinationKind.Restic => !Destination.IsRepositoryUrl(destination.Folder),
             DestinationKind.Rclone => Directory.Exists(destination.Folder),
+            DestinationKind.Archive => File.Exists(destination.Folder) || Directory.Exists(destination.Folder),
             _ => true,
         };
         Result = result;

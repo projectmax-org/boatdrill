@@ -53,6 +53,7 @@ internal static class SampleData
         }
 
         File.WriteAllText(Path.Combine(directory, "only-here.json"), JsonSerializer.Serialize(Scan(now.AddDays(-1)), BoatdrillJson.Options));
+        File.WriteAllText(Path.Combine(directory, "rehearsal.json"), JsonSerializer.Serialize(Rehearsal(now.AddDays(-3)), BoatdrillJson.Options));
     }
 
     /// <summary>The password as the app would keep it; plain where DPAPI is missing, which the app also accepts.</summary>
@@ -252,6 +253,42 @@ internal static class SampleData
         };
 
         return report with { Sentence = OnlyHereScanner.Sentence(report) };
+    }
+
+    /// <summary>Three days ago, all of Pictures restored from the drive: three files did not come back as they are now.</summary>
+    private static RehearsalResult Rehearsal(DateTimeOffset at)
+    {
+        const long GB = 1024L * 1024 * 1024;
+        var shot = new DateTimeOffset(2026, 10, 24, 18, 12, 0, TimeSpan.Zero);
+        var result = new RehearsalResult
+        {
+            SourceId = "pictures",
+            SourceName = "Pictures",
+            SourceRoot = @"C:\Users\you\Pictures",
+            DestinationId = "drive",
+            DestinationName = "Backup drive (E:)",
+            RootPath = @"E:\Backup",
+            StartedUtc = at.AddMinutes(-47),
+            FinishedUtc = at,
+            Reachable = true,
+            ProbeDetail = @"E:\Backup is reachable",
+            Files = 23_880,
+            Bytes = 171 * GB,
+            Verified = 23_877,
+            Missing = 2,
+            Outdated = 1,
+            BytesRestored = 171 * GB - 9 * 1024 * 1024,
+            RestoreTime = TimeSpan.FromMinutes(41),
+            Findings =
+            [
+                new FileFinding(@"2026\10\IMG_20261024_181205.jpg", FileOutcome.Missing, 4_212_331, shot, null, null, @"expected at E:\Backup\Pictures\2026\10\IMG_20261024_181205.jpg"),
+                new FileFinding(@"2026\10\IMG_20261024_181247.jpg", FileOutcome.Missing, 4_390_118, shot.AddSeconds(42), null, null, @"expected at E:\Backup\Pictures\2026\10\IMG_20261024_181247.jpg"),
+                Outdated(@"Screenshots\Screenshot 2026-10-26 101422.png", shot.AddDays(2), 1),
+            ],
+            Sentence = string.Empty,
+        };
+
+        return result with { Sentence = RehearsalRunner.Sentence(result) };
     }
 
     private static FileFinding Outdated(string path, DateTimeOffset written, int daysBehind) =>

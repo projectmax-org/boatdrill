@@ -301,7 +301,8 @@ public sealed class DrillRunner
         return history is null ? now : 0.7 * Math.Clamp(history.Value, 0, 1) + 0.3 * now;
     }
 
-    private static async Task<(FileFinding Finding, long BytesRead, TimeSpan ReadTime, CopyLookup? Copy, string? CopyHash)> VerifyFileAsync(
+    /// <summary>Finds one file's copy, reads it back and compares it with the original: the check every drill and rehearsal makes.</summary>
+    internal static async Task<(FileFinding Finding, long BytesRead, TimeSpan ReadTime, CopyLookup? Copy, string? CopyHash)> VerifyFileAsync(
         IDestinationAdapter adapter, SourceBinding binding, SampledFile file, string scratch, CancellationToken ct)
     {
         var copy = await adapter.LocateAsync(binding, file.RelativePath, ct).ConfigureAwait(false);

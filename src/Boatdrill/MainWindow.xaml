@@ -109,6 +109,14 @@
                         </RadioButton>
 
                         <RadioButton Style="{StaticResource Nav.Item}" GroupName="Nav"
+                                     IsChecked="{Binding IsRehearsal, Mode=TwoWay}"
+                                     Content="Full restore">
+                            <RadioButton.Tag>
+                                <Path Style="{StaticResource Icon}" Data="{DynamicResource Icon.Restore}" />
+                            </RadioButton.Tag>
+                        </RadioButton>
+
+                        <RadioButton Style="{StaticResource Nav.Item}" GroupName="Nav"
                                      IsChecked="{Binding IsHistory, Mode=TwoWay}"
                                      Content="History">
                             <RadioButton.Tag>
@@ -174,6 +182,8 @@
                                      Visibility="{Binding DataContext.IsDashboard, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
                 <views:OnlyHereView DataContext="{Binding OnlyHere}"
                                     Visibility="{Binding DataContext.IsOnlyHere, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
+                <views:RehearsalView DataContext="{Binding Rehearsal}"
+                                     Visibility="{Binding DataContext.IsRehearsal, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
                 <views:HistoryView DataContext="{Binding History}"
                                    Visibility="{Binding DataContext.IsHistory, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
                 <views:SettingsView DataContext="{Binding Settings}"

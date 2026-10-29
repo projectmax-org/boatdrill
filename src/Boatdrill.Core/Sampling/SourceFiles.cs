@@ -15,13 +15,15 @@ internal static class SourceFiles
         AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint,
     };
 
-    public static IEnumerable<SampledFile> Enumerate(Source source)
+    /// <param name="below">A folder inside the source, by its path below the root, to go through alone; paths stay relative to the root.</param>
+    public static IEnumerable<SampledFile> Enumerate(Source source, string? below = null)
     {
         var root = Path.GetFullPath(source.RootPath);
-        if (!Directory.Exists(root)) yield break;
+        var start = string.IsNullOrEmpty(below) ? root : Path.GetFullPath(Path.Combine(root, below));
+        if (!Directory.Exists(start)) yield break;
 
         var filter = new PathFilter(source.Excludes);
-        foreach (var info in new DirectoryInfo(root).EnumerateFiles("*", Options))
+        foreach (var info in new DirectoryInfo(start).EnumerateFiles("*", Options))
         {
             var relative = Path.GetRelativePath(root, info.FullName);
             if (filter.Excludes(relative)) continue;

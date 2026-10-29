@@ -80,6 +80,12 @@ public interface IDestinationAdapter
     Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
         IReadOnlyCollection<string> alsoRead, CancellationToken ct);
 
+    /// <summary>
+    /// Fetches these files, by path below the source root, ahead of reading them: a full-restore rehearsal
+    /// goes through a folder a batch at a time. Only an adapter that restores in batches (restic) needs it.
+    /// </summary>
+    Task PrefetchAsync(SourceBinding binding, IReadOnlyCollection<string> relativePaths, CancellationToken ct) => Task.CompletedTask;
+
     /// <summary>Finds the copy of one file, by its path below the source root, without reading it.</summary>
     Task<CopyLookup> LocateAsync(SourceBinding binding, string relativePath, CancellationToken ct);
 

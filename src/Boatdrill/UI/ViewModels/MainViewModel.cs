@@ -12,6 +12,7 @@ public enum AppSection
 {
     Dashboard,
     OnlyHere,
+    Rehearsal,
     History,
     Settings,
 }
@@ -44,12 +45,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _dispatcher = Dispatcher.CurrentDispatcher;
 
         RunDrillCommand = new RelayCommand(() => _ = _services.Drills.RunAsync(DrillTrigger.Manual),
-            () => !_services.Drills.IsRunning && _services.Settings.Settings.IsReadyToDrill);
+            () => !_services.Drills.IsRunning && !_services.Rehearsals.IsRunning && _services.Settings.Settings.IsReadyToDrill);
         StopDrillCommand = new RelayCommand(() => _services.Drills.Cancel(), () => _services.Drills.IsRunning);
         ShowSettingsCommand = new RelayCommand(() => Section = AppSection.Settings);
 
         Dashboard = new DashboardViewModel(services, this);
         OnlyHere = new OnlyHereViewModel(services);
+        Rehearsal = new RehearsalViewModel(services);
         History = new HistoryViewModel(services);
         Settings = new SettingsViewModel(services);
 
@@ -60,6 +62,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _services.Drills.StateChanged += OnBackgroundChange;
         _services.Drills.Completed += OnDrillCompleted;
         _services.Scheduler.ScheduleChanged += OnBackgroundChange;
+        _services.Rehearsals.StateChanged += OnBackgroundChange;
         _services.Settings.Changed += OnSettingsChanged;
 
         Refresh();
@@ -68,6 +71,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public DashboardViewModel Dashboard { get; }
 
     public OnlyHereViewModel OnlyHere { get; }
+
+    public RehearsalViewModel Rehearsal { get; }
 
     public HistoryViewModel History { get; }
 
@@ -85,7 +90,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (!Set(ref _section, value)) return;
-            Raise(nameof(IsDashboard), nameof(IsOnlyHere), nameof(IsHistory), nameof(IsSettings), nameof(SectionTitle));
+            Raise(nameof(IsDashboard), nameof(IsOnlyHere), nameof(IsRehearsal), nameof(IsHistory), nameof(IsSettings), nameof(SectionTitle));
             if (value == AppSection.History) _ = History.ReloadAsync();
         }
     }
@@ -100,6 +105,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         get => Section == AppSection.OnlyHere;
         set { if (value) Section = AppSection.OnlyHere; }
+    }
+
+    public bool IsRehearsal
+    {
+        get => Section == AppSection.Rehearsal;
+        set { if (value) Section = AppSection.Rehearsal; }
     }
 
     public bool IsHistory
@@ -118,6 +129,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         AppSection.Dashboard => "Your backups",
         AppSection.OnlyHere => "Only on this PC",
+        AppSection.Rehearsal => "Full restore",
         AppSection.History => "Drill history",
         _ => "Settings",
     };
@@ -226,6 +238,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         TrayTooltip = DescribeForTray(latest);
         Dashboard.Refresh();
         OnlyHere.Refresh();
+        Rehearsal.Refresh();
         RunDrillCommand.RaiseCanExecuteChanged();
         StopDrillCommand.RaiseCanExecuteChanged();
     }
@@ -301,8 +314,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _services.Drills.StateChanged -= OnBackgroundChange;
         _services.Drills.Completed -= OnDrillCompleted;
         _services.Scheduler.ScheduleChanged -= OnBackgroundChange;
+        _services.Rehearsals.StateChanged -= OnBackgroundChange;
         _services.Settings.Changed -= OnSettingsChanged;
         OnlyHere.Dispose();
+        Rehearsal.Dispose();
         Settings.Dispose();
     }
 }

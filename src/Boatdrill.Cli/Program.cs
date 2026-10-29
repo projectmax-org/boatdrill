@@ -16,6 +16,7 @@ public static class Program
     private const string Usage = """
         boatdrill-cli drill     --source <folder> [--source <folder> ...] <destinations> [options]
         boatdrill-cli only-here --source <folder> [--source <folder> ...] <destinations> [--json]
+        boatdrill-cli rehearse  --source <folder> [--folder <path>] <one destination> [--batch-mb <MB>] [--json]
         boatdrill-cli report    --history <file> [--html <file>]
 
         Destinations, as many as needed:
@@ -40,11 +41,16 @@ public static class Program
         only-here looks every file in the sources up in every destination, by name and date, and lists the
         ones no backup holds a current copy of.
 
+        rehearse restores every file of one source, or of --folder inside it, from one destination into the
+        scratch folder, a batch at a time (--batch-mb, 1024), checks each against the original and says how long
+        it took: a full restore, rehearsed. It reads everything, so it can take a while.
+
         report turns the latest drill in a history file into a one-page HTML report, with each backup's trend
         over the drills before it (boatdrill-report.html unless --html names the file).
 
         Exit codes: drill 0 when every destination would restore (fully or mostly), 1 otherwise; only-here 0
-        when every file has a current copy, 1 otherwise; report 0 when it wrote the report; 2 for bad arguments.
+        when every file has a current copy, 1 otherwise; rehearse 0 when every file came back intact, 1 otherwise;
+        report 0 when it wrote the report; 2 for bad arguments.
         """;
 
     public static async Task<int> Main(string[] args)
@@ -61,7 +67,7 @@ public static class Program
             return 0;
         }
 
-        if (args[0] is not ("drill" or "only-here" or "report"))
+        if (args[0] is not ("drill" or "only-here" or "rehearse" or "report"))
         {
             Console.Error.WriteLine($"Unknown command '{args[0]}'.\n\n{Usage}");
             return 2;
@@ -82,6 +88,7 @@ public static class Program
         {
             "drill" => await DrillAsync(options),
             "only-here" => await OnlyHereAsync(options),
+            "rehearse" => await RehearseAsync(options),
             _ => await ReportAsync(options),
         };
     }
@@ -101,7 +108,9 @@ public static class Program
         };
 
         var runner = new DrillRunner(reachabilityHistory: id => store?.Reachability(id), ledger: ledger);
-        var report = await runner.RunAsync(plan, options.Json ? null : new ConsoleProgress());
+        var report = await runner.RunAsync(plan, options.Json ? null : new ConsoleProgress<DrillProgress>(p => p.FilesTotal > 0
+            ? $"{p.Stage}: {p.FilesDone}/{p.FilesTotal} files, {Humanize.Bytes(p.BytesRead)}"
+            : $"{p.Stage}..."));
         if (!options.Json) Console.Error.WriteLine();
         if (store is not null) await store.AppendAsync(report);
         if (ledgerStore is not null && ledger is not null) await ledgerStore.SaveAsync(ledger);
@@ -125,8 +134,8 @@ public static class Program
 
     private static async Task<int> OnlyHereAsync(Options options)
     {
-        var progress = options.Json ? null : new Progress<ScanProgress>(p =>
-            Console.Error.Write("\r" + (p.FilesChecked > 0 ? $"{p.Stage}: {p.FilesChecked:N0} files, {p.OnlyHereFiles:N0} only here" : p.Stage + "...").PadRight(78)));
+        var progress = options.Json ? null : new ConsoleProgress<ScanProgress>(p =>
+            p.FilesChecked > 0 ? $"{p.Stage}: {p.FilesChecked:N0} files, {p.OnlyHereFiles:N0} only here" : p.Stage + "...");
         var report = await new OnlyHereScanner().ScanAsync(options.Sources, options.Destinations, options.Scratch, progress);
         if (!options.Json) Console.Error.WriteLine();
 
@@ -140,6 +149,43 @@ public static class Program
         }
 
         return report.Checked.Count > 0 && report.OnlyHereFiles == 0 ? 0 : 1;
+    }
+
+    private static async Task<int> RehearseAsync(Options options)
+    {
+        var plan = new RehearsalPlan(options.Sources[0], options.Destinations[0], options.Scratch)
+        {
+            Folder = options.Folder ?? string.Empty,
+            BatchBytes = options.BatchMb * 1024 * 1024,
+        };
+        var progress = options.Json ? null : new ConsoleProgress<RehearsalProgress>(p => p.FilesTotal > 0
+            ? $"{p.Stage}: {p.FilesDone:N0}/{p.FilesTotal:N0} files, {Humanize.Bytes(p.BytesDone)} of {Humanize.Bytes(p.BytesTotal)}"
+            : p.Stage + "...");
+        var result = await new RehearsalRunner().RunAsync(plan, progress);
+        if (!options.Json) Console.Error.WriteLine();
+
+        if (options.Json)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(result, BoatdrillJson.Indented));
+        }
+        else
+        {
+            Console.WriteLine(result.Sentence);
+            if (result.Files > 0 && result.Reachable && result.Refusal is null)
+            {
+                Console.WriteLine($"  {result.Files:N0} files, {Humanize.Bytes(result.Bytes)}: {result.Verified:N0} intact, {result.Missing:N0} missing, " +
+                                  $"{result.Outdated:N0} behind, {result.Corrupt:N0} corrupt, {result.Placeholder:N0} cloud only, {result.Errors:N0} unreadable");
+            }
+
+            foreach (var f in result.Findings.Take(20))
+            {
+                Console.WriteLine($"  {f.Outcome,-11} {f.RelativePath}" + (f.Detail is null ? string.Empty : $"  ({f.Detail})"));
+            }
+
+            if (result.Findings.Count > 20) Console.WriteLine($"  ... and more; use --json for up to {RehearsalRunner.MaxFindings}");
+        }
+
+        return result.AllIntact ? 0 : 1;
     }
 
     private static async Task<int> ReportAsync(Options options)
@@ -261,7 +307,9 @@ public static class Program
         string? Ledger,
         bool Canaries,
         bool Json,
-        string? Html)
+        string? Html,
+        string? Folder,
+        long BatchMb)
     {
         public static Options Parse(string[] args)
         {
@@ -271,7 +319,8 @@ public static class Program
             long capMb = 512;
             int? seed = null;
             var churnHours = 2.0;
-            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, html = null;
+            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, html = null, folder = null;
+            long batchMb = RehearsalRunner.DefaultBatchBytes / 1024 / 1024;
             bool canaries = false, json = false;
 
             for (var i = 1; i < args.Length; i++)
@@ -295,6 +344,8 @@ public static class Program
                     case "--canaries": canaries = true; break;
                     case "--json": json = true; break;
                     case "--html": html = Next(); break;
+                    case "--folder": folder = Next(); break;
+                    case "--batch-mb": batchMb = long.Parse(Next(), CultureInfo.InvariantCulture); break;
                     default: throw new ArgumentException($"Unknown option '{args[i]}'.\n\n{Usage}");
                 }
             }
@@ -306,6 +357,10 @@ public static class Program
             else if (sources.Count == 0 || destinations.Count == 0)
             {
                 throw new ArgumentException("At least one --source and one destination are needed.\n\n" + Usage);
+            }
+            else if (args[0] == "rehearse" && (sources.Count != 1 || destinations.Count != 1 || batchMb <= 0))
+            {
+                throw new ArgumentException("rehearse takes one --source, one destination and a positive --batch-mb.\n\n" + Usage);
             }
 
             // The password never goes on the command line, where other programs can read it.
@@ -333,19 +388,15 @@ public static class Program
                 ledger,
                 canaries,
                 json,
-                html);
+                html,
+                folder,
+                batchMb);
         }
     }
 
     /// <summary>Writes progress on the error stream, in place, so the report on stdout stays clean for pipes.</summary>
-    private sealed class ConsoleProgress : IProgress<DrillProgress>
+    private sealed class ConsoleProgress<T>(Func<T, string> line) : IProgress<T>
     {
-        public void Report(DrillProgress p)
-        {
-            var line = p.FilesTotal > 0
-                ? $"{p.Stage}: {p.FilesDone}/{p.FilesTotal} files, {Humanize.Bytes(p.BytesRead)}"
-                : $"{p.Stage}...";
-            Console.Error.Write("\r" + line.PadRight(78));
-        }
+        public void Report(T value) => Console.Error.Write("\r" + line(value).PadRight(78));
     }
 }

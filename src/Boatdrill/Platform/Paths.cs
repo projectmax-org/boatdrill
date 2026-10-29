@@ -27,6 +27,9 @@ public static class Paths
     /// <summary>The last "only on this PC" scan, so the page has something to show after a restart.</summary>
     public static string OnlyHereFile => Path.Combine(DataDirectory, "only-here.json");
 
+    /// <summary>The last full-restore rehearsal, for the same reason.</summary>
+    public static string RehearsalFile => Path.Combine(DataDirectory, "rehearsal.json");
+
     /// <summary>Where sampled copies are read back to during a drill. Emptied again when the drill ends.</summary>
     public static string ScratchDirectory => EnsureDirectory(Path.Combine(DataDirectory, "scratch"));
 

@@ -97,6 +97,10 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         };
     }
 
+    /// <summary>Restores the next batch of a rehearsal into the stage folder, as binding does for a drill's sample.</summary>
+    public Task PrefetchAsync(SourceBinding binding, IReadOnlyCollection<string> relativePaths, CancellationToken ct) =>
+        binding.State is State { Snapshot: not null } state ? RestoreAsync(binding.Destination, relativePaths, state, ct) : Task.CompletedTask;
+
     public Task<CopyLookup> LocateAsync(SourceBinding binding, string relativePath, CancellationToken ct)
     {
         var state = (State)binding.State!;

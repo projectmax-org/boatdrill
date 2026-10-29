@@ -33,6 +33,15 @@ public static class Verdicts
         if (r.Corrupt > 0) facts.Add($"{r.Corrupt:N0} differ{(r.Corrupt == 1 ? "s" : "")} from the original without being older, which points to corruption");
         if (r.Placeholder > 0) facts.Add($"{r.Placeholder:N0} exist{(r.Placeholder == 1 ? "s" : "")} only in the cloud, not on this disk");
         if (r.Errors > 0) facts.Add($"{r.Errors:N0} could not be read");
+        if (r.Rotted > 0)
+        {
+            facts.Add($"{r.Rotted:N0} of {r.Rechecked:N0} {(r.Rechecked == 1 ? "copy" : "copies")} verified in earlier drills " +
+                      $"{(r.Rotted == 1 ? "has" : "have")} changed since without {(r.Rotted == 1 ? "its" : "their")} size or date changing, which points to bit rot");
+        }
+        else if (r.Rechecked > 0)
+        {
+            facts.Add($"{r.Rechecked:N0} {(r.Rechecked == 1 ? "copy" : "copies")} verified in earlier drills {(r.Rechecked == 1 ? "is" : "are")} unchanged");
+        }
 
         var text = new StringBuilder(lead).Append(' ').Append(Join(facts)).Append('.');
 

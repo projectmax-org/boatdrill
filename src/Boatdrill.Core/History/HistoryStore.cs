@@ -4,8 +4,8 @@ using Boatdrill.Core.Drill;
 namespace Boatdrill.Core.History;
 
 /// <summary>
-/// Append-only drill history, one JSON report per line. Trends, reachability and (from v0.2) the hash
-/// ledger are read from it. A half-written last line, left by a crash or a power cut, is skipped, not
+/// Append-only drill history, one JSON report per line. Trends and reachability are read from it; the
+/// hash ledger, which changes in place, has a file of its own (<see cref="LedgerStore"/>). A half-written last line, left by a crash or a power cut, is skipped, not
 /// fatal. Past a few megabytes the oldest drills are dropped, keeping the most recent ones.
 /// </summary>
 public sealed class HistoryStore(string filePath)

@@ -11,7 +11,9 @@ public sealed record ScoreInputs(
     long Population,
     TimeSpan? Lag,
     bool Reachable,
-    double Reachability)
+    double Reachability,
+    int Rechecked = 0,
+    int Rotted = 0)
 {
     /// <summary>Files that have a copy on the destination's disk, whatever its state.</summary>
     public int Found => Verified + Outdated + Corrupt;
@@ -32,7 +34,7 @@ public static class Scorer
     /// <summary>A backup this far behind scores zero for freshness.</summary>
     public static readonly TimeSpan FreshnessHorizon = TimeSpan.FromDays(30);
 
-    /// <summary>Any corruption caps the total below "would restore".</summary>
+    /// <summary>Any corruption, or any rot found by a re-check, caps the total below "would restore".</summary>
     public const int CorruptionCap = 69;
 
     public const int WouldRestoreFrom = 95;
@@ -53,12 +55,14 @@ public static class Scorer
 
         var coverage = (double)i.Found / i.Sampled;
         var freshness = i.Lag is null ? 1.0 : Math.Clamp(1.0 - i.Lag.Value.TotalDays / FreshnessHorizon.TotalDays, 0, 1);
-        var integrity = i.Found == 0 ? 0.0 : (double)(i.Found - i.Corrupt) / i.Found;
+        // Copies read again from the hash ledger count towards integrity alongside this drill's sample.
+        var checkedCopies = i.Found + i.Rechecked;
+        var integrity = checkedCopies == 0 ? 0.0 : (double)(checkedCopies - i.Corrupt - i.Rotted) / checkedCopies;
         var reachability = Math.Clamp(i.Reachability, 0, 1);
 
         var rest = BaseWeight + FreshnessWeight * freshness + IntegrityWeight * integrity + ReachabilityWeight * reachability;
         var total = (int)Math.Round(100 * coverage * rest);
-        if (i.Corrupt > 0) total = Math.Min(total, CorruptionCap);
+        if (i.Corrupt + i.Rotted > 0) total = Math.Min(total, CorruptionCap);
 
         var verdict = total switch
         {

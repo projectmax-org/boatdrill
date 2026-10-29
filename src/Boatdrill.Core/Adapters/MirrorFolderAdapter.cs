@@ -33,7 +33,8 @@ public sealed class MirrorFolderAdapter : IDestinationAdapter
         return new DestinationProbe(true, $"{root} is reachable", free);
     }
 
-    public Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose, CancellationToken ct)
+    public Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
+        IReadOnlyCollection<string> alsoRead, CancellationToken ct)
     {
         var candidates = Candidates(destination, sample.Source).ToList();
         if (destination.Layout != MirrorLayout.Auto)

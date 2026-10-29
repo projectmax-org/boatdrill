@@ -25,7 +25,8 @@ public sealed partial class FileHistoryAdapter : IDestinationAdapter
         return Task.FromResult(probe);
     }
 
-    public Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose, CancellationToken ct)
+    public Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
+        IReadOnlyCollection<string> alsoRead, CancellationToken ct)
     {
         var sourceRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sample.Source.RootPath));
         var below = Path.Combine(MirrorFolderAdapter.VolumeFolder(sourceRoot), MirrorFolderAdapter.PathBelowVolume(sourceRoot));

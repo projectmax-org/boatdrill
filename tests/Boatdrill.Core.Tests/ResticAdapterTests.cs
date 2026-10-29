@@ -1,5 +1,6 @@
 using Boatdrill.Core.Adapters;
 using Boatdrill.Core.Drill;
+using Boatdrill.Core.History;
 using Boatdrill.Core.Sampling;
 using Boatdrill.Core.Scoring;
 using Boatdrill.Core.Verification;
@@ -12,12 +13,13 @@ public sealed class ResticAdapterTests
 
     internal static readonly DateTimeOffset LastWeek = DateTimeOffset.UtcNow.AddDays(-7);
 
-    internal static async Task<DestinationResult> DrillOnce(string sourceRoot, Destination destination)
+    internal static async Task<DestinationResult> DrillOnce(string sourceRoot, Destination destination, HashLedger? ledger = null, TimeProvider? clock = null,
+        params string[] excludes)
     {
         using var scratch = new TempTree();
-        var report = await new DrillRunner().RunAsync(new DrillPlan
+        var report = await new DrillRunner(clock: clock, ledger: ledger).RunAsync(new DrillPlan
         {
-            Sources = [Source.FromPath(sourceRoot, "Docs")],
+            Sources = [Source.FromPath(sourceRoot, "Docs") with { Excludes = excludes }],
             Destinations = [destination],
             ScratchDirectory = scratch.Root,
             Sampling = Everything,
@@ -126,6 +128,31 @@ public sealed class ResticAdapterTests
         Assert.Equal(4, result.Missing);
         Assert.Equal(Verdict.WouldNotRestore, result.Score.Verdict);
         Assert.Contains($"Docs: no snapshot in the repository holds {source.Root}.", result.Sentence);
+    }
+
+    [ResticFact]
+    public async Task CopiesVerifiedBefore_AreRestoredAgain_AndANewVersionIsNotRot()
+    {
+        using var source = new TempTree();
+        using var repository = new ResticRepository();
+        WriteDocuments(source, 6, LastWeek);
+        repository.Backup(source.Root);
+        var clock = new TestClock(DateTimeOffset.UtcNow);
+        var ledger = new HashLedger();
+        Assert.Equal(6, (await DrillOnce(source.Root, repository.Destination(), ledger, clock)).Verified);
+
+        // The same size and date, other bytes, backed up again: restic stored a new version, which is not decay.
+        source.Write("docs/2.txt", "DOCUMENT 2", LastWeek);
+        repository.Backup(source.Root, "--force");
+        clock.Now = clock.Now.AddDays(2);
+        var second = await DrillOnce(source.Root, repository.Destination(), ledger, clock, "1.txt", "2.txt");
+
+        Assert.Equal(4, second.Verified);
+        Assert.Equal(1, second.Rechecked);
+        Assert.Equal(0, second.Rotted);
+        Assert.Empty(second.Findings);
+        Assert.DoesNotContain(ledger.Entries, e => e.RelativePath.EndsWith("2.txt", StringComparison.Ordinal));
+        Assert.Contains(ledger.Entries, e => e.RelativePath.EndsWith("1.txt", StringComparison.Ordinal) && e.VerifiedUtc == clock.Now);
     }
 
     [ResticFact]

@@ -24,6 +24,14 @@ public sealed record CopyLookup(CopyState State, string? Path, long Length, Date
     /// <summary>Time already spent fetching this copy (a repository restores in batches), counted as part of reading it.</summary>
     public TimeSpan FetchTime { get; init; }
 
+    /// <summary>
+    /// A name for the copy that stays the same while the backup keeps the same copy, for the hash ledger.
+    /// Defaults to <see cref="Path"/>; an adapter whose path is a scratch file says what the copy really is.
+    /// </summary>
+    public string? Identity { get; init; }
+
+    public string? StableIdentity => Identity ?? Path;
+
     public static CopyLookup Missing(string? path, string? detail = null) => new(CopyState.Missing, path, 0, null, detail);
 
     public static CopyLookup Failed(string? path, string detail) => new(CopyState.Error, path, 0, null, detail);
@@ -59,10 +67,18 @@ public interface IDestinationAdapter
     Task<DestinationProbe> ProbeAsync(Destination destination, CancellationToken ct);
 
     /// <summary>
-    /// Works out where this source's copies live in the destination. For <see cref="BindPurpose.Read"/> the
-    /// adapter may also fetch the sampled files ahead of time into <paramref name="scratchDirectory"/>.
+    /// The tool behind the destination checks every byte it reads against its own record (restic does), so a
+    /// copy that reads back without complaint is as it was stored, and a different hash means a new version.
     /// </summary>
-    Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose, CancellationToken ct);
+    bool ChecksItsOwnBytes => false;
+
+    /// <summary>
+    /// Works out where this source's copies live in the destination. For <see cref="BindPurpose.Read"/> the
+    /// adapter may also fetch the sampled files ahead of time into <paramref name="scratchDirectory"/>, together
+    /// with <paramref name="alsoRead"/>: other files below the source root the drill will read back.
+    /// </summary>
+    Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
+        IReadOnlyCollection<string> alsoRead, CancellationToken ct);
 
     /// <summary>Finds the copy of one file, by its path below the source root, without reading it.</summary>
     Task<CopyLookup> LocateAsync(SourceBinding binding, string relativePath, CancellationToken ct);

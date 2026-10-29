@@ -42,6 +42,12 @@ public sealed record DestinationResult
 
     public int Placeholder { get; init; }
 
+    /// <summary>Copies verified in earlier drills that were read again in this one, from the hash ledger.</summary>
+    public int Rechecked { get; init; }
+
+    /// <summary>Of those, how many hold other bytes under the same name, size and date.</summary>
+    public int Rotted { get; init; }
+
     public int Errors { get; init; }
 
     /// <summary>Files in all sources together, sampled or not.</summary>

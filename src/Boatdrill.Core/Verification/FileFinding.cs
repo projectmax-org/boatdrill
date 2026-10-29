@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Boatdrill.Core.Verification;
 
 public enum FileOutcome
@@ -19,6 +21,12 @@ public enum FileOutcome
 
     /// <summary>The copy or the original could not be read.</summary>
     Error,
+
+    /// <summary>
+    /// A copy verified in an earlier drill now holds other bytes, though its name, size and date are the same:
+    /// bit rot, or something that wrote to the backup behind the backup tool's back.
+    /// </summary>
+    Rotted,
 }
 
 /// <summary>What a drill found out about one sampled file at one destination.</summary>
@@ -29,4 +37,9 @@ public sealed record FileFinding(
     DateTimeOffset SourceWriteUtc,
     long? CopyLength,
     DateTimeOffset? CopyWriteUtc,
-    string? Detail);
+    string? Detail)
+{
+    /// <summary>Found by reading again a copy verified in an earlier drill, not by this drill's sample.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Recheck { get; init; }
+}

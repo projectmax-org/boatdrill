@@ -40,6 +40,9 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
     public DestinationKind Kind => DestinationKind.Restic;
 
+    /// <summary>restic authenticates every piece of a file as it restores it; damage shows as an error, not as other bytes.</summary>
+    public bool ChecksItsOwnBytes => true;
+
     public async Task<DestinationProbe> ProbeAsync(Destination destination, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(destination.Secret)) return new DestinationProbe(false, "no password is saved for it", null);
@@ -51,7 +54,8 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         return new DestinationProbe(true, $"{destination.DisplayLocation} holds {count:N0} {(count == 1 ? "snapshot" : "snapshots")}", null);
     }
 
-    public async Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose, CancellationToken ct)
+    public async Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
+        IReadOnlyCollection<string> alsoRead, CancellationToken ct)
     {
         var sourceRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sample.Source.RootPath));
         var treeRoot = TreePath(sourceRoot);
@@ -80,7 +84,10 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         if (listing.ExitCode != 0) return Unbound(Explain(destination, listing));
 
         var state = new State(snapshot, index, Path.Combine(scratchDirectory, $"restic-{destination.Id}-{sample.Source.Id}"), sourceRoot);
-        if (purpose == BindPurpose.Read) await RestoreSampleAsync(destination, sample, state, ct).ConfigureAwait(false);
+        if (purpose == BindPurpose.Read)
+        {
+            await RestoreAsync(destination, [.. sample.Files.Select(f => f.RelativePath), .. alsoRead], state, ct).ConfigureAwait(false);
+        }
 
         var hits = probe.Count(f => index.ContainsKey(TreePath(Path.Combine(sourceRoot, f.RelativePath))));
         return new SourceBinding(destination, sample.Source, MirrorLayout.FullPath,
@@ -105,7 +112,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         var fetch = state.RestoredBytes > 0 && File.Exists(staged)
             ? TimeSpan.FromTicks((long)(state.RestoreTime.Ticks * ((double)node.Size / state.RestoredBytes)))
             : TimeSpan.Zero;
-        return Task.FromResult(new CopyLookup(CopyState.Found, staged, node.Size, node.ModifiedUtc, null) { FetchTime = fetch });
+        return Task.FromResult(new CopyLookup(CopyState.Found, staged, node.Size, node.ModifiedUtc, null) { FetchTime = fetch, Identity = node.Path });
     }
 
     public async Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct)
@@ -160,13 +167,14 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         return new ReadBack(true, new FileInfo(scratchPath).Length, timer.Elapsed, restored, null);
     }
 
-    /// <summary>Restores every sampled file that is in the snapshot into the stage folder, timing it.</summary>
-    private static async Task RestoreSampleAsync(Destination destination, Sample sample, State state, CancellationToken ct)
+    /// <summary>Restores the files that are in the snapshot into the stage folder, timing it.</summary>
+    private static async Task RestoreAsync(Destination destination, IEnumerable<string> relativePaths, State state, CancellationToken ct)
     {
-        var wanted = sample.Files
-            .Select(f => state.Index.GetValueOrDefault(TreePath(Path.Combine(state.SourceRoot, f.RelativePath))))
+        var wanted = relativePaths
+            .Select(p => state.Index.GetValueOrDefault(TreePath(Path.Combine(state.SourceRoot, p))))
             .OfType<Node>()
             .Where(n => n.Path.IndexOfAny(PatternCharacters) < 0)
+            .DistinctBy(n => n.Path, PathComparer)
             .ToList();
 
         var watch = Stopwatch.StartNew();

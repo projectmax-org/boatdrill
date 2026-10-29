@@ -194,7 +194,7 @@ public sealed class ResticAdapterTests
         Assert.Equal(6, summary.Files);
         Assert.Equal(1, summary.NoCopyFiles);
         Assert.Equal(1, summary.OlderFiles);
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root, "*", SearchOption.AllDirectories).Where(File.Exists));
+        Assert.DoesNotContain(Directory.EnumerateFileSystemEntries(scratch.Root, "*", SearchOption.AllDirectories), File.Exists);
     }
 
     [ResticFact]

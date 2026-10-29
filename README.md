@@ -163,7 +163,7 @@ or `BOATDRILL_7Z`); CI installs them on Linux and Windows. `Boatdrill.exe --capt
 view against sample results, writes a PNG of each in the light and the dark theme, in English and then in
 Korean (into `ko`), and fails on a XAML error or a binding to a missing property. CI runs it on every push
 and keeps the images as an artifact. On Linux, `tools/capture-under-wine.sh` does the same under Wine,
-with Liberation Sans and Nanum Barun Gothic standing in for Segoe UI and Malgun Gothic.
+with Liberation Sans and Nanum Gothic standing in for Segoe UI and Malgun Gothic.
 
 ## How it's put together
 

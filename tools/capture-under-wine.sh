@@ -2,7 +2,7 @@
 # Renders every view of the Windows app on Linux: publishes it for win-x64, runs `Boatdrill.exe --capture`
 # under Wine with a virtual display, and leaves the PNGs in artifacts/screens (the Korean ones in ko/). The
 # images are close to, not identical with, Windows: Segoe UI and Malgun Gothic are not free, so Liberation
-# Sans and Nanum Barun Gothic stand in for them.
+# Sans and Nanum Gothic stand in for them.
 #
 # Needs: the .NET 10 SDK, wine64 (or wine), xvfb-run, python3, and the Liberation and Nanum fonts.
 #   Ubuntu: sudo apt install wine64 xvfb python3-venv fonts-liberation fonts-nanum
@@ -55,18 +55,26 @@ PY
     "$(dirname "$wine")/wineserver" -w 2>/dev/null || wineserver -w 2>/dev/null || true
 fi
 
-# Hangul comes from Malgun Gothic on Windows; without a stand-in, the Korean images show empty boxes.
+# Hangul comes from Malgun Gothic on Windows; without a stand-in, the Korean images show empty boxes. The
+# stand-in keeps only Latin, punctuation and Hangul: Wine's font code crashed on a whole Korean font.
 nanum=/usr/share/fonts/truetype/nanum
 if [ ! -f "$fonts/malgun.ttf" ]; then
-    if [ -f "$nanum/NanumBarunGothic.ttf" ]; then
+    if [ -f "$nanum/NanumGothic.ttf" ]; then
         echo "Making a stand-in for Malgun Gothic..."
         [ -x "$cache/venv/bin/python" ] || { python3 -m venv "$cache/venv" && "$cache/venv/bin/pip" install -q fonttools; }
         "$cache/venv/bin/python" - "$fonts" "$nanum" <<'PY'
 import sys
+from fontTools import subset
 from fontTools.ttLib import TTFont
 fonts, nanum = sys.argv[1], sys.argv[2]
-for source, target, style in [("NanumBarunGothic", "malgun", "Regular"), ("NanumBarunGothicBold", "malgunbd", "Bold")]:
+keep = "U+0020-007E,U+00A0-00FF,U+2010-2027,U+2030-203A,U+20A9,U+2190-2193,U+3000-303F,U+3131-318E,U+AC00-D7A3,U+FF01-FF5E"
+for source, target, style in [("NanumGothic", "malgun", "Regular"), ("NanumGothicBold", "malgunbd", "Bold")]:
+    options = subset.Options()
+    options.layout_features = ["*"]
     font = TTFont(f"{nanum}/{source}.ttf")
+    shrink = subset.Subsetter(options)
+    shrink.populate(unicodes=subset.parse_unicodes(keep))
+    shrink.subset(font)
     full = "Malgun Gothic" if style == "Regular" else "Malgun Gothic Bold"
     for record in font["name"].names:
         record.string = {1: "Malgun Gothic", 16: "Malgun Gothic", 2: style, 17: style, 4: full, 6: full.replace(" ", ""), 3: "stand-in:" + full}.get(record.nameID, record.toUnicode())

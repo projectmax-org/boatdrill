@@ -335,7 +335,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
     public string DataFolder => Paths.DataDirectory;
 
-    public string Version => "Boatdrill " + (typeof(SettingsViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.1.0");
+    public string Version => "Boatdrill " + (typeof(SettingsViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.2.0");
 
     // ---------------- folders ----------------
 

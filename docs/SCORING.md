@@ -7,14 +7,14 @@ deliberately simple enough to explain in a sentence each.
 | --- | --- | --- | --- |
 | Coverage | multiplies everything | Is there a copy at all? | Files found (verified, outdated or corrupt) ÷ files sampled |
 | Freshness | 20 of the remaining 40 points | How far behind is the backup? | 1 − lag ÷ 30 days, floored at 0; 1 when nothing is behind |
-| Integrity | 10 points | Are the copies the right bytes? | (found − corrupt) ÷ found |
+| Integrity | 10 points | Are the copies the right bytes? | (found − corrupt + re-checked − rotted) ÷ (found + re-checked) |
 | Reachability | 10 points | Is the destination usually there? | 0.7 × share of the last 10 drills that reached it + 0.3 × this drill |
 
 **Total** = 100 × coverage × (0.60 + 0.20 freshness + 0.10 integrity + 0.10 reachability), rounded.
 Coverage comes first because a copy that does not exist cannot be fresh or intact: a backup holding every
 sampled file, up to date, scores 100; one holding 90% of them scores at most 90; one holding half scores
-at most 50. Two weeks behind costs 10 points, a month 20. Any corrupt file caps the total at 69, because a
-backup with corruption in it must never read as green.
+at most 50. Two weeks behind costs 10 points, a month 20. Any corrupt file, or any copy a re-check finds
+rotted, caps the total at 69, because a backup with corruption in it must never read as green.
 
 | Total | Verdict |
 | --- | --- |
@@ -36,6 +36,21 @@ to check".
 | Missing | No copy where the layout says it should be |
 | Placeholder | A cloud placeholder: the name is on the disk, the bytes are not. Never downloaded |
 | Error | The copy or the original could not be read |
+| Rotted | Found by a re-check, not the sample: a copy verified in an earlier drill now has other bytes under the same name, size and date |
+
+A copy a backup tool reports as damaged as it reads it (restic authenticates every piece it restores) counts
+as corrupt, not as unreadable.
+
+## Re-checks: the hash ledger
+
+Every copy that reads back correctly is remembered with its hash, its size and its write time, up to 5,000
+per destination. Each drill reads up to 25 of them again, within 64 MB, those verified longest ago first
+and none verified in the last 20 hours; the original is not needed, because the copy is compared with
+itself. The same bytes: the copy counts as re-checked. Other bytes under the same name, size and date: it
+has rotted, and it is read again every drill until the backup replaces it. A copy the backup replaced or
+removed is simply forgotten. Re-checked copies count towards integrity alongside the sample's; coverage
+and freshness come from the sample alone. For restic, whose own checks would have refused damaged bytes,
+other bytes that pass are a new version, not rot.
 
 ## Lag
 
@@ -43,6 +58,11 @@ Freshness looks only at changes newer than anything verified. The oldest sampled
 outdated or a placeholder *and* was written after the newest verified file marks "behind since"; lag is
 the time since then. An old file that was never copied is a coverage hole, not a lag, so it does not
 count here. If nothing is behind, freshness is 1.
+
+With canary files on, each protected folder holds "Boatdrill canary.txt", stamped after every drill. The
+oldest stamp a backup's copy lacks, once it is more than a day old, is when that backup fell behind, and
+counts like any other change: the earlier of the two is used. That is what shows a backup that stopped while
+nothing else in the folder changed.
 
 ## Margin of error
 

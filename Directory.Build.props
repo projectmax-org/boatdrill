@@ -16,7 +16,7 @@
     <RepositoryUrl>https://github.com/projectmax-org/project_01</RepositoryUrl>
     <!-- The only version to edit. AssemblyVersion and FileVersion follow it, and the release workflow
          checks the tag against it. -->
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>

@@ -14,6 +14,9 @@ dotnet run --project src/Boatdrill.Cli -- drill --source <folder> --dest <folder
 .\build.ps1 -Capture                            # Windows: tests, dist\Boatdrill.exe, screenshots of every view
 ```
 
+The restic tests drive the real restic and are skipped without it: install it (`apt install restic`,
+`choco install restic`, `brew install restic`) or point `BOATDRILL_RESTIC` at the executable.
+
 `README.md` describes the layout. The short version: Core decides (sampling, adapters, drills, scores,
 the schedule, notifications) and is tested anywhere; the app shows and schedules, and is Windows only.
 
@@ -31,9 +34,12 @@ the schedule, notifications) and is tested anywhere; the app shows and schedules
 
 ## Adding a destination kind
 
-Implement `IDestinationAdapter` (start from `MirrorFolderAdapter`), add a `DestinationKind`, register the
-adapter in `DrillRunner`'s default list, and add tests that build the destination's layout under a temp
-folder. An adapter reads; the only path it may write to is the scratch file it is handed.
+Implement `IDestinationAdapter` (start from `MirrorFolderAdapter`, or `ResticAdapter` for a tool-backed
+repository), add a `DestinationKind`, register the adapter in `DrillRunner`'s default list, and add tests
+that build the destination under a temp folder. An adapter reads; the only places it may write are the
+scratch folder and the scratch file it is handed. Give each copy a stable `Identity` when its path is a
+scratch file, so the hash ledger can recognise it next time, and say `ChecksItsOwnBytes` when the tool
+behind it verifies what it reads.
 
 ## Reporting bugs
 

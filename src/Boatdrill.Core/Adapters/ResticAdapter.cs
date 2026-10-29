@@ -189,19 +189,31 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             var result = await RunAsync(destination, arguments, RestoreLimit, ct).ConfigureAwait(false);
             if (result.ExitCode == 0) continue;
 
-            // restic carries on past a file it cannot restore and names it, sometimes twice (the first says why);
-            // anything else applies to the whole batch.
+            // restic carries on past a file it cannot restore and names it, maybe more than once; anything else
+            // applies to the whole batch. A file whose contents failed is no copy, even if part of it was written.
+            // One whose metadata failed (a date, a Windows security descriptor) is left to the hash check.
             var general = Explain(destination, result);
             var named = new Dictionary<string, string>(PathComparer);
-            foreach (Match match in RestoreError().Matches(result.Error)) named.TryAdd(match.Groups["path"].Value, match.Groups["error"].Value.Trim());
+            foreach (Match match in RestoreError().Matches(result.Error))
+            {
+                var (path, why) = (match.Groups["path"].Value, match.Groups["error"].Value.Trim());
+                if (!named.TryGetValue(path, out var known) || (!IsContentError(known) && IsContentError(why))) named[path] = why;
+            }
 
             foreach (var node in batch)
             {
-                if (File.Exists(StagedPath(state.Stage, node.Path))) continue;
-
-                state.RestoreErrors[node.Path] = named.TryGetValue(node.Path, out var why)
-                    ? new Failure(IsDamage(why) ? Damage("restic said: " + why) : "restic could not restore it: " + why, IsDamage(why))
-                    : new Failure(general, IsDamage(general));
+                var staged = StagedPath(state.Stage, node.Path);
+                if (named.TryGetValue(node.Path, out var why) && IsContentError(why))
+                {
+                    Scratch.TryDeleteFile(staged);
+                    state.RestoreErrors[node.Path] = new Failure(IsDamage(why) ? Damage("restic said: " + why) : "restic could not restore it: " + why, IsDamage(why));
+                }
+                else if (!File.Exists(staged))
+                {
+                    state.RestoreErrors[node.Path] = why is not null
+                        ? new Failure("restic could not restore it: " + why, false)
+                        : new Failure(general, IsDamage(general));
+                }
             }
         }
 
@@ -272,6 +284,13 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         error.Contains("hash mismatch", StringComparison.OrdinalIgnoreCase);
 
     private static string Damage(string said) => "the copy in the repository is damaged; " + said;
+
+    /// <summary>An error about a file's bytes, as opposed to its metadata: damage, or a pack restic could not read.</summary>
+    internal static bool IsContentError(string error) =>
+        IsDamage(error) ||
+        error.Contains("StreamPack", StringComparison.OrdinalIgnoreCase) ||
+        error.Contains("ReadFull", StringComparison.OrdinalIgnoreCase) ||
+        error.Contains("blob", StringComparison.OrdinalIgnoreCase);
 
     internal static IReadOnlyList<Snapshot> ParseSnapshots(string json)
     {

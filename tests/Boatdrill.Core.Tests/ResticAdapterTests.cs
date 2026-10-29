@@ -316,6 +316,10 @@ public sealed class ResticAdapterTests
         Assert.True(ResticAdapter.IsDamage("ciphertext verification failed"));
         Assert.True(ResticAdapter.IsDamage("Fatal: cannot dump file: decrypting blob 2104f96f failed: ciphertext verification failed"));
         Assert.False(ResticAdapter.IsDamage("StreamPack: open /srv/restic/data/da/da05f647: no such file or directory"));
+        Assert.True(ResticAdapter.IsContentError("StreamPack: open /srv/restic/data/da/da05f647: no such file or directory"));
+        Assert.True(ResticAdapter.IsContentError("ciphertext verification failed"));
+        Assert.False(ResticAdapter.IsContentError("UtimesNano: no such file or directory"));
+        Assert.False(ResticAdapter.IsContentError("failed to set security descriptor: A required privilege is not held by the client."));
     }
 
     internal static byte[] RandomBytes(int count)

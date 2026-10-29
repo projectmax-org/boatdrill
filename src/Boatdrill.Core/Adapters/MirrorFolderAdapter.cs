@@ -1,5 +1,7 @@
 using Boatdrill.Core.Sampling;
 
+using Boatdrill.Core.Text;
+
 namespace Boatdrill.Core.Adapters;
 
 /// <summary>Plain copies in a folder: an external drive, a NAS share, a OneDrive or Dropbox folder.</summary>
@@ -18,7 +20,7 @@ public sealed class MirrorFolderAdapter : IDestinationAdapter
 
     internal static DestinationProbe ProbeFolder(string root)
     {
-        if (!Directory.Exists(root)) return new DestinationProbe(false, $"{root} was not found", null);
+        if (!Directory.Exists(root)) return new DestinationProbe(false, Language.Pick($"{root} was not found", $"{Korean.Object(root)} 찾을 수 없습니다"), null);
 
         long? free = null;
         try
@@ -30,7 +32,7 @@ public sealed class MirrorFolderAdapter : IDestinationAdapter
             // Network paths and unusual mounts give no free-space figure; the folder is still reachable.
         }
 
-        return new DestinationProbe(true, $"{root} is reachable", free);
+        return new DestinationProbe(true, Language.Pick($"{root} is reachable", $"{root}에 연결됩니다"), free);
     }
 
     public Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
@@ -95,7 +97,7 @@ public sealed class MirrorFolderAdapter : IDestinationAdapter
             var attributes = (int)info.Attributes;
             if ((attributes & (RecallOnDataAccess | RecallOnOpen)) != 0 || info.Attributes.HasFlag(FileAttributes.Offline))
             {
-                return new CopyLookup(CopyState.Placeholder, path, info.Length, info.LastWriteTimeUtc, "cloud placeholder: the bytes are not on this disk");
+                return new CopyLookup(CopyState.Placeholder, path, info.Length, info.LastWriteTimeUtc, Language.Pick("cloud placeholder: the bytes are not on this disk", "온라인 전용 파일: 내용이 이 디스크에 없습니다"));
             }
 
             return new CopyLookup(CopyState.Found, path, info.Length, info.LastWriteTimeUtc, null);
@@ -108,6 +110,6 @@ public sealed class MirrorFolderAdapter : IDestinationAdapter
 
     public Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct) =>
         copy.State != CopyState.Found || copy.Path is null
-            ? Task.FromResult(new ReadBack(false, 0, TimeSpan.Zero, null, "no copy to read"))
+            ? Task.FromResult(new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("no copy to read", "읽을 사본이 없습니다")))
             : CopyReader.ReadAsync(copy.Path, scratchPath, copy.FetchTime, ct);
 }

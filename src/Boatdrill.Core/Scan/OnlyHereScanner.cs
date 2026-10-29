@@ -63,7 +63,7 @@ public sealed class OnlyHereScanner
             ct.ThrowIfCancellationRequested();
             if (!_adapters.TryGetValue(destination.Kind, out var adapter)) throw new NotSupportedException($"No adapter for {destination.Kind}.");
 
-            progress?.Report(new ScanProgress("Checking " + destination.Name, 0, 0));
+            progress?.Report(new ScanProgress(Language.Pick("Checking " + destination.Name, destination.Name + " 확인 중"), 0, 0));
             var probe = await adapter.ProbeAsync(destination, ct).ConfigureAwait(false);
             if (probe.Reachable) reachable.Add((destination, adapter));
             else unreachable.Add($"{destination.Name}: {probe.Detail}");
@@ -80,7 +80,7 @@ public sealed class OnlyHereScanner
             ct.ThrowIfCancellationRequested();
 
             // A drill-sized sample is enough for each adapter to work out where this source's copies live.
-            progress?.Report(new ScanProgress("Finding " + source.Name + " in the backups", checkedFiles, onlyHere));
+            progress?.Report(new ScanProgress(Language.Pick("Finding " + source.Name + " in the backups", $"백업에서 {source.Name} 찾는 중"), checkedFiles, onlyHere));
             var probeSample = new Sampler(clock: _clock).Take(source);
             var bindings = new List<(IDestinationAdapter Adapter, SourceBinding Binding)>();
             foreach (var (destination, adapter) in reachable)
@@ -119,7 +119,7 @@ public sealed class OnlyHereScanner
                     if (largest.Count > ListedFiles) largest.Dequeue();
                 }
 
-                if (++checkedFiles % 500 == 0) progress?.Report(new ScanProgress("Looking through " + source.Name, checkedFiles, onlyHere));
+                if (++checkedFiles % 500 == 0) progress?.Report(new ScanProgress(Language.Pick("Looking through " + source.Name, source.Name + " 살펴보는 중"), checkedFiles, onlyHere));
             }
 
             summaries.Add(summary with
@@ -171,6 +171,8 @@ public sealed class OnlyHereScanner
 
     public static string Sentence(OnlyHereReport r)
     {
+        if (Language.IsKorean) return KoreanSentence(r);
+
         if (r.Checked.Count == 0)
         {
             return r.Unreachable.Count == 0
@@ -193,5 +195,27 @@ public sealed class OnlyHereScanner
 
         var lead = $"{r.OnlyHereFiles:N0} of {total:N0} {(total == 1 ? "file" : "files")} ({Humanize.Bytes(r.OnlyHereBytes)}) exist only on this PC: {string.Join(" and ", parts)}.";
         return r.Unreachable.Count == 0 ? lead : $"{lead} {Humanize.Plural(r.Unreachable.Count, "backup")} could not be reached and {(r.Unreachable.Count == 1 ? "was" : "were")} not looked in.";
+    }
+
+    private static string KoreanSentence(OnlyHereReport r)
+    {
+        if (r.Checked.Count == 0)
+        {
+            return r.Unreachable.Count == 0
+                ? "비교할 백업이 아직 설정되지 않았습니다."
+                : "연결할 수 있는 백업이 없어 아무것도 비교하지 못했습니다.";
+        }
+
+        var total = r.Sources.Sum(s => s.Files);
+        if (total == 0) return "보호하는 폴더에 파일이 없습니다.";
+        if (r.OnlyHereFiles == 0) return $"파일 {total:N0}개 모두 적어도 한 백업에 최신 사본이 있습니다.";
+
+        var noCopy = r.Sources.Sum(s => s.NoCopyFiles);
+        var older = r.Sources.Sum(s => s.OlderFiles);
+        var sentences = new List<string> { $"파일 {total:N0}개 중 {r.OnlyHereFiles:N0}개({Humanize.Bytes(r.OnlyHereBytes)})가 이 PC에만 있습니다." };
+        if (noCopy > 0) sentences.Add($"{noCopy:N0}개는 어느 백업에도 사본이 없습니다.");
+        if (older > 0) sentences.Add($"{older:N0}개는 마지막으로 복사된 뒤에 바뀌었습니다.");
+        if (r.Unreachable.Count > 0) sentences.Add($"백업 {r.Unreachable.Count:N0}개는 연결할 수 없어 살펴보지 못했습니다.");
+        return string.Join(" ", sentences);
     }
 }

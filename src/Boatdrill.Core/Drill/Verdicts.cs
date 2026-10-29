@@ -6,34 +6,116 @@ using Boatdrill.Core.Verification;
 
 namespace Boatdrill.Core.Drill;
 
-/// <summary>Turns a result into the one plain sentence the app shows under the score.</summary>
+/// <summary>
+/// Turns a result into the plain sentences the app shows under the score, in English or Korean. They are
+/// built from the result's numbers alone, so a result stored in English reads in Korean too.
+/// </summary>
 public static class Verdicts
 {
     public static string Sentence(DestinationResult r, DateTimeOffset now)
     {
+        var body = Body(r, now);
+        return body.Length == 0 ? Lead(r) : Lead(r) + " " + body;
+    }
+
+    /// <summary>The verdict, as the first sentence: "Backup drive would restore."</summary>
+    public static string Lead(DestinationResult r)
+    {
         var name = r.DestinationName;
-        switch (r.Score.Verdict)
+        if (Language.IsKorean)
         {
-            case Verdict.Unreachable:
-                var fix = r.Kind switch
-                {
-                    DestinationKind.Restic => "Check the repository in Settings",
-                    DestinationKind.Rclone => "Check the remote in Settings",
-                    _ => "Plug it in or check the share",
-                };
-                return $"{name} could not be reached: {r.ProbeDetail}. {fix}, then run a drill.";
-            case Verdict.NothingToCheck:
-                return $"{name} is reachable, but no files were sampled, so there is nothing to verify yet.";
+            return r.Score.Verdict switch
+            {
+                Verdict.Unreachable => $"{name}에 연결할 수 없습니다: {r.ProbeDetail}.",
+                Verdict.NothingToCheck => $"{name}에는 연결되지만 표본으로 고른 파일이 없어 아직 확인할 것이 없습니다.",
+                Verdict.WouldRestore => $"{name}에서 복원할 수 있습니다.",
+                Verdict.WouldMostlyRestore => $"{name}에서 대부분 복원할 수 있습니다.",
+                Verdict.NeedsAttention => $"{name}에 확인할 문제가 있습니다.",
+                _ => $"{name}에서는 복원할 수 없습니다.",
+            };
         }
 
-        var lead = r.Score.Verdict switch
+        return r.Score.Verdict switch
         {
+            Verdict.Unreachable => $"{name} could not be reached: {r.ProbeDetail}.",
+            Verdict.NothingToCheck => $"{name} is reachable, but no files were sampled, so there is nothing to verify yet.",
             Verdict.WouldRestore => $"{name} would restore.",
             Verdict.WouldMostlyRestore => $"{name} would mostly restore.",
             Verdict.NeedsAttention => $"{name} needs attention.",
             _ => $"{name} would not restore.",
         };
+    }
 
+    /// <summary>Everything after the lead: what was read back, what is missing or older, how long a restore would take.</summary>
+    public static string Body(DestinationResult r, DateTimeOffset now)
+    {
+        var korean = Language.IsKorean;
+        switch (r.Score.Verdict)
+        {
+            case Verdict.Unreachable when korean:
+                return r.Kind switch
+                {
+                    DestinationKind.Restic => "설정에서 저장소를 확인한 다음 복원 훈련을 다시 실행하세요.",
+                    DestinationKind.Rclone => "설정에서 원격 저장소를 확인한 다음 복원 훈련을 다시 실행하세요.",
+                    _ => "드라이브를 연결하거나 공유 폴더를 확인한 다음 복원 훈련을 다시 실행하세요.",
+                };
+            case Verdict.Unreachable:
+                return r.Kind switch
+                {
+                    DestinationKind.Restic => "Check the repository in Settings, then run a drill.",
+                    DestinationKind.Rclone => "Check the remote in Settings, then run a drill.",
+                    _ => "Plug it in or check the share, then run a drill.",
+                };
+            case Verdict.NothingToCheck:
+                return string.Empty;
+        }
+
+        var text = new StringBuilder(korean ? KoreanFacts(r) : EnglishFacts(r));
+
+        var lost = r.Bindings.Where(b => b.ProbeTried > 0 && b.ProbeHits == 0).ToList();
+        var unexplained = lost.Where(b => b.Problem is null).Select(b => b.SourceName).ToList();
+        if (unexplained.Count > 0)
+        {
+            text.Append(korean
+                ? $" {Language.List(unexplained)}의 사본을 {r.RootPath}에서 찾지 못했습니다."
+                : $" No copy of {Language.List(unexplained)} was found under {r.RootPath}.");
+        }
+
+        foreach (var explained in lost.Where(b => b.Problem is not null))
+        {
+            text.Append($" {explained.SourceName}: {explained.Problem}.");
+        }
+
+        if (r.BehindSince is { } since)
+        {
+            text.Append(korean
+                ? $" 아직 여기에 복사되지 않은 변경 가운데 가장 오래된 것은 {Language.Date(since)}({Humanize.Ago(now - since)})의 것입니다."
+                : $" The oldest change not yet copied here is from {Language.Date(since)} ({Humanize.Age(now - since)} ago).");
+        }
+
+        if (r.CanaryBehindSince is not null)
+        {
+            text.Append((r.CanaryCopiedUtc, korean) switch
+            {
+                ({ } copied, true) => $" 여기에 복사된 가장 최근 카나리아 기록은 {Language.DateAndTime(copied)}의 것이며, 그 뒤의 기록은 아직 복사되지 않았습니다.",
+                ({ } copied, false) => $" The newest canary stamp copied here is from {Language.DateAndTime(copied)}; the later ones have not been copied.",
+                (null, true) => " 여기에서 카나리아 파일의 사본을 찾지 못했습니다.",
+                (null, false) => " No copy of the canary file was found here.",
+            });
+        }
+
+        if (r.EstimatedFullRestore is { } estimate && r.PopulationBytes > 0)
+        {
+            text.Append(korean
+                ? $" 측정한 속도라면 {Humanize.Bytes(r.PopulationBytes)} 전체를 복원하는 데 약 {Korean.Subject(Humanize.Duration(estimate))} 걸립니다."
+                : $" A full restore of {Humanize.Bytes(r.PopulationBytes)} would take about {Humanize.Duration(estimate)} at the speed measured.");
+        }
+
+        return text.ToString();
+    }
+
+    private static string EnglishFacts(DestinationResult r)
+    {
         var facts = new List<string> { $"{r.Verified:N0} of {r.Sampled:N0} sampled files read back correctly" };
         if (r.Missing > 0) facts.Add($"{r.Missing:N0} {(r.Missing == 1 ? "has" : "have")} no copy");
         if (r.Outdated > 0) facts.Add($"{r.Outdated:N0} {(r.Outdated == 1 ? "is" : "are")} older than the original");
@@ -50,77 +132,110 @@ public static class Verdicts
             facts.Add($"{r.Rechecked:N0} {(r.Rechecked == 1 ? "copy" : "copies")} verified in earlier drills {(r.Rechecked == 1 ? "is" : "are")} unchanged");
         }
 
-        var text = new StringBuilder(lead).Append(' ').Append(Join(facts)).Append('.');
+        var joined = Language.List(facts);
+        return char.ToUpperInvariant(joined[0]) + joined[1..] + ".";
+    }
 
-        var lost = r.Bindings.Where(b => b.ProbeTried > 0 && b.ProbeHits == 0).ToList();
-        var unexplained = lost.Where(b => b.Problem is null).Select(b => b.SourceName).ToList();
-        if (unexplained.Count > 0)
+    /// <summary>The same facts as sentences of their own, which is how Korean says a list of them.</summary>
+    private static string KoreanFacts(DestinationResult r)
+    {
+        var facts = new List<string> { $"표본 파일 {r.Sampled:N0}개 중 {r.Verified:N0}개를 제대로 읽어 왔습니다." };
+        if (r.Missing > 0) facts.Add($"{r.Missing:N0}개는 사본이 없습니다.");
+        if (r.Outdated > 0) facts.Add($"{r.Outdated:N0}개는 원본보다 오래된 사본입니다.");
+        if (r.Corrupt > 0) facts.Add($"{r.Corrupt:N0}개는 원본보다 오래되지 않았는데도 내용이 달라 손상이 의심됩니다.");
+        if (r.Placeholder > 0) facts.Add($"{r.Placeholder:N0}개는 클라우드에만 있고 이 디스크에는 없습니다.");
+        if (r.Errors > 0) facts.Add($"{r.Errors:N0}개는 읽을 수 없었습니다.");
+        if (r.Rotted > 0)
         {
-            text.Append($" No copy of {Join(unexplained)} was found under {r.RootPath}.");
+            facts.Add($"이전 훈련에서 확인한 사본 {r.Rechecked:N0}개 중 {r.Rotted:N0}개가 크기와 날짜는 그대로인데 내용이 바뀌어 비트 부패가 의심됩니다.");
+        }
+        else if (r.Rechecked > 0)
+        {
+            facts.Add($"이전 훈련에서 확인한 사본 {r.Rechecked:N0}개는 그대로입니다.");
         }
 
-        foreach (var explained in lost.Where(b => b.Problem is not null))
-        {
-            text.Append($" {explained.SourceName}: {explained.Problem}.");
-        }
-
-        if (r.BehindSince is { } since)
-        {
-            text.Append($" The oldest change not yet copied here is from {since.ToLocalTime():d MMMM yyyy} ({Humanize.Age(now - since)} ago).");
-        }
-
-        if (r.CanaryBehindSince is not null)
-        {
-            text.Append(r.CanaryCopiedUtc is { } copied
-                ? $" The newest canary stamp copied here is from {copied.ToLocalTime():d MMMM yyyy, HH:mm}; the later ones have not been copied."
-                : " No copy of the canary file was found here.");
-        }
-
-        if (r.EstimatedFullRestore is { } estimate && r.PopulationBytes > 0)
-        {
-            text.Append($" A full restore of {Humanize.Bytes(r.PopulationBytes)} would take about {Humanize.Duration(estimate)} at the speed measured.");
-        }
-
-        return text.ToString();
+        return string.Join(" ", facts);
     }
 
     /// <summary>The answer first, for a set of results: how the backups stand, in a few words.</summary>
     public static string Headline(IReadOnlyList<DestinationResult> results)
     {
-        if (results.Count == 0) return "No backups were checked";
+        if (results.Count == 0) return Language.Pick("No backups were checked", "확인한 백업이 없습니다");
 
         var problems = results.Where(r => NotificationPolicy.IsProblem(r.Score.Verdict)).ToList();
+        var korean = Language.IsKorean;
         return problems.Count switch
         {
-            0 when results.All(r => r.Score.Verdict != Verdict.WouldMostlyRestore) => results.Count == 1 ? "Your backup would restore" : "Your backups would restore",
-            0 => results.Count == 1 ? "Your backup would mostly restore" : "Your backups would mostly restore",
-            1 => $"{problems[0].DestinationName} {Words(problems[0].Score.Verdict)}",
-            _ => $"{problems.Count} backups need attention",
+            0 when results.All(r => r.Score.Verdict != Verdict.WouldMostlyRestore) => korean
+                ? results.Count == 1 ? "백업에서 복원할 수 있습니다" : "모든 백업에서 복원할 수 있습니다"
+                : results.Count == 1 ? "Your backup would restore" : "Your backups would restore",
+            0 => korean
+                ? "백업에서 대부분 복원할 수 있습니다"
+                : results.Count == 1 ? "Your backup would mostly restore" : "Your backups would mostly restore",
+            1 => Phrase(problems[0].DestinationName, problems[0].Score.Verdict),
+            _ => korean ? $"확인이 필요한 백업이 {problems.Count}개 있습니다" : $"{problems.Count} backups need attention",
         };
     }
 
-    /// <summary>A verdict in words, as it follows a destination's name.</summary>
-    public static string Words(Verdict verdict) => verdict switch
+    /// <summary>A backup and its verdict, as a headline: "Family NAS needs attention".</summary>
+    public static string Phrase(string name, Verdict verdict)
     {
-        Verdict.WouldRestore => "would restore",
-        Verdict.WouldMostlyRestore => "would mostly restore",
-        Verdict.NeedsAttention => "needs attention",
-        Verdict.WouldNotRestore => "would not restore",
-        Verdict.Unreachable => "could not be reached",
-        _ => "nothing to check",
-    };
+        if (!Language.IsKorean) return $"{name} {Words(verdict)}";
+
+        return verdict switch
+        {
+            Verdict.WouldRestore => $"{name}에서 복원할 수 있습니다",
+            Verdict.WouldMostlyRestore => $"{name}에서 대부분 복원할 수 있습니다",
+            Verdict.NeedsAttention => $"{name}에 확인할 문제가 있습니다",
+            Verdict.WouldNotRestore => $"{name}에서는 복원할 수 없습니다",
+            Verdict.Unreachable => $"{name}에 연결할 수 없습니다",
+            _ => $"{name}에서 확인할 것이 없습니다",
+        };
+    }
+
+    /// <summary>A verdict in words: in English as it follows a destination's name, in Korean as a label.</summary>
+    public static string Words(Verdict verdict) => Language.IsKorean
+        ? verdict switch
+        {
+            Verdict.WouldRestore => "복원 가능",
+            Verdict.WouldMostlyRestore => "대부분 복원 가능",
+            Verdict.NeedsAttention => "확인 필요",
+            Verdict.WouldNotRestore => "복원 불가",
+            Verdict.Unreachable => "연결 안 됨",
+            _ => "확인할 것 없음",
+        }
+        : verdict switch
+        {
+            Verdict.WouldRestore => "would restore",
+            Verdict.WouldMostlyRestore => "would mostly restore",
+            Verdict.NeedsAttention => "needs attention",
+            Verdict.WouldNotRestore => "would not restore",
+            Verdict.Unreachable => "could not be reached",
+            _ => "nothing to check",
+        };
 
     /// <summary>A file's outcome as a short label.</summary>
-    public static string Words(FileOutcome outcome) => outcome switch
-    {
-        FileOutcome.Corrupt => "Corrupt",
-        FileOutcome.Rotted => "Changed",
-        FileOutcome.Error => "Unreadable",
-        FileOutcome.Missing => "Missing",
-        FileOutcome.Outdated => "Behind",
-        FileOutcome.Placeholder => "Cloud only",
-        _ => "Verified",
-    };
+    public static string Words(FileOutcome outcome) => Language.IsKorean
+        ? outcome switch
+        {
+            FileOutcome.Corrupt => "손상됨",
+            FileOutcome.Rotted => "변질됨",
+            FileOutcome.Error => "읽을 수 없음",
+            FileOutcome.Missing => "사본 없음",
+            FileOutcome.Outdated => "이전 버전",
+            FileOutcome.Placeholder => "클라우드에만",
+            _ => "확인됨",
+        }
+        : outcome switch
+        {
+            FileOutcome.Corrupt => "Corrupt",
+            FileOutcome.Rotted => "Changed",
+            FileOutcome.Error => "Unreadable",
+            FileOutcome.Missing => "Missing",
+            FileOutcome.Outdated => "Behind",
+            FileOutcome.Placeholder => "Cloud only",
+            _ => "Verified",
+        };
 
     /// <summary>The colour family a verdict is shown in: good, fair, bad or none.</summary>
     public static string Tone(Verdict verdict) => verdict switch
@@ -136,13 +251,5 @@ public static class Verdicts
         FileOutcome.Corrupt or FileOutcome.Rotted or FileOutcome.Error or FileOutcome.Missing => "bad",
         FileOutcome.Outdated or FileOutcome.Placeholder => "fair",
         _ => "good",
-    };
-
-    private static string Join(IReadOnlyList<string> parts) => parts.Count switch
-    {
-        0 => string.Empty,
-        1 => parts[0],
-        2 => $"{parts[0]} and {parts[1]}",
-        _ => string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1],
     };
 }

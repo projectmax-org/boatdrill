@@ -96,7 +96,7 @@ internal static class ToolRunner
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return new Result(TimedOutCode, string.Empty, $"it did not finish within {Humanize.Duration(timeLimit)}");
+            return new Result(TimedOutCode, string.Empty, Language.Pick($"it did not finish within {Humanize.Duration(timeLimit)}", $"{Humanize.Duration(timeLimit)} 안에 끝나지 않았습니다"));
         }
     }
 }

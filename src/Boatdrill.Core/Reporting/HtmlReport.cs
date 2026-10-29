@@ -22,64 +22,86 @@ public static class HtmlReport
     public static string Render(DrillReport report, IReadOnlyList<DrillReport>? recent = null, string? version = null, DateTimeOffset? now = null)
     {
         var at = now ?? DateTimeOffset.UtcNow;
-        var started = report.StartedUtc.ToLocalTime();
+        var korean = Language.IsKorean;
         var history = (recent ?? []).Where(r => r.Id != report.Id && r.StartedUtc < report.StartedUtc).Append(report).TakeLast(12).ToList();
         var headline = Verdicts.Headline(report.Destinations);
         var tone = Tone(report);
 
         var html = new StringBuilder(32 * 1024);
-        html.Append("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n")
+        html.Append("<!doctype html>\n<html lang=\"").Append(korean ? "ko" : "en").Append("\">\n<head>\n<meta charset=\"utf-8\">\n")
             .Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
             .Append("<meta name=\"generator\" content=\"Boatdrill").Append(version is null ? string.Empty : " " + E(version)).Append("\">\n")
-            .Append("<title>").Append(E($"Boatdrill report, {started.ToString("d MMMM yyyy", CultureInfo.InvariantCulture)}")).Append("</title>\n")
+            .Append("<title>").Append(E(Language.Pick("Boatdrill report, ", "Boatdrill 보고서, ") + Language.Date(report.StartedUtc))).Append("</title>\n")
             .Append("<style>").Append(Style).Append("</style>\n</head>\n<body>\n<main>\n");
 
         // The answer first.
         var reached = report.Destinations.Count(d => d.Reachable);
         var sampled = report.Sources.Sum(s => s.Sampled);
-        html.Append("<header>\n<p class=\"eyebrow\">Boatdrill drill report</p>\n")
+        html.Append("<header>\n<p class=\"eyebrow\">").Append(Language.Pick("Boatdrill drill report", "Boatdrill 복원 훈련 보고서")).Append("</p>\n")
             .Append("<h1><span class=\"dot ").Append(tone).Append("-fill\" aria-hidden=\"true\"></span>").Append(E(headline)).Append("</h1>\n")
-            .Append("<p class=\"lead\">")
-            .Append(E($"Drill on {started.ToString("dddd d MMMM yyyy 'at' HH:mm", CultureInfo.InvariantCulture)}, " +
-                      $"{(report.Trigger == DrillTrigger.Scheduled ? "on schedule" : "run by hand")}, took {Humanize.Duration(report.Duration)}. "))
-            .Append(E(reached == 0
-                ? "It could not reach any backup."
-                : $"It read {Humanize.Plural(sampled, "sampled file")} back from {(reached == report.Destinations.Count ? Humanize.Plural(reached, "backup") : $"{reached} of {Humanize.Plural(report.Destinations.Count, "backup")}")} and compared every byte with the original."))
-            .Append("</p>\n</header>\n");
+            .Append("<p class=\"lead\">").Append(E(Lead(report, reached, sampled))).Append("</p>\n</header>\n");
 
         AppendSources(html, report);
-        foreach (var destination in report.Destinations) AppendDestination(html, destination, history, at);
+        foreach (var destination in report.Destinations) AppendDestination(html, destination, history, report.FinishedUtc);
 
+        var maker = "Boatdrill" + (version is null ? string.Empty : " " + version);
         html.Append("<footer>\n<p>")
-            .Append(E($"Made by Boatdrill{(version is null ? string.Empty : " " + version)} on {at.ToLocalTime().ToString("d MMMM yyyy 'at' HH:mm", CultureInfo.InvariantCulture)}. "))
-            .Append("Boatdrill only ever reads from backups, and nothing leaves the PC it runs on. ")
-            .Append("This report names files in your folders but holds none of their contents: think before you share it.</p>\n")
-            .Append("</footer>\n</main>\n</body>\n</html>\n");
+            .Append(E(korean
+                ? $"{Language.DateAndTime(at)}에 {Korean.Subject(maker)} 만들었습니다. Boatdrill은 백업을 읽기만 하며, 어떤 정보도 이 PC 밖으로 보내지 않습니다. " +
+                  "이 보고서에는 폴더 속 파일의 이름은 들어 있지만 내용은 들어 있지 않습니다. 공유하기 전에 한 번 더 생각해 주세요."
+                : $"Made by {maker} on {at.ToLocalTime().ToString("d MMMM yyyy 'at' HH:mm", CultureInfo.InvariantCulture)}. " +
+                  "Boatdrill only ever reads from backups, and nothing leaves the PC it runs on. " +
+                  "This report names files in your folders but holds none of their contents: think before you share it."))
+            .Append("</p>\n</footer>\n</main>\n</body>\n</html>\n");
         return html.ToString();
+    }
+
+    /// <summary>When the drill ran, how, and what it read: "Drill on Monday …, on schedule, took 4 min. It read …".</summary>
+    private static string Lead(DrillReport report, int reached, int sampled)
+    {
+        var scheduled = report.Trigger == DrillTrigger.Scheduled;
+        var total = report.Destinations.Count;
+        if (Language.IsKorean)
+        {
+            var when = $"{Language.DayDateAndTime(report.StartedUtc)}에 {(scheduled ? "예약대로" : "직접")} 실행한 복원 훈련으로, {Korean.Subject(Humanize.Duration(report.Duration))} 걸렸습니다. ";
+            var backups = reached == total ? $"백업 {total:N0}개" : $"백업 {total:N0}개 중 {reached:N0}개";
+            return when + (reached == 0
+                ? "어떤 백업에도 연결하지 못했습니다."
+                : $"표본 파일 {sampled:N0}개를 {backups}에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.");
+        }
+
+        return $"Drill on {Language.DayDateAndTime(report.StartedUtc)}, {(scheduled ? "on schedule" : "run by hand")}, took {Humanize.Duration(report.Duration)}. " +
+               (reached == 0
+                   ? "It could not reach any backup."
+                   : $"It read {Humanize.Plural(sampled, "sampled file")} back from {(reached == total ? Humanize.Plural(reached, "backup") : $"{reached} of {Humanize.Plural(total, "backup")}")} and compared every byte with the original.");
     }
 
     private static void AppendSources(StringBuilder html, DrillReport report)
     {
         if (report.Sources.Count == 0) return;
 
-        html.Append("<section class=\"card\">\n<h2>What is protected</h2>\n<table>\n<thead><tr><th>Folder</th><th class=\"num\">Files</th><th class=\"num\">Size</th>")
-            .Append("<th class=\"num wide\">Sampled</th><th class=\"wide\">Left out</th></tr></thead>\n<tbody>\n");
+        html.Append(Language.Pick(
+                "<section class=\"card\">\n<h2>What is protected</h2>\n<table>\n<thead><tr><th>Folder</th><th class=\"num\">Files</th><th class=\"num\">Size</th>" +
+                "<th class=\"num wide\">Sampled</th><th class=\"wide\">Left out</th></tr></thead>\n<tbody>\n",
+                "<section class=\"card\">\n<h2>보호하는 폴더</h2>\n<table>\n<thead><tr><th>폴더</th><th class=\"num\">파일</th><th class=\"num\">크기</th>" +
+                "<th class=\"num wide\">표본</th><th class=\"wide\">제외</th></tr></thead>\n<tbody>\n"));
         foreach (var s in report.Sources)
         {
             var left = new List<string>();
-            if (s.SkippedLargeFiles > 0) left.Add($"{s.SkippedLargeFiles:N0} too large");
-            if (s.SkippedChurningFiles > 0) left.Add($"{s.SkippedChurningFiles:N0} changed in the last hours");
+            if (s.SkippedLargeFiles > 0) left.Add(Language.Pick($"{s.SkippedLargeFiles:N0} too large", $"너무 큰 파일 {s.SkippedLargeFiles:N0}개"));
+            if (s.SkippedChurningFiles > 0) left.Add(Language.Pick($"{s.SkippedChurningFiles:N0} changed in the last hours", $"최근 몇 시간 사이에 바뀐 파일 {s.SkippedChurningFiles:N0}개"));
             html.Append("<tr><td><strong>").Append(E(s.Name)).Append("</strong><br><span class=\"muted small\">").Append(E(s.RootPath)).Append("</span></td>")
                 .Append("<td class=\"num\">").Append(s.Population.ToString("N0", CultureInfo.InvariantCulture)).Append("</td>")
                 .Append("<td class=\"num\">").Append(E(Humanize.Bytes(s.PopulationBytes))).Append("</td>")
                 .Append("<td class=\"num wide\">").Append(s.Sampled.ToString("N0", CultureInfo.InvariantCulture)).Append("</td>")
-                .Append("<td class=\"muted wide\">").Append(E(left.Count == 0 ? "nothing" : string.Join(", ", left))).Append("</td></tr>\n");
+                .Append("<td class=\"muted wide\">").Append(E(left.Count == 0 ? Language.Pick("nothing", "없음") : string.Join(", ", left))).Append("</td></tr>\n");
         }
 
         html.Append("</tbody>\n</table>\n</section>\n");
     }
 
-    private static void AppendDestination(StringBuilder html, DestinationResult r, IReadOnlyList<DrillReport> history, DateTimeOffset now)
+    /// <param name="finished">When the drill finished: the sentence is written again from the result's numbers, as of then.</param>
+    private static void AppendDestination(StringBuilder html, DestinationResult r, IReadOnlyList<DrillReport> history, DateTimeOffset finished)
     {
         var tone = Verdicts.Tone(r.Score.Verdict);
         html.Append("<section class=\"card\">\n<div class=\"head\">\n")
@@ -88,7 +110,7 @@ public static class HtmlReport
             .Append(Trend(r.DestinationId, history))
             .Append("<div class=\"score ").Append(tone).Append("\"><span class=\"total\">").Append(r.Reachable ? r.Score.Total.ToString(CultureInfo.InvariantCulture) : "–")
             .Append("</span><span class=\"verdict\">").Append(E(Verdicts.Words(r.Score.Verdict))).Append("</span></div>\n</div>\n")
-            .Append("<p class=\"sentence\">").Append(E(r.Sentence)).Append("</p>\n");
+            .Append("<p class=\"sentence\">").Append(E(Verdicts.Sentence(r, finished))).Append("</p>\n");
 
         var parts = ScoreParts.Describe(r);
         if (parts.Count > 0)
@@ -103,10 +125,17 @@ public static class HtmlReport
             html.Append("</div>\n");
         }
 
+        var korean = Language.IsKorean;
         var facts = new List<string>();
-        if (r.BytesPerSecond is { } speed) facts.Add($"Read back {Humanize.Bytes(r.BytesRead)} at {Humanize.Bytes((long)speed)}/s");
-        foreach (var b in r.Bindings) facts.Add($"{b.SourceName} found under {b.BasePath}");
-        if (r.CanaryCopiedUtc is { } copied) facts.Add($"Newest canary stamp copied: {copied.ToLocalTime().ToString("d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture)}");
+        if (r.BytesPerSecond is { } speed)
+        {
+            facts.Add(korean
+                ? $"{Korean.Object(Humanize.Bytes(r.BytesRead))} 초당 {Humanize.Bytes((long)speed)} 속도로 다시 읽음"
+                : $"Read back {Humanize.Bytes(r.BytesRead)} at {Humanize.Bytes((long)speed)}/s");
+        }
+
+        foreach (var b in r.Bindings) facts.Add(korean ? $"{b.SourceName}: {b.BasePath}에서 찾음" : $"{b.SourceName} found under {b.BasePath}");
+        if (r.CanaryCopiedUtc is { } copied) facts.Add(Language.Pick("Newest canary stamp copied: ", "복사된 가장 최근 카나리아 기록: ") + Language.DateAndTime(copied));
         if (facts.Count > 0)
         {
             html.Append("<ul class=\"facts muted small\">");
@@ -117,13 +146,14 @@ public static class HtmlReport
         if (r.Findings.Count > 0)
         {
             html.Append("<table class=\"findings\">\n<colgroup><col class=\"c-outcome\"><col class=\"c-file\"><col></colgroup>\n")
-                .Append("<thead><tr><th>Outcome</th><th>File</th><th>What was found</th></tr></thead>\n<tbody>\n");
+                .Append(Language.Pick("<thead><tr><th>Outcome</th><th>File</th><th>What was found</th></tr></thead>\n<tbody>\n",
+                    "<thead><tr><th>결과</th><th>파일</th><th>확인한 내용</th></tr></thead>\n<tbody>\n"));
             foreach (var f in r.Findings.Take(FindingsPerDestination))
             {
                 var outcomeTone = Verdicts.Tone(f.Outcome);
                 html.Append("<tr><td><span class=\"tag ").Append(outcomeTone).Append("-soft ").Append(outcomeTone).Append("\">").Append(E(Verdicts.Words(f.Outcome))).Append("</span></td>")
                     .Append("<td class=\"path\">").Append(E(f.RelativePath)).Append("</td>")
-                    .Append("<td class=\"muted\">").Append(E((f.Recheck ? "Read again: " : string.Empty) + (f.Detail ?? string.Empty))).Append("</td></tr>\n");
+                    .Append("<td class=\"muted\">").Append(E((f.Recheck ? Language.Pick("Read again: ", "다시 읽음: ") : string.Empty) + (f.Detail ?? string.Empty))).Append("</td></tr>\n");
             }
 
             html.Append("</tbody>\n</table>\n");
@@ -131,7 +161,9 @@ public static class HtmlReport
             var listed = Math.Min(r.Findings.Count, FindingsPerDestination);
             if (notVerified > listed)
             {
-                html.Append("<p class=\"muted small\">").Append(E($"The first {listed:N0} of {notVerified:N0} files that did not verify.")).Append("</p>\n");
+                html.Append("<p class=\"muted small\">")
+                    .Append(E(Language.Pick($"The first {listed:N0} of {notVerified:N0} files that did not verify.", $"확인되지 않은 파일 {notVerified:N0}개 중 처음 {listed:N0}개입니다.")))
+                    .Append("</p>\n");
             }
         }
 
@@ -170,8 +202,8 @@ public static class HtmlReport
             }
         }
 
-        var words = E("Score in the last " + results.Count + " drills: " +
-                      string.Join(", ", results.Select(r => r.Reachable ? r.Score.Total.ToString(CultureInfo.InvariantCulture) : "not reached")));
+        var scores = string.Join(", ", results.Select(r => r.Reachable ? r.Score.Total.ToString(CultureInfo.InvariantCulture) : Language.Pick("not reached", "연결 안 됨")));
+        var words = E(Language.Pick($"Score in the last {results.Count} drills: ", $"최근 복원 훈련 {results.Count}번의 점수: ") + scores);
         var svg = new StringBuilder()
             .Append(string.Create(CultureInfo.InvariantCulture, $"<svg class=\"trend\" viewBox=\"0 0 {width} {height}\" width=\"{width}\" height=\"{height}\" "))
             .Append("role=\"img\" aria-label=\"").Append(words).Append("\"><title>").Append(words).Append("</title>")
@@ -232,7 +264,8 @@ public static class HtmlReport
         }
         * { box-sizing: border-box; }
         body { margin: 0; background: var(--bg); color: var(--text);
-               font: 14px/1.55 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; }
+               font: 14px/1.55 "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; }
+        html:lang(ko) body { word-break: keep-all; overflow-wrap: anywhere; }
         main { max-width: 900px; margin: 0 auto; padding: 36px 20px 48px; }
         header { margin: 0 4px 22px; }
         .eyebrow { margin: 0 0 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }

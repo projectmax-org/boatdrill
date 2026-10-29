@@ -1,4 +1,5 @@
 using Boatdrill.Core.Settings;
+using Boatdrill.Core.Text;
 
 namespace Boatdrill.Core.Scheduling;
 
@@ -41,12 +42,23 @@ public static class DeferralPolicy
         return DeferReason.None;
     }
 
-    /// <summary>Completes "The next drill is due, ..." in the app's status line.</summary>
-    public static string Describe(DeferReason reason) => reason switch
-    {
-        DeferReason.FullScreen => "waiting for the full-screen app to close",
-        DeferReason.OnBattery => "waiting for mains power",
-        DeferReason.InUse => "waiting until you step away",
-        _ => string.Empty,
-    };
+    /// <summary>
+    /// Completes "The next drill is due, ..." in the app's status line; in Korean, a sentence of its own that
+    /// follows "다음 복원 훈련 시간이 되었습니다".
+    /// </summary>
+    public static string Describe(DeferReason reason) => Language.IsKorean
+        ? reason switch
+        {
+            DeferReason.FullScreen => "전체 화면 앱이 닫히기를 기다리고 있습니다",
+            DeferReason.OnBattery => "전원이 연결되기를 기다리고 있습니다",
+            DeferReason.InUse => "자리를 비우실 때까지 기다리고 있습니다",
+            _ => string.Empty,
+        }
+        : reason switch
+        {
+            DeferReason.FullScreen => "waiting for the full-screen app to close",
+            DeferReason.OnBattery => "waiting for mains power",
+            DeferReason.InUse => "waiting until you step away",
+            _ => string.Empty,
+        };
 }

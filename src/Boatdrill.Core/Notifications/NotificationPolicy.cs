@@ -1,5 +1,6 @@
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.Scoring;
+using Boatdrill.Core.Text;
 
 namespace Boatdrill.Core.Notifications;
 
@@ -29,32 +30,41 @@ public static class NotificationPolicy
         if (problems.Count == 1)
         {
             var d = problems[0];
-            return new Notice(Headline(d), Shorten(Details(d), MaxText));
+            return new Notice(Headline(d), Shorten(Details(d, report.FinishedUtc), MaxText));
         }
 
         var phrases = problems.Select(Headline).ToList();
-        var text = string.Join(", ", phrases.Take(phrases.Count - 1)) + " and " + phrases[^1] + ". Open Boatdrill for the details.";
-        return new Notice($"{problems.Count} backups need attention", Shorten(text, MaxText));
+        var text = Language.IsKorean
+            ? string.Join(". ", phrases) + ". 자세한 내용은 Boatdrill에서 확인하세요."
+            : Language.List(phrases) + ". Open Boatdrill for the details.";
+        return new Notice(Language.Pick($"{problems.Count} backups need attention", $"확인이 필요한 백업이 {problems.Count}개 있습니다"), Shorten(text, MaxText));
     }
 
-    private static string Headline(DestinationResult d) => d.Score.Verdict switch
-    {
-        Verdict.Unreachable => $"{d.DestinationName} could not be reached",
-        Verdict.WouldNotRestore => $"{d.DestinationName} would not restore",
-        _ => $"{d.DestinationName} needs attention",
-    };
+    private static string Headline(DestinationResult d) => Verdicts.Phrase(d.DestinationName, d.Score.Verdict);
 
-    /// <summary>The verdict sentence without its first sentence, which the title already says.</summary>
-    private static string Details(DestinationResult d)
+    /// <summary>What the title does not already say: the verdict's sentences after the first.</summary>
+    private static string Details(DestinationResult d, DateTimeOffset finished)
     {
-        if (d.Score.Verdict == Verdict.Unreachable)
+        if (d.Score.Verdict != Verdict.Unreachable) return Verdicts.Body(d, finished);
+
+        if (Language.IsKorean)
         {
-            return $"{d.ProbeDetail}. Plug it in or check the share, and Boatdrill will try again at the next drill.";
+            var advice = d.Kind switch
+            {
+                DestinationKind.Restic => "설정에서 저장소를 확인하세요.",
+                DestinationKind.Rclone => "설정에서 원격 저장소를 확인하세요.",
+                _ => "드라이브를 연결하거나 공유 폴더를 확인하세요.",
+            };
+            return $"{d.ProbeDetail}. {advice} 다음 복원 훈련 때 다시 시도합니다.";
         }
 
-        var sentence = d.Sentence;
-        var end = sentence.IndexOf(". ", StringComparison.Ordinal);
-        return end > 0 && sentence.StartsWith(d.DestinationName, StringComparison.Ordinal) ? sentence[(end + 2)..] : sentence;
+        var fix = d.Kind switch
+        {
+            DestinationKind.Restic => "Check the repository in Settings",
+            DestinationKind.Rclone => "Check the remote in Settings",
+            _ => "Plug it in or check the share",
+        };
+        return $"{d.ProbeDetail}. {fix}, and Boatdrill will try again at the next drill.";
     }
 
     /// <summary>Cuts at the last sentence that fits, or at the last word with an ellipsis.</summary>

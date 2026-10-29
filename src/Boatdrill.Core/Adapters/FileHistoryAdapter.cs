@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Boatdrill.Core.Sampling;
 
+using Boatdrill.Core.Text;
+
 namespace Boatdrill.Core.Adapters;
 
 /// <summary>
@@ -19,7 +21,7 @@ public sealed partial class FileHistoryAdapter : IDestinationAdapter
         var probe = MirrorFolderAdapter.ProbeFolder(destination.RootPath);
         if (probe.Reachable && DataFolders(destination.RootPath).Count == 0)
         {
-            return Task.FromResult(new DestinationProbe(false, $"{destination.RootPath} holds no File History data", probe.FreeBytes));
+            return Task.FromResult(new DestinationProbe(false, Language.Pick($"{destination.RootPath} holds no File History data", $"{destination.RootPath}에 파일 히스토리 데이터가 없습니다"), probe.FreeBytes));
         }
 
         return Task.FromResult(probe);
@@ -48,7 +50,7 @@ public sealed partial class FileHistoryAdapter : IDestinationAdapter
         return Task.FromResult(best ?? new SourceBinding(destination, sample.Source, MirrorLayout.FullPath, destination.RootPath, 0, probe.Count)
         {
             State = new Listings(),
-            Problem = "no File History data was found on " + destination.RootPath,
+            Problem = Language.Pick("no File History data was found on " + destination.RootPath, $"{destination.RootPath}에서 파일 히스토리 데이터를 찾지 못했습니다"),
         });
     }
 
@@ -106,7 +108,7 @@ public sealed partial class FileHistoryAdapter : IDestinationAdapter
             if (Newest(state, binding.BasePath, relativePath) is not { } version)
             {
                 return Task.FromResult(CopyLookup.Missing(Path.Combine(binding.BasePath, relativePath),
-                    "File History holds no version of it under " + Path.Combine(binding.BasePath, Path.GetDirectoryName(relativePath) ?? string.Empty)));
+                    Language.Pick("File History holds no version of it under ", "파일 히스토리에 이 파일의 버전이 없습니다: ") + Path.Combine(binding.BasePath, Path.GetDirectoryName(relativePath) ?? string.Empty)));
             }
 
             var info = new FileInfo(version.Path);
@@ -120,7 +122,7 @@ public sealed partial class FileHistoryAdapter : IDestinationAdapter
 
     public Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct) =>
         copy.State != CopyState.Found || copy.Path is null
-            ? Task.FromResult(new ReadBack(false, 0, TimeSpan.Zero, null, "no copy to read"))
+            ? Task.FromResult(new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("no copy to read", "읽을 사본이 없습니다")))
             : CopyReader.ReadAsync(copy.Path, scratchPath, copy.FetchTime, ct);
 
     internal sealed record Version(string Path, DateTimeOffset TakenUtc);

@@ -6,13 +6,17 @@ namespace Boatdrill.Core.Tests;
 
 public sealed class NotificationPolicyTests
 {
-    private static DestinationResult Result(string name, Verdict verdict, string sentence, string? probe = null) => new()
+    /// <param name="missing">Of 200 sampled files, how many have no copy; the rest read back correctly.</param>
+    private static DestinationResult Result(string name, Verdict verdict, string sentence, string? probe = null, int missing = 0) => new()
     {
         DestinationId = name.ToLowerInvariant(),
         DestinationName = name,
         RootPath = "/mnt/" + name,
         Reachable = verdict != Verdict.Unreachable,
         ProbeDetail = probe,
+        Sampled = 200,
+        Verified = 200 - missing,
+        Missing = missing,
         Score = new ReadinessScore(1, 1, 1, 1, verdict == Verdict.WouldRestore ? 100 : 50, 0, verdict),
         Sentence = sentence,
     };
@@ -39,7 +43,7 @@ public sealed class NotificationPolicyTests
     {
         var notice = NotificationPolicy.For(Report(
             Result("Drive", Verdict.WouldRestore, "Drive would restore."),
-            Result("NAS", Verdict.NeedsAttention, "NAS needs attention. 150 of 200 sampled files read back correctly and 50 have no copy.")));
+            Result("NAS", Verdict.NeedsAttention, "NAS needs attention. 150 of 200 sampled files read back correctly and 50 have no copy.", missing: 50)));
 
         Assert.NotNull(notice);
         Assert.Equal("NAS needs attention", notice.Title);

@@ -123,12 +123,12 @@ public sealed class RehearsalRunner
             Sentence = string.Empty,
         };
 
-        progress?.Report(new RehearsalProgress("Checking " + destination.Name, 0, 0, 0, 0));
+        progress?.Report(new RehearsalProgress(Language.Pick("Checking " + destination.Name, destination.Name + " 확인 중"), 0, 0, 0, 0));
         var probe = await adapter.ProbeAsync(destination, ct).ConfigureAwait(false);
         if (!probe.Reachable) return Finish(result with { ProbeDetail = probe.Detail });
 
         result = result with { Reachable = true, ProbeDetail = probe.Detail };
-        progress?.Report(new RehearsalProgress("Listing " + Label(result), 0, 0, 0, 0));
+        progress?.Report(new RehearsalProgress(Language.Pick("Listing " + Label(result), Label(result) + " 목록 만드는 중"), 0, 0, 0, 0));
         var files = SourceFiles.Enumerate(plan.Source, plan.Folder).ToList();
         var total = files.Sum(f => f.Length);
         result = result with { Files = files.Count, Bytes = total };
@@ -141,7 +141,9 @@ public sealed class RehearsalRunner
         {
             return Finish(result with
             {
-                Refusal = $"The rehearsal needs {Humanize.Bytes(needed)} free where Boatdrill restores to ({plan.ScratchDirectory}), and there is {Humanize.Bytes(free)}.",
+                Refusal = Language.Pick(
+                    $"The rehearsal needs {Humanize.Bytes(needed)} free where Boatdrill restores to ({plan.ScratchDirectory}), and there is {Humanize.Bytes(free)}.",
+                    $"리허설을 하려면 Boatdrill이 복원하는 곳({plan.ScratchDirectory})에 빈 공간이 {Humanize.Bytes(needed)} 필요한데, 지금은 {Humanize.Bytes(free)}뿐입니다."),
             });
         }
 
@@ -160,7 +162,7 @@ public sealed class RehearsalRunner
             foreach (var batch in Batches(files, plan.BatchBytes))
             {
                 ct.ThrowIfCancellationRequested();
-                progress?.Report(new RehearsalProgress("Restoring from " + destination.Name, filesDone, files.Count, bytesDone, total));
+                progress?.Report(new RehearsalProgress(Language.Pick("Restoring from " + destination.Name, destination.Name + "에서 복원하는 중"), filesDone, files.Count, bytesDone, total));
                 await adapter.PrefetchAsync(binding, batch.Select(f => f.RelativePath).ToList(), ct).ConfigureAwait(false);
 
                 foreach (var file in batch)
@@ -188,7 +190,7 @@ public sealed class RehearsalRunner
 
                     filesDone++;
                     bytesDone += file.Length;
-                    progress?.Report(new RehearsalProgress("Restoring from " + destination.Name, filesDone, files.Count, bytesDone, total));
+                    progress?.Report(new RehearsalProgress(Language.Pick("Restoring from " + destination.Name, destination.Name + "에서 복원하는 중"), filesDone, files.Count, bytesDone, total));
                 }
             }
 
@@ -220,6 +222,8 @@ public sealed class RehearsalRunner
     /// <summary>The rehearsal in one or two sentences, the answer first.</summary>
     public static string Sentence(RehearsalResult r)
     {
+        if (Language.IsKorean) return KoreanSentence(r);
+
         var what = Label(r);
         if (!r.Reachable) return $"{r.DestinationName} could not be reached: {r.ProbeDetail}.";
         if (r.Refusal is { } refusal) return refusal;
@@ -239,6 +243,32 @@ public sealed class RehearsalRunner
         return r.BytesRestored > 0
             ? $"{text} Restoring {Humanize.Bytes(r.BytesRestored)} took {Humanize.Duration(r.RestoreTime)}."
             : text;
+    }
+
+    private static string KoreanSentence(RehearsalResult r)
+    {
+        var what = Label(r);
+        if (!r.Reachable) return $"{r.DestinationName}에 연결할 수 없습니다: {r.ProbeDetail}.";
+        if (r.Refusal is { } refusal) return refusal;
+        if (r.Files == 0) return $"{what}에는 복원할 파일이 없습니다.";
+
+        var sentences = new List<string>
+        {
+            r.Verified == r.Files
+                ? $"{what}의 파일 {r.Files:N0}개가 모두 {r.DestinationName}에서 그대로 돌아왔습니다."
+                : $"{what}의 파일 {r.Files:N0}개 중 {r.Verified:N0}개가 {r.DestinationName}에서 그대로 돌아왔습니다.",
+        };
+        if (r.Missing > 0) sentences.Add($"{r.Missing:N0}개는 사본이 없습니다.");
+        if (r.Outdated > 0) sentences.Add($"{r.Outdated:N0}개는 원본보다 오래된 사본입니다.");
+        if (r.Corrupt > 0) sentences.Add($"{r.Corrupt:N0}개는 원본보다 오래되지 않았는데도 내용이 달라 손상이 의심됩니다.");
+        if (r.Placeholder > 0) sentences.Add($"{r.Placeholder:N0}개는 클라우드에만 있고 이 디스크에는 없습니다.");
+        if (r.Errors > 0) sentences.Add($"{r.Errors:N0}개는 읽을 수 없었습니다.");
+        if (r.BytesRestored > 0)
+        {
+            sentences.Add($"{Korean.Object(Humanize.Bytes(r.BytesRestored))} 복원하는 데 {Korean.Subject(Humanize.Duration(r.RestoreTime))} 걸렸습니다.");
+        }
+
+        return string.Join(" ", sentences);
     }
 
     /// <summary>"Pictures", or "Pictures\2026" for a folder inside it.</summary>

@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.Sampling;
+using Boatdrill.Core.Text;
 using Boatdrill.Core.Tools;
 using Boatdrill.Core.Verification;
 
@@ -38,7 +40,9 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
         if (result.ExitCode != 0) return new DestinationProbe(false, Explain(destination, destination.RootPath, result), null);
 
         var count = ParseListing(result.Output).Count;
-        return new DestinationProbe(true, $"{destination.DisplayLocation} holds {count:N0} {(count == 1 ? "item" : "items")} at its top", null);
+        return new DestinationProbe(true, Language.Pick(
+            $"{destination.DisplayLocation} holds {count:N0} {(count == 1 ? "item" : "items")} at its top",
+            $"{destination.DisplayLocation} 맨 위에 항목이 {count:N0}개 있습니다"), null);
     }
 
     public async Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
@@ -92,7 +96,7 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
         var where = Join(state.Base, remote);
         if (!state.Index.TryGetValue(remote, out var entry))
         {
-            return Task.FromResult(CopyLookup.Missing(where, "not on " + Destination.Redact(state.Base)));
+            return Task.FromResult(CopyLookup.Missing(where, Language.Pick("not on " + Destination.Redact(state.Base), $"{Destination.Redact(state.Base)}에 없습니다")));
         }
 
         var staged = StagedPath(state.Stage, entry.Path);
@@ -104,7 +108,7 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
 
     public async Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct)
     {
-        if (copy.State != CopyState.Found || copy.Path is null) return new ReadBack(false, 0, TimeSpan.Zero, null, "no copy to read");
+        if (copy.State != CopyState.Found || copy.Path is null) return new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("no copy to read", "읽을 사본이 없습니다"));
 
         var state = (State)binding.State!;
         if (File.Exists(copy.Path))
@@ -176,7 +180,7 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
         foreach (Match match in CopyError().Matches(result.Error)) named.TryAdd(match.Groups["path"].Value, match.Groups["error"].Value.Trim());
         foreach (var path in wanted.Where(p => !File.Exists(StagedPath(state.Stage, p))))
         {
-            state.CopyErrors[path] = named.TryGetValue(path, out var why) ? "rclone could not download it: " + why : general;
+            state.CopyErrors[path] = named.TryGetValue(path, out var why) ? Language.Pick("rclone could not download it: ", "rclone이 내려받지 못했습니다: ") + why : general;
         }
     }
 
@@ -196,25 +200,41 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
     /// <summary>rclone's own error, in words a person can act on.</summary>
     internal static string Explain(Destination destination, string location, ToolRunner.Result result)
     {
-        if (result.NotStarted) return "rclone could not be started; install it, or say where it is in Settings";
-        if (result.TimedOut) return "rclone stopped answering: " + result.Error;
+        var korean = Language.IsKorean;
+        if (result.NotStarted)
+        {
+            return korean ? "rclone을 실행할 수 없습니다. 설치하거나 설정에서 위치를 알려 주세요" : "rclone could not be started; install it, or say where it is in Settings";
+        }
+
+        if (result.TimedOut) return Language.Pick("rclone stopped answering: ", "rclone이 응답하지 않습니다: ") + result.Error;
 
         var error = result.Error;
         if (error.Contains("didn't find section in config file", StringComparison.OrdinalIgnoreCase))
         {
-            return $"rclone has no remote named \"{RemoteName(destination.RootPath)}\"; set it up with rclone config first";
+            var remote = RemoteName(destination.RootPath);
+            return korean
+                ? $"rclone에 이름이 \"{remote}\"인 원격 저장소가 없습니다. 먼저 rclone config로 설정하세요"
+                : $"rclone has no remote named \"{remote}\"; set it up with rclone config first";
         }
 
         if (error.Contains("decrypt", StringComparison.OrdinalIgnoreCase) && error.Contains("config", StringComparison.OrdinalIgnoreCase))
         {
-            return "the rclone config password was not accepted";
+            return Language.Pick("the rclone config password was not accepted", "rclone 설정 파일의 암호가 맞지 않습니다");
         }
 
-        if (error.Contains("directory not found", StringComparison.OrdinalIgnoreCase)) return Destination.Redact(location) + " was not found";
+        if (error.Contains("directory not found", StringComparison.OrdinalIgnoreCase))
+        {
+            var missing = Destination.Redact(location);
+            return korean ? $"{Korean.Object(missing)} 찾을 수 없습니다" : missing + " was not found";
+        }
 
         var last = error.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
-        if (last is null) return $"rclone stopped with exit code {result.ExitCode}";
-        return "rclone said: " + LogPrefix().Replace(last, string.Empty);
+        if (last is null)
+        {
+            return korean ? $"rclone이 종료 코드 {Korean.Toward(result.ExitCode.ToString(CultureInfo.InvariantCulture))} 멈췄습니다" : $"rclone stopped with exit code {result.ExitCode}";
+        }
+
+        return Language.Pick("rclone said: ", "rclone 메시지: ") + LogPrefix().Replace(last, string.Empty);
     }
 
     /// <summary>"gdrive" for "gdrive:Backups"; the whole location for a local folder.</summary>

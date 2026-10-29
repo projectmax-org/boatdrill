@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Boatdrill.Core.Text;
 
 namespace Boatdrill.Core;
 
@@ -135,15 +136,25 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
     public static string Redact(string location) => UrlPassword().Replace(location, "***");
 
     /// <summary>Where a backup is, in words: "File History on F:\", "restic repository at …", "Archives in …".</summary>
-    public static string Describe(DestinationKind kind, string location) => kind switch
-    {
-        DestinationKind.FileHistory => "File History on " + location,
-        DestinationKind.Restic => "restic repository at " + Redact(location),
-        DestinationKind.Rclone => "rclone remote at " + location,
-        DestinationKind.Archive when IsArchiveFile(location) => location,
-        DestinationKind.Archive => "Archives in " + location,
-        _ => location,
-    };
+    public static string Describe(DestinationKind kind, string location) => Language.IsKorean
+        ? kind switch
+        {
+            DestinationKind.FileHistory => $"{location}의 파일 히스토리",
+            DestinationKind.Restic => $"{Redact(location)}의 restic 저장소",
+            DestinationKind.Rclone => $"{location}의 rclone 원격 저장소",
+            DestinationKind.Archive when IsArchiveFile(location) => location,
+            DestinationKind.Archive => $"{location}의 압축 파일",
+            _ => location,
+        }
+        : kind switch
+        {
+            DestinationKind.FileHistory => "File History on " + location,
+            DestinationKind.Restic => "restic repository at " + Redact(location),
+            DestinationKind.Rclone => "rclone remote at " + location,
+            DestinationKind.Archive when IsArchiveFile(location) => location,
+            DestinationKind.Archive => "Archives in " + location,
+            _ => location,
+        };
 
     /// <summary>A zip or 7z archive, by its name.</summary>
     public static bool IsArchiveFile(string path) =>

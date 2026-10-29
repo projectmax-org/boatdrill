@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.Sampling;
+using Boatdrill.Core.Text;
 using Boatdrill.Core.Tools;
 using Boatdrill.Core.Verification;
 
@@ -45,13 +47,15 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
     public async Task<DestinationProbe> ProbeAsync(Destination destination, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(destination.Secret)) return new DestinationProbe(false, "no password is saved for it", null);
+        if (string.IsNullOrEmpty(destination.Secret)) return new DestinationProbe(false, Language.Pick("no password is saved for it", "저장된 암호가 없습니다"), null);
 
         var result = await RunAsync(destination, ["snapshots", "--json"], ListLimit, ct).ConfigureAwait(false);
         if (result.ExitCode != 0) return new DestinationProbe(false, Explain(destination, result), null);
 
         var count = ParseSnapshots(result.Output).Count;
-        return new DestinationProbe(true, $"{destination.DisplayLocation} holds {count:N0} {(count == 1 ? "snapshot" : "snapshots")}", null);
+        return new DestinationProbe(true, Language.Pick(
+            $"{destination.DisplayLocation} holds {count:N0} {(count == 1 ? "snapshot" : "snapshots")}",
+            $"{destination.DisplayLocation}에 스냅샷이 {count:N0}개 있습니다"), null);
     }
 
     public async Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
@@ -72,7 +76,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
         if (Choose(ParseSnapshots(listed.Output), treeRoot) is not { } chosen)
         {
-            return Unbound($"no snapshot in the repository holds {sourceRoot}");
+            return Unbound(Language.Pick($"no snapshot in the repository holds {sourceRoot}", $"저장소의 어느 스냅샷에도 {Korean.Subject(sourceRoot)} 없습니다"));
         }
 
         var (snapshot, roots) = chosen;
@@ -91,7 +95,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
         var hits = probe.Count(f => index.ContainsKey(TreePath(Path.Combine(sourceRoot, f.RelativePath))));
         return new SourceBinding(destination, sample.Source, MirrorLayout.FullPath,
-            $"{destination.DisplayLocation}, snapshot {snapshot.ShortId} of {snapshot.Time.UtcDateTime:d MMMM yyyy, HH:mm} UTC", hits, probe.Count)
+            $"{destination.DisplayLocation}, {Describe(snapshot)}", hits, probe.Count)
         {
             State = state,
         };
@@ -109,7 +113,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
         if (!state.Index.TryGetValue(tree, out var node))
         {
-            return Task.FromResult(CopyLookup.Missing(tree, $"not in snapshot {snapshot.ShortId} of {snapshot.Time.UtcDateTime:d MMMM yyyy, HH:mm} UTC"));
+            return Task.FromResult(CopyLookup.Missing(tree, Language.Pick($"not in {Describe(snapshot)}", $"{Describe(snapshot)}에 없습니다")));
         }
 
         var staged = StagedPath(state.Stage, node.Path);
@@ -121,7 +125,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
     public async Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct)
     {
-        if (copy.State != CopyState.Found || copy.Path is null) return new ReadBack(false, 0, TimeSpan.Zero, null, "no copy to read");
+        if (copy.State != CopyState.Found || copy.Path is null) return new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("no copy to read", "읽을 사본이 없습니다"));
 
         var state = (State)binding.State!;
         if (File.Exists(copy.Path))
@@ -210,12 +214,12 @@ public sealed partial class ResticAdapter : IDestinationAdapter
                 if (named.TryGetValue(node.Path, out var why) && IsContentError(why))
                 {
                     Scratch.TryDeleteFile(staged);
-                    state.RestoreErrors[node.Path] = new Failure(IsDamage(why) ? Damage("restic said: " + why) : "restic could not restore it: " + why, IsDamage(why));
+                    state.RestoreErrors[node.Path] = new Failure(IsDamage(why) ? Damage(Said + why) : CouldNotRestore + why, IsDamage(why));
                 }
                 else if (!File.Exists(staged))
                 {
                     state.RestoreErrors[node.Path] = why is not null
-                        ? new Failure("restic could not restore it: " + why, false)
+                        ? new Failure(CouldNotRestore + why, false)
                         : new Failure(general, IsDamage(general));
                 }
             }
@@ -243,23 +247,45 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         return ToolRunner.RunAsync(destination.ToolPath ?? "restic", ["--no-lock", "--quiet", .. arguments], environment, limit, ct, output, line);
     }
 
+    private static string Said => Language.Pick("restic said: ", "restic 메시지: ");
+
+    private static string CouldNotRestore => Language.Pick("restic could not restore it: ", "restic이 복원하지 못했습니다: ");
+
+    /// <summary>"snapshot 4f1c2a9e of 1 October 2026, 12:00 UTC".</summary>
+    private static string Describe(Snapshot snapshot)
+    {
+        var time = snapshot.Time.UtcDateTime;
+        return Language.IsKorean
+            ? $"{time.ToString("yyyy년 M월 d일 HH:mm", CultureInfo.InvariantCulture)} UTC 스냅샷 {snapshot.ShortId}"
+            : $"snapshot {snapshot.ShortId} of {time.ToString("d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture)} UTC";
+    }
+
     /// <summary>restic's own error, in words a person can act on.</summary>
     internal static string Explain(Destination destination, ToolRunner.Result result)
     {
-        if (result.NotStarted) return "restic could not be started; install it, or say where it is in Settings";
-        if (result.TimedOut) return "restic stopped answering: " + result.Error;
+        var korean = Language.IsKorean;
+        if (result.NotStarted)
+        {
+            return korean ? "restic을 실행할 수 없습니다. 설치하거나 설정에서 위치를 알려 주세요" : "restic could not be started; install it, or say where it is in Settings";
+        }
+
+        if (result.TimedOut) return Language.Pick("restic stopped answering: ", "restic이 응답하지 않습니다: ") + result.Error;
 
         var error = result.Error;
-        if (error.Contains("wrong password", StringComparison.OrdinalIgnoreCase)) return "the password was not accepted";
+        if (error.Contains("wrong password", StringComparison.OrdinalIgnoreCase)) return Language.Pick("the password was not accepted", "암호가 맞지 않습니다");
         if (error.Contains("unable to open config file", StringComparison.OrdinalIgnoreCase) ||
             error.Contains("Is there a repository", StringComparison.OrdinalIgnoreCase))
         {
-            return "no restic repository was found at " + destination.DisplayLocation;
+            return korean ? $"{destination.DisplayLocation}에서 restic 저장소를 찾지 못했습니다" : "no restic repository was found at " + destination.DisplayLocation;
         }
 
         var first = error.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
-        if (first is null) return $"restic stopped with exit code {result.ExitCode}";
-        return "restic said: " + (first.StartsWith("Fatal: ", StringComparison.Ordinal) ? first[7..] : first);
+        if (first is null)
+        {
+            return korean ? $"restic이 종료 코드 {Korean.Toward(result.ExitCode.ToString(CultureInfo.InvariantCulture))} 멈췄습니다" : $"restic stopped with exit code {result.ExitCode}";
+        }
+
+        return Said + (first.StartsWith("Fatal: ", StringComparison.Ordinal) ? first[7..] : first);
     }
 
     internal sealed record Snapshot(string Id, string ShortId, DateTimeOffset Time, IReadOnlyList<string> Paths, string Hostname);
@@ -287,7 +313,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         error.Contains("invalid hash", StringComparison.OrdinalIgnoreCase) ||
         error.Contains("hash mismatch", StringComparison.OrdinalIgnoreCase);
 
-    private static string Damage(string said) => "the copy in the repository is damaged; " + said;
+    private static string Damage(string said) => Language.Pick("the copy in the repository is damaged; ", "저장소의 사본이 손상되었습니다. ") + said;
 
     /// <summary>An error about a file's bytes, as opposed to its metadata: damage, or a pack restic could not read.</summary>
     internal static bool IsContentError(string error) =>

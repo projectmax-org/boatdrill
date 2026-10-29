@@ -56,7 +56,7 @@ public sealed class DrillRunner
             foreach (var source in plan.Sources)
             {
                 ct.ThrowIfCancellationRequested();
-                progress?.Report(new DrillProgress("Sampling " + source.Name, null, 0, 0, 0));
+                progress?.Report(new DrillProgress(Language.Pick("Sampling " + source.Name, source.Name + "에서 표본 고르는 중"), null, 0, 0, 0));
                 samples.Add(sampler.Take(source));
             }
 
@@ -107,7 +107,7 @@ public sealed class DrillRunner
             throw new NotSupportedException($"No adapter for {destination.Kind}.");
         }
 
-        progress?.Report(new DrillProgress("Checking " + destination.Name, destination.Name, 0, 0, 0));
+        progress?.Report(new DrillProgress(Language.Pick("Checking " + destination.Name, destination.Name + " 확인 중"), destination.Name, 0, 0, 0));
         var probe = await adapter.ProbeAsync(destination, ct).ConfigureAwait(false);
         var reachability = Reachability(_reachabilityHistory?.Invoke(destination.Id), probe.Reachable);
         var now = _clock.GetUtcNow();
@@ -160,7 +160,7 @@ public sealed class DrillRunner
             if (stamps.Count > 0) alsoRead.Add(Canary.FileName);
 
             // Binding may restore the whole sample at once (restic), so it already counts as reading back.
-            progress?.Report(new DrillProgress("Reading back from " + destination.Name, destination.Name, done, total, bytesRead));
+            progress?.Report(new DrillProgress(Language.Pick("Reading back from " + destination.Name, destination.Name + "에서 다시 읽는 중"), destination.Name, done, total, bytesRead));
             var binding = await adapter.BindAsync(destination, sample, scratch, BindPurpose.Read, alsoRead, ct).ConfigureAwait(false);
             bindings.Add(new BoundSource(sample.Source.Id, sample.Source.Name, binding.Layout, binding.BasePath, binding.ProbeHits, binding.ProbeTried)
             {
@@ -196,7 +196,7 @@ public sealed class DrillRunner
                 if (finding.Outcome is FileOutcome.Missing or FileOutcome.Outdated or FileOutcome.Placeholder) notCopied.Add(file.LastWriteUtc);
                 if (finding.Outcome != FileOutcome.Verified) findings.Add(finding);
                 done++;
-                progress?.Report(new DrillProgress("Reading back from " + destination.Name, destination.Name, done, total, bytesRead));
+                progress?.Report(new DrillProgress(Language.Pick("Reading back from " + destination.Name, destination.Name + "에서 다시 읽는 중"), destination.Name, done, total, bytesRead));
             }
 
             foreach (var entry in rechecks)
@@ -224,7 +224,7 @@ public sealed class DrillRunner
                 }
 
                 done++;
-                progress?.Report(new DrillProgress("Reading back from " + destination.Name, destination.Name, done, total, bytesRead));
+                progress?.Report(new DrillProgress(Language.Pick("Reading back from " + destination.Name, destination.Name + "에서 다시 읽는 중"), destination.Name, done, total, bytesRead));
             }
 
             if (stamps.Count > 0 && await ReadCanaryAsync(adapter, binding, scratch, ct).ConfigureAwait(false) is { } copyStamps)
@@ -311,7 +311,7 @@ public sealed class DrillRunner
         {
             case CopyState.Missing:
                 return (new FileFinding(file.RelativePath, FileOutcome.Missing, file.Length, file.LastWriteUtc, null, null,
-                    copy.Detail ?? $"expected at {copy.Path}"), 0, TimeSpan.Zero, null, null);
+                    copy.Detail ?? Language.Pick($"expected at {copy.Path}", $"{copy.Path}에 있어야 합니다")), 0, TimeSpan.Zero, null, null);
             case CopyState.Placeholder:
                 return (new FileFinding(file.RelativePath, FileOutcome.Placeholder, file.Length, file.LastWriteUtc, copy.Length, copy.LastWriteUtc, copy.Detail),
                     0, TimeSpan.Zero, null, null);
@@ -337,7 +337,7 @@ public sealed class DrillRunner
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return (new FileFinding(file.RelativePath, FileOutcome.Error, file.Length, file.LastWriteUtc, copy.Length, copy.LastWriteUtc,
-                    "the original could not be read: " + ex.Message), readBack.BytesRead, readBack.Elapsed, copy, readBack.Sha256);
+                    Language.Pick("the original could not be read: ", "원본을 읽을 수 없습니다: ") + ex.Message), readBack.BytesRead, readBack.Elapsed, copy, readBack.Sha256);
             }
 
             if (string.Equals(sourceHash, readBack.Sha256, StringComparison.Ordinal))
@@ -347,11 +347,15 @@ public sealed class DrillRunner
             }
 
             var copyOlder = copy.LastWriteUtc is { } written && written < file.LastWriteUtc - WriteTimeTolerance;
-            var detail = copyOlder
-                ? $"the copy was written {Humanize.Age(file.LastWriteUtc - copy.LastWriteUtc!.Value)} before the original"
-                : copy.Length == file.Length
-                    ? "same size and date as the original, different bytes"
-                    : $"the copy is {copy.Length:N0} bytes, the original {file.Length:N0}, and the copy is not older";
+            var detail = (copyOlder, copy.Length == file.Length, Language.IsKorean) switch
+            {
+                (true, _, false) => $"the copy was written {Humanize.Age(file.LastWriteUtc - copy.LastWriteUtc!.Value)} before the original",
+                (true, _, true) => $"사본이 원본보다 {Humanize.Age(file.LastWriteUtc - copy.LastWriteUtc!.Value)} 먼저 저장되었습니다",
+                (false, true, false) => "same size and date as the original, different bytes",
+                (false, true, true) => "크기와 날짜는 원본과 같은데 내용이 다릅니다",
+                (false, false, false) => $"the copy is {copy.Length:N0} bytes, the original {file.Length:N0}, and the copy is not older",
+                (false, false, true) => $"사본은 {copy.Length:N0}바이트, 원본은 {file.Length:N0}바이트이고 사본이 더 오래되지도 않았습니다",
+            };
             return (new FileFinding(file.RelativePath, copyOlder ? FileOutcome.Outdated : FileOutcome.Corrupt, file.Length, file.LastWriteUtc,
                 copy.Length, copy.LastWriteUtc, detail), readBack.BytesRead, readBack.Elapsed, copy, readBack.Sha256);
         }
@@ -401,7 +405,7 @@ public sealed class DrillRunner
         FileFinding Finding(FileOutcome outcome, string detail) =>
             new(entry.RelativePath, outcome, entry.SourceLength, entry.SourceWriteUtc, copy.Length, copy.LastWriteUtc, detail) { Recheck = true };
 
-        var verifiedOn = $"verified on {entry.VerifiedUtc.ToLocalTime():d MMMM yyyy}";
+        var verifiedOn = Language.Pick($"verified on {Language.Date(entry.VerifiedUtc)}", $"{Language.Date(entry.VerifiedUtc)}에 확인한 사본");
         var scratchFile = Path.Combine(scratch, Guid.NewGuid().ToString("N"));
         try
         {
@@ -409,8 +413,10 @@ public sealed class DrillRunner
             if (!readBack.Success)
             {
                 return readBack.Damaged
-                    ? (Recheck.Rotted, Finding(FileOutcome.Rotted, $"{verifiedOn}; now {readBack.Detail}"), readBack.BytesRead, readBack.Elapsed)
-                    : (Recheck.Skipped, Finding(FileOutcome.Error, $"{verifiedOn}, it could not be read again: {readBack.Detail}"), readBack.BytesRead, readBack.Elapsed);
+                    ? (Recheck.Rotted, Finding(FileOutcome.Rotted, Language.Pick($"{verifiedOn}; now {readBack.Detail}", $"{verifiedOn}인데, 지금은 {readBack.Detail}")),
+                        readBack.BytesRead, readBack.Elapsed)
+                    : (Recheck.Skipped, Finding(FileOutcome.Error, Language.Pick($"{verifiedOn}, it could not be read again: {readBack.Detail}", $"{verifiedOn}인데 다시 읽을 수 없습니다: {readBack.Detail}")),
+                        readBack.BytesRead, readBack.Elapsed);
             }
 
             if (string.Equals(readBack.Sha256, entry.CopySha256, StringComparison.Ordinal))
@@ -421,7 +427,9 @@ public sealed class DrillRunner
             // A tool that checks its own bytes would have refused damaged ones: these are a new version.
             if (adapter.ChecksItsOwnBytes) return (Recheck.Replaced, null, readBack.BytesRead, readBack.Elapsed);
 
-            return (Recheck.Rotted, Finding(FileOutcome.Rotted, $"{verifiedOn}; its bytes have changed since, though its size and date have not"),
+            return (Recheck.Rotted, Finding(FileOutcome.Rotted, Language.Pick(
+                    $"{verifiedOn}; its bytes have changed since, though its size and date have not",
+                    $"{verifiedOn}인데, 그 뒤 크기와 날짜는 그대로인 채 내용이 바뀌었습니다")),
                 readBack.BytesRead, readBack.Elapsed);
         }
         finally

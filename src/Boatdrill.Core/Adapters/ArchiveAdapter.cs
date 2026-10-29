@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.Sampling;
+using Boatdrill.Core.Text;
 using Boatdrill.Core.Tools;
 using Boatdrill.Core.Verification;
 
@@ -30,7 +31,9 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
     private static readonly TimeSpan ExtractLimit = TimeSpan.FromHours(2);
     private static readonly TimeSpan OneLimit = TimeSpan.FromMinutes(30);
 
-    private const string Encrypted = "it is password-protected, and Boatdrill cannot open encrypted archives yet";
+    private static string Encrypted => Language.Pick(
+        "it is password-protected, and Boatdrill cannot open encrypted archives yet",
+        "암호로 보호되어 있어 Boatdrill이 아직 열 수 없습니다");
 
     private static StringComparer NameComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
@@ -47,13 +50,18 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
     public Task<DestinationProbe> ProbeAsync(Destination destination, CancellationToken ct)
     {
         var archives = Archives(destination.RootPath);
-        if (archives is null) return Task.FromResult(new DestinationProbe(false, $"{destination.RootPath} was not found", null));
-        if (archives.Count == 0) return Task.FromResult(new DestinationProbe(false, $"{destination.RootPath} holds no zip or 7z archives", null));
+        if (archives is null) return Task.FromResult(new DestinationProbe(false, NotFound(destination.RootPath), null));
+        if (archives.Count == 0) return Task.FromResult(new DestinationProbe(false, NoArchives(destination.RootPath), null));
 
         var free = MirrorFolderAdapter.ProbeFolder(Path.GetDirectoryName(archives[0].FullName)!).FreeBytes;
-        var detail = archives.Count == 1
-            ? $"{archives[0].Name} is there, from {archives[0].LastWriteTimeUtc.ToLocalTime().ToString("d MMMM yyyy", CultureInfo.InvariantCulture)}"
-            : $"{destination.RootPath} holds {archives.Count:N0} archives, the newest from {archives[0].LastWriteTimeUtc.ToLocalTime().ToString("d MMMM yyyy", CultureInfo.InvariantCulture)}";
+        var newest = Language.Date(new DateTimeOffset(archives[0].LastWriteTimeUtc, TimeSpan.Zero));
+        var detail = (archives.Count, Language.IsKorean) switch
+        {
+            (1, false) => $"{archives[0].Name} is there, from {newest}",
+            (1, true) => $"{newest}에 만든 {archives[0].Name} 파일이 있습니다",
+            (_, false) => $"{destination.RootPath} holds {archives.Count:N0} archives, the newest from {newest}",
+            (_, true) => $"{destination.RootPath}에 압축 파일이 {archives.Count:N0}개 있고, 가장 최근 것은 {newest}에 만들었습니다",
+        };
         return Task.FromResult(new DestinationProbe(true, detail, free));
     }
 
@@ -107,7 +115,9 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
             return new SourceBinding(destination, sample.Source, MirrorLayout.Contents, destination.RootPath, 0, probe.Count)
             {
                 State = empty,
-                Problem = unreadable.Count > 0 ? "no archive could be read (" + string.Join("; ", unreadable) + ")" : $"{destination.RootPath} holds no zip or 7z archives",
+                Problem = unreadable.Count > 0
+                    ? Language.Pick("no archive could be read (", "읽을 수 있는 압축 파일이 없습니다(") + string.Join("; ", unreadable) + ")"
+                    : NoArchives(destination.RootPath),
             };
         }
 
@@ -131,7 +141,8 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
         var key = state.Prefix + Normalise(relativePath);
         if (!state.Entries.TryGetValue(key, out var entry))
         {
-            return Task.FromResult(CopyLookup.Missing(state.ArchivePath + "!" + key, binding.Problem ?? "not in " + Path.GetFileName(state.ArchivePath)));
+            var archiveName = Path.GetFileName(state.ArchivePath);
+            return Task.FromResult(CopyLookup.Missing(state.ArchivePath + "!" + key, binding.Problem ?? Language.Pick("not in " + archiveName, archiveName + "에 없습니다")));
         }
 
         var staged = StagedPath(state.Stage, key);
@@ -147,7 +158,7 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
 
     public async Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct)
     {
-        if (copy.State != CopyState.Found || copy.Path is null) return new ReadBack(false, 0, TimeSpan.Zero, null, "no copy to read");
+        if (copy.State != CopyState.Found || copy.Path is null) return new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("no copy to read", "읽을 사본이 없습니다"));
 
         var state = (State)binding.State!;
         var watch = Stopwatch.StartNew();
@@ -207,7 +218,7 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
             }
             catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
             {
-                return (null, "the zip could not be opened: " + ex.Message);
+                return (null, CouldNotOpenZip + ex.Message);
             }
         }
 
@@ -304,17 +315,17 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
                 }
                 catch (InvalidDataException ex)
                 {
-                    failures[entry.Name] = new Failure("the copy in the archive is damaged: " + ex.Message, Damaged: true);
+                    failures[entry.Name] = new Failure(DamagedInArchive + ex.Message, Damaged: true);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
                 {
-                    failures[entry.Name] = new Failure("it could not be extracted: " + ex.Message, Damaged: false);
+                    failures[entry.Name] = new Failure(Language.Pick("it could not be extracted: ", "압축을 풀 수 없습니다: ") + ex.Message, Damaged: false);
                 }
             }
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
-            foreach (var (entry, _) in files) failures.TryAdd(entry.Name, new Failure("the zip could not be opened: " + ex.Message, ex is InvalidDataException));
+            foreach (var (entry, _) in files) failures.TryAdd(entry.Name, new Failure(CouldNotOpenZip + ex.Message, ex is InvalidDataException));
         }
 
         return failures;
@@ -346,7 +357,7 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
             // "Data Error in encrypted file. Wrong password?" is a password, not damage.
             failures.TryAdd(match.Groups["path"].Value.Trim(), IsPasswordError(match.Value)
                 ? new Failure(Encrypted, Damaged: false)
-                : new Failure($"the copy in the archive is damaged: 7-Zip found a {match.Groups["what"].Value}", Damaged: true));
+                : new Failure(DamagedInArchive + Language.Pick($"7-Zip found a {match.Groups["what"].Value}", $"7-Zip이 {match.Groups["what"].Value} 오류를 찾았습니다"), Damaged: true));
         }
 
         // 7-Zip may name only the file (e for a single entry), or nothing at all.
@@ -354,7 +365,7 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
         {
             var detail = ExplainSevenZip(result);
             var damaged = detail.Contains("CRC", StringComparison.OrdinalIgnoreCase) || detail.Contains("Data Error", StringComparison.OrdinalIgnoreCase);
-            foreach (var entry in asked) failures[entry.Name] = new Failure(damaged ? "the copy in the archive is damaged: " + detail : detail, damaged);
+            foreach (var entry in asked) failures[entry.Name] = new Failure(damaged ? DamagedInArchive + detail : detail, damaged);
         }
 
         return failures;
@@ -389,14 +400,31 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
 
     private static string ExplainSevenZip(ToolRunner.Result result)
     {
-        if (result.NotStarted) return "7-Zip could not be started; install it from 7-zip.org to read 7z archives";
-        if (result.TimedOut) return "7-Zip stopped answering: " + result.Error;
+        var korean = Language.IsKorean;
+        if (result.NotStarted)
+        {
+            return korean ? "7-Zip을 실행할 수 없습니다. 7z 압축 파일을 읽으려면 7-zip.org에서 설치하세요" : "7-Zip could not be started; install it from 7-zip.org to read 7z archives";
+        }
+
+        if (result.TimedOut) return Language.Pick("7-Zip stopped answering: ", "7-Zip이 응답하지 않습니다: ") + result.Error;
 
         var said = (result.Error + "\n" + result.Output).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault(l => l.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase) || l.Contains("Can not open", StringComparison.OrdinalIgnoreCase));
-        if (said is null) return $"7-Zip stopped with exit code {result.ExitCode}";
-        return "7-Zip said: " + (said.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase) ? said[6..].Trim() : said);
+        if (said is null)
+        {
+            return korean ? $"7-Zip이 종료 코드 {Korean.Toward(result.ExitCode.ToString(CultureInfo.InvariantCulture))} 멈췄습니다" : $"7-Zip stopped with exit code {result.ExitCode}";
+        }
+
+        return Language.Pick("7-Zip said: ", "7-Zip 메시지: ") + (said.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase) ? said[6..].Trim() : said);
     }
+
+    private static string NotFound(string location) => Language.Pick($"{location} was not found", $"{Korean.Object(location)} 찾을 수 없습니다");
+
+    private static string NoArchives(string location) => Language.Pick($"{location} holds no zip or 7z archives", $"{location}에 zip이나 7z 압축 파일이 없습니다");
+
+    private static string CouldNotOpenZip => Language.Pick("the zip could not be opened: ", "zip 파일을 열 수 없습니다: ");
+
+    private static string DamagedInArchive => Language.Pick("the copy in the archive is damaged: ", "압축 파일 안의 사본이 손상되었습니다: ");
 
     // ---------------- layout ----------------
 

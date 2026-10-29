@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Renders every view of the Windows app on Linux: publishes it for win-x64, runs `Boatdrill.exe --capture`
-# under Wine with a virtual display, and leaves the PNGs in artifacts/screens. The images are close to,
-# not identical with, Windows: Segoe UI is not free, so Liberation Sans stands in for it.
+# under Wine with a virtual display, and leaves the PNGs in artifacts/screens (the Korean ones in ko/). The
+# images are close to, not identical with, Windows: Segoe UI and Malgun Gothic are not free, so Liberation
+# Sans and Nanum Barun Gothic stand in for them.
 #
-# Needs: the .NET 10 SDK, wine64 (or wine), xvfb-run, python3, and the Liberation fonts.
-#   Ubuntu: sudo apt install wine64 xvfb python3-venv fonts-liberation
+# Needs: the .NET 10 SDK, wine64 (or wine), xvfb-run, python3, and the Liberation and Nanum fonts.
+#   Ubuntu: sudo apt install wine64 xvfb python3-venv fonts-liberation fonts-nanum
 #
 # Usage: tools/capture-under-wine.sh [output-directory]
 set -euo pipefail
@@ -52,6 +53,32 @@ PY
         "$wine" reg add "$key" /v "${entry%%:*} (TrueType)" /t REG_SZ /d "${entry##*:}.ttf" /f > /dev/null 2>&1
     done
     "$(dirname "$wine")/wineserver" -w 2>/dev/null || wineserver -w 2>/dev/null || true
+fi
+
+# Hangul comes from Malgun Gothic on Windows; without a stand-in, the Korean images show empty boxes.
+nanum=/usr/share/fonts/truetype/nanum
+if [ ! -f "$fonts/malgun.ttf" ]; then
+    if [ -f "$nanum/NanumBarunGothic.ttf" ]; then
+        echo "Making a stand-in for Malgun Gothic..."
+        [ -x "$cache/venv/bin/python" ] || { python3 -m venv "$cache/venv" && "$cache/venv/bin/pip" install -q fonttools; }
+        "$cache/venv/bin/python" - "$fonts" "$nanum" <<'PY'
+import sys
+from fontTools.ttLib import TTFont
+fonts, nanum = sys.argv[1], sys.argv[2]
+for source, target, style in [("NanumBarunGothic", "malgun", "Regular"), ("NanumBarunGothicBold", "malgunbd", "Bold")]:
+    font = TTFont(f"{nanum}/{source}.ttf")
+    full = "Malgun Gothic" if style == "Regular" else "Malgun Gothic Bold"
+    for record in font["name"].names:
+        record.string = {1: "Malgun Gothic", 16: "Malgun Gothic", 2: style, 17: style, 4: full, 6: full.replace(" ", ""), 3: "stand-in:" + full}.get(record.nameID, record.toUnicode())
+    font.save(f"{fonts}/{target}.ttf")
+PY
+        key='HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
+        "$wine" reg add "$key" /v "Malgun Gothic (TrueType)" /t REG_SZ /d malgun.ttf /f > /dev/null 2>&1
+        "$wine" reg add "$key" /v "Malgun Gothic Bold (TrueType)" /t REG_SZ /d malgunbd.ttf /f > /dev/null 2>&1
+        "$(dirname "$wine")/wineserver" -w 2>/dev/null || wineserver -w 2>/dev/null || true
+    else
+        echo "fonts-nanum is not installed: the Korean images will show boxes where the Hangul goes." >&2
+    fi
 fi
 
 echo "Publishing the app for win-x64..."

@@ -128,5 +128,6 @@ public sealed class SettingsStore
         settings.ByteCapMb = Math.Clamp(settings.ByteCapMb, 16, 64 * 1024);
         if (!double.IsFinite(settings.WindowWidth) || settings.WindowWidth < 400) settings.WindowWidth = 1080;
         if (!double.IsFinite(settings.WindowHeight) || settings.WindowHeight < 300) settings.WindowHeight = 740;
+        if (settings.UiLanguage is not (Text.Language.EnglishCode or Text.Language.KoreanCode)) settings.UiLanguage = string.Empty;
     }
 }

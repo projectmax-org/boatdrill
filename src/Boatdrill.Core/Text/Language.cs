@@ -22,7 +22,17 @@ public static class Language
     /// <summary>The language Windows displays, as the process found it before Boatdrill chose one.</summary>
     private static readonly CultureInfo WindowsUiCulture = CultureInfo.CurrentUICulture;
 
-    public static bool IsKorean => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == KoreanCode;
+    /// <summary>
+    /// The language <see cref="Use"/> chose, for the whole process. The UI culture alone is not enough: it flows
+    /// with each async call and dispatcher callback, so one set inside a callback does not outlive it. Null
+    /// until something chooses (the tests never do, and switch the culture per test).
+    /// </summary>
+    private static volatile CultureInfo? s_chosen;
+
+    public static bool IsKorean => (s_chosen ?? CultureInfo.CurrentUICulture).TwoLetterISOLanguageName == KoreanCode;
+
+    /// <summary>"ko-KR" or "en-US": the language Boatdrill speaks, as a tag for WPF and HTML.</summary>
+    public static string Tag => IsKorean ? "ko-KR" : "en-US";
 
     /// <summary>Whether Windows itself is displayed in Korean, which is what Boatdrill speaks unless told otherwise.</summary>
     public static bool WindowsIsKorean => WindowsUiCulture.TwoLetterISOLanguageName == KoreanCode;
@@ -42,6 +52,7 @@ public static class Language
             EnglishCode => CultureInfo.GetCultureInfo("en-US"),
             _ => WindowsIsKorean ? CultureInfo.GetCultureInfo("ko-KR") : CultureInfo.GetCultureInfo("en-US"),
         };
+        s_chosen = culture;
         CultureInfo.DefaultThreadCurrentUICulture = culture;
         CultureInfo.CurrentUICulture = culture;
     }

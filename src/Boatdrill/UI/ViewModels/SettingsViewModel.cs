@@ -3,6 +3,7 @@ using System.Reflection;
 using Boatdrill.Core;
 using Boatdrill.Core.Adapters;
 using Boatdrill.Core.Settings;
+using Boatdrill.Core.Text;
 using Boatdrill.Platform;
 
 namespace Boatdrill.UI.ViewModels;
@@ -19,18 +20,20 @@ public sealed class SourceRowViewModel(SourceSetting source)
 
     public string Folder { get; } = source.Folder;
 
-    public string Excludes { get; } = source.Excludes.Count == 0 ? "Every file is checked." : "Left out: " + string.Join(", ", source.Excludes);
+    public string Excludes { get; } = source.Excludes.Count == 0
+        ? Language.Pick("Every file is checked.", "모든 파일을 확인합니다.")
+        : Language.Pick("Left out: ", "제외: ") + string.Join(", ", source.Excludes);
 }
 
 /// <summary>A destination in the Settings list. Its name, and a folder's layout, are edited in place.</summary>
 public sealed class DestinationRowViewModel : ViewModelBase
 {
-    public static readonly IReadOnlyList<Choice<MirrorLayout>> Layouts =
+    private readonly IReadOnlyList<Choice<MirrorLayout>> _layouts =
     [
-        new("Work it out from the files", MirrorLayout.Auto),
-        new("The folder's contents, directly", MirrorLayout.Contents),
-        new("A folder named after each source", MirrorLayout.RootFolder),
-        new("The full path, as in E:\\Backup\\C\\Users", MirrorLayout.FullPath),
+        new(Language.Pick("Work it out from the files", "파일을 보고 알아내기"), MirrorLayout.Auto),
+        new(Language.Pick("The folder's contents, directly", "폴더 안의 내용이 바로"), MirrorLayout.Contents),
+        new(Language.Pick("A folder named after each source", "보호하는 폴더 이름의 폴더 안에"), MirrorLayout.RootFolder),
+        new(Language.Pick("The full path, as in E:\\Backup\\C\\Users", "전체 경로대로 (예: E:\\Backup\\C\\Users)"), MirrorLayout.FullPath),
     ];
 
     private readonly SettingsStore _settings;
@@ -46,16 +49,20 @@ public sealed class DestinationRowViewModel : ViewModelBase
         PasswordMissing = IsPasswordMissing(destination);
         PasswordNote = destination.Kind switch
         {
-            DestinationKind.Restic or DestinationKind.Rclone when PasswordMissing =>
+            DestinationKind.Restic or DestinationKind.Rclone when PasswordMissing => Language.Pick(
                 "No password is saved that this Windows account can read. Add it again with its password.",
-            DestinationKind.Restic => "Its password is saved, encrypted so that only your Windows account can read it. Add the repository again to change it.",
-            DestinationKind.Rclone when destination.Secret is not null =>
+                "이 Windows 계정으로 읽을 수 있는 암호가 저장되어 있지 않습니다. 암호와 함께 다시 추가하세요."),
+            DestinationKind.Restic => Language.Pick(
+                "Its password is saved, encrypted so that only your Windows account can read it. Add the repository again to change it.",
+                "암호는 사용자의 Windows 계정만 읽을 수 있도록 암호화해 저장했습니다. 바꾸려면 저장소를 다시 추가하세요."),
+            DestinationKind.Rclone when destination.Secret is not null => Language.Pick(
                 "Its config password is saved, encrypted so that only your Windows account can read it. Add the remote again to change it.",
-            DestinationKind.Rclone => "Read with your rclone config as it is.",
+                "설정 파일 암호는 사용자의 Windows 계정만 읽을 수 있도록 암호화해 저장했습니다. 바꾸려면 원격 저장소를 다시 추가하세요."),
+            DestinationKind.Rclone => Language.Pick("Read with your rclone config as it is.", "지금의 rclone 설정 그대로 읽습니다."),
             _ => string.Empty,
         };
         _name = destination.Name;
-        _layout = Layouts.FirstOrDefault(l => l.Value == destination.Layout) ?? Layouts[0];
+        _layout = _layouts.FirstOrDefault(l => l.Value == destination.Layout) ?? _layouts[0];
     }
 
     /// <summary>A repository with no password, or a password this Windows account cannot decrypt (settings from elsewhere).</summary>
@@ -80,7 +87,7 @@ public sealed class DestinationRowViewModel : ViewModelBase
 
     public bool PasswordMissing { get; }
 
-    public IReadOnlyList<Choice<MirrorLayout>> LayoutChoices => Layouts;
+    public IReadOnlyList<Choice<MirrorLayout>> LayoutChoices => _layouts;
 
     public string Name
     {
@@ -139,22 +146,26 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     private string _newToolLocation = string.Empty;
     private string _newToolPath = string.Empty;
 
-    private static readonly IReadOnlyDictionary<DestinationKind, ToolForm> Forms = new Dictionary<DestinationKind, ToolForm>
+    private readonly IReadOnlyDictionary<DestinationKind, ToolForm> _forms = new Dictionary<DestinationKind, ToolForm>
     {
         [DestinationKind.Restic] = new(
-            "A restic repository",
-            "Boatdrill reads it with restic, which has to be installed. Each drill restores a sample of files into Boatdrill's own folder; nothing is written to the repository, not even a lock.",
-            "Where it is", "E:\\restic, or sftp:nas:/srv/restic",
-            "Password", string.Empty, PasswordRequired: true,
-            "restic itself", "Leave empty when restic is on the PATH",
-            "Add the repository", CanBrowse: true, "restic", "repository"),
+            Language.Pick("A restic repository", "restic 저장소"),
+            Language.Pick(
+                "Boatdrill reads it with restic, which has to be installed. Each drill restores a sample of files into Boatdrill's own folder; nothing is written to the repository, not even a lock.",
+                "Boatdrill은 restic으로 이 저장소를 읽으므로 restic이 설치되어 있어야 합니다. 복원 훈련마다 파일 표본을 Boatdrill의 작업 폴더에 복원하며, 저장소에는 잠금 파일조차 쓰지 않습니다."),
+            Language.Pick("Where it is", "위치"), Language.Pick("E:\\restic, or sftp:nas:/srv/restic", "E:\\restic 또는 sftp:nas:/srv/restic"),
+            Language.Pick("Password", "암호"), string.Empty, PasswordRequired: true,
+            Language.Pick("restic itself", "restic 프로그램"), Language.Pick("Leave empty when restic is on the PATH", "restic이 PATH에 있으면 비워 두세요"),
+            Language.Pick("Add the repository", "저장소 추가"), CanBrowse: true, "restic", Language.Pick("repository", "저장소")),
         [DestinationKind.Rclone] = new(
-            "An rclone remote",
-            "Boatdrill reads it with rclone, which has to be installed with the remote set up in its config. Each drill downloads a sample of files into Boatdrill's own folder; nothing is written to the remote.",
-            "Remote and path", "gdrive:Backups/Laptop",
-            "Config password", "Only if your rclone config is encrypted", PasswordRequired: false,
-            "rclone itself", "Leave empty when rclone is on the PATH",
-            "Add the remote", CanBrowse: false, "rclone", "remote"),
+            Language.Pick("An rclone remote", "rclone 원격 저장소"),
+            Language.Pick(
+                "Boatdrill reads it with rclone, which has to be installed with the remote set up in its config. Each drill downloads a sample of files into Boatdrill's own folder; nothing is written to the remote.",
+                "Boatdrill은 rclone으로 이 원격 저장소를 읽으므로, rclone이 설치되어 있고 설정에 원격 저장소가 등록되어 있어야 합니다. 복원 훈련마다 파일 표본을 Boatdrill의 작업 폴더로 내려받으며, 원격 저장소에는 아무것도 쓰지 않습니다."),
+            Language.Pick("Remote and path", "원격 저장소와 경로"), "gdrive:Backups/Laptop",
+            Language.Pick("Config password", "설정 파일 암호"), Language.Pick("Only if your rclone config is encrypted", "rclone 설정 파일이 암호화되어 있을 때만"), PasswordRequired: false,
+            Language.Pick("rclone itself", "rclone 프로그램"), Language.Pick("Leave empty when rclone is on the PATH", "rclone이 PATH에 있으면 비워 두세요"),
+            Language.Pick("Add the remote", "원격 저장소 추가"), CanBrowse: false, "rclone", Language.Pick("remote", "원격 저장소")),
     };
 
     public SettingsViewModel(AppServices services)
@@ -163,16 +174,16 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
         SampleSizes = WithCurrent(
         [
-            new("100 files: quickest", 100),
-            new("200 files: recommended", 200),
-            new("400 files: a tighter estimate", 400),
-            new("1,000 files: thorough", 1000),
-        ], Settings.SampleSize, n => $"{n:N0} files");
+            new(Language.Pick("100 files: quickest", "파일 100개: 가장 빠름"), 100),
+            new(Language.Pick("200 files: recommended", "파일 200개: 권장"), 200),
+            new(Language.Pick("400 files: a tighter estimate", "파일 400개: 더 정확한 추정"), 400),
+            new(Language.Pick("1,000 files: thorough", "파일 1,000개: 꼼꼼하게"), 1000),
+        ], Settings.SampleSize, n => Humanize.Count(n, "file", "파일"));
 
         ByteCaps = WithCurrent(
         [
             new("256 MB", 256),
-            new("512 MB: recommended", 512),
+            new(Language.Pick("512 MB: recommended", "512 MB: 권장"), 512),
             new("1 GB", 1024),
             new("4 GB", 4096),
         ], Settings.ByteCapMb, n => $"{n:N0} MB");
@@ -255,7 +266,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     public bool IsAddingTool => AddingKind is not null;
 
     /// <summary>The open form's words.</summary>
-    public ToolForm? Form => AddingKind is { } kind ? Forms[kind] : null;
+    public ToolForm? Form => AddingKind is { } kind ? _forms[kind] : null;
 
     /// <summary>A repository or remote just added is being opened, to say whether it works.</summary>
     public bool IsTestingTool
@@ -402,105 +413,114 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
     private void AddSource()
     {
-        var folder = Shell.PickFolder("Choose a folder to protect");
+        var folder = Shell.PickFolder(Language.Pick("Choose a folder to protect", "보호할 폴더 고르기"));
         if (folder is null) return;
 
         var source = SourceSetting.ForFolder(folder);
+
+        // Named as Explorer names it: Documents is "문서" on Korean Windows. The backups are still matched by
+        // the folder's own name on disk.
+        if (Shell.FolderDisplayName(source.Folder) is { } shown) source.Name = shown;
         if (Settings.Sources.Any(s => s.Id == source.Id))
         {
-            Say($"{source.Name} is already protected.", warning: false);
+            Say(Language.Pick($"{source.Name} is already protected.", $"{source.Name} 폴더는 이미 보호하고 있습니다."), warning: false);
             return;
         }
 
         if (Settings.Destinations.FirstOrDefault(d => SameOrInside(source.Folder, d.Folder)) is { } backup)
         {
-            Say($"{source.Folder} is part of {backup.Name}, the backup itself. Choose the folder whose files it keeps.", warning: true);
+            Say(Language.Pick(
+                $"{source.Folder} is part of {backup.Name}, the backup itself. Choose the folder whose files it keeps.",
+                $"{source.Folder} 폴더는 백업인 {backup.Name}의 일부입니다. 백업이 보관하는 원래 파일이 있는 폴더를 고르세요."), warning: true);
             return;
         }
 
         _services.Settings.Update(s => s.Sources.Add(source));
-        Say($"{source.Name} is protected from now on. Its files are in the next drill.", warning: false);
+        Say(Language.Pick($"{source.Name} is protected from now on. Its files are in the next drill.", $"이제부터 {source.Name} 폴더를 보호합니다. 다음 복원 훈련부터 이 폴더의 파일도 확인합니다."), warning: false);
     }
 
     private void AddDestination()
     {
-        var folder = Shell.PickFolder("Choose the folder or drive your backup goes to");
+        var folder = Shell.PickFolder(Language.Pick("Choose the folder or drive your backup goes to", "백업이 저장되는 폴더나 드라이브 고르기"));
         if (folder is null) return;
 
         var destination = DestinationSetting.ForFolder(folder, Shell.DriveName(folder));
         if (Settings.Destinations.Any(d => d.Id == destination.Id))
         {
-            Say($"{destination.Name} is already in the list.", warning: false);
+            Say(AlreadyListed(destination.Name), warning: false);
             return;
         }
 
         if (Settings.Sources.FirstOrDefault(s => SameOrInside(destination.Folder, s.Folder)) is { } protectedFolder)
         {
             _services.Settings.Update(s => s.Destinations.Add(destination));
-            Say($"{destination.Folder} is inside {protectedFolder.Name}, which Boatdrill protects. A backup on the same disk as the files it keeps would be lost with them.", warning: true);
+            Say(InsideProtected(destination.Folder, protectedFolder.Name), warning: true);
             return;
         }
 
         _services.Settings.Update(s => s.Destinations.Add(destination));
-        Say($"{destination.Name} is added. Boatdrill only ever reads from it.", warning: false);
+        Say(Language.Pick($"{destination.Name} is added. Boatdrill only ever reads from it.", $"{destination.Name} 백업을 추가했습니다. Boatdrill은 이곳을 읽기만 합니다."), warning: false);
     }
 
     private async Task AddFileHistoryAsync()
     {
-        var folder = Shell.PickFolder("Choose the drive File History saves to, or its FileHistory folder");
+        var folder = Shell.PickFolder(Language.Pick("Choose the drive File History saves to, or its FileHistory folder", "파일 히스토리가 저장되는 드라이브나 그 안의 FileHistory 폴더 고르기"));
         if (folder is null) return;
 
         var drive = Path.GetPathRoot(Path.GetFullPath(folder))?.TrimEnd('\\', '/');
-        var destination = DestinationSetting.ForFileHistory(folder, string.IsNullOrEmpty(drive) ? "File History" : $"File History ({drive})");
+        var fileHistory = Language.Pick("File History", "파일 히스토리");
+        var destination = DestinationSetting.ForFileHistory(folder, string.IsNullOrEmpty(drive) ? fileHistory : $"{fileHistory} ({drive})");
         if (Settings.Destinations.Any(d => d.Id == destination.Id))
         {
-            Say($"{destination.Name} is already in the list.", warning: false);
+            Say(AlreadyListed(destination.Name), warning: false);
             return;
         }
 
         var probe = await Task.Run(() => new FileHistoryAdapter().ProbeAsync(destination.ToDestination(), CancellationToken.None));
         if (!probe.Reachable)
         {
-            Say($"{probe.Detail}. Choose the drive that File History saves to, or the FileHistory folder on it.", warning: true);
+            Say(probe.Detail + Language.Pick(". Choose the drive that File History saves to, or the FileHistory folder on it.", ". 파일 히스토리가 저장되는 드라이브나 그 안의 FileHistory 폴더를 고르세요."), warning: true);
             return;
         }
 
         _services.Settings.Update(s => s.Destinations.Add(destination));
-        Say($"{destination.Name} is added. Each drill reads the newest version of every sampled file.", warning: false);
+        Say(Language.Pick($"{destination.Name} is added. Each drill reads the newest version of every sampled file.", $"{Korean.Object(destination.Name)} 추가했습니다. 복원 훈련마다 표본 파일의 가장 최근 버전을 읽습니다."), warning: false);
     }
 
     private async Task AddArchivesAsync()
     {
-        var folder = Shell.PickFolder("Choose the folder your zip or 7z backups are saved in");
+        var folder = Shell.PickFolder(Language.Pick("Choose the folder your zip or 7z backups are saved in", "zip이나 7z 백업이 저장되는 폴더 고르기"));
         if (folder is null) return;
 
         var destination = DestinationSetting.ForArchives(folder);
         if (Settings.Destinations.Any(d => d.Id == destination.Id))
         {
-            Say($"{destination.Name} is already in the list.", warning: false);
+            Say(AlreadyListed(destination.Name), warning: false);
             return;
         }
 
         var probe = await Task.Run(() => new ArchiveAdapter().ProbeAsync(destination.ToDestination(), CancellationToken.None));
         if (!probe.Reachable)
         {
-            Say($"{probe.Detail}. Choose the folder your backup program saves its zip or 7z archives in.", warning: true);
+            Say(probe.Detail + Language.Pick(". Choose the folder your backup program saves its zip or 7z archives in.", ". 백업 프로그램이 zip이나 7z 압축 파일을 저장하는 폴더를 고르세요."), warning: true);
             return;
         }
 
         _services.Settings.Update(s => s.Destinations.Add(destination));
         if (Settings.Sources.FirstOrDefault(s => SameOrInside(destination.Folder, s.Folder)) is { } protectedFolder)
         {
-            Say($"{destination.Folder} is inside {protectedFolder.Name}, which Boatdrill protects. A backup on the same disk as the files it keeps would be lost with them.", warning: true);
+            Say(InsideProtected(destination.Folder, protectedFolder.Name), warning: true);
             return;
         }
 
-        Say($"{destination.Name} is added: {probe.Detail}. Each drill reads the newest archive that holds each protected folder.", warning: false);
+        Say(Language.Pick(
+            $"{destination.Name} is added: {probe.Detail}. Each drill reads the newest archive that holds each protected folder.",
+            $"{destination.Name} 백업을 추가했습니다: {probe.Detail}. 복원 훈련마다 보호하는 폴더가 담긴 가장 최근 압축 파일을 읽습니다."), warning: false);
     }
 
     private void BrowseTool()
     {
-        if (Shell.PickFolder("Choose the folder that holds the repository") is { } folder) NewToolLocation = folder;
+        if (Shell.PickFolder(Language.Pick("Choose the folder that holds the repository", "저장소가 있는 폴더 고르기")) is { } folder) NewToolLocation = folder;
     }
 
     public void CancelTool()
@@ -521,13 +541,13 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         var location = NewToolLocation.Trim();
         if (location.Length == 0)
         {
-            Say($"Type where the {form.Noun} is, such as {form.LocationHint}.", warning: true);
+            Say(Language.Pick($"Type where the {form.Noun} is, such as {form.LocationHint}.", $"{form.Noun} 위치를 입력하세요. 예: {form.LocationHint}"), warning: true);
             return;
         }
 
         if (form.PasswordRequired && password.Length == 0)
         {
-            Say($"Type the {form.Noun}'s password. Boatdrill keeps it encrypted, for your Windows account only.", warning: true);
+            Say(Language.Pick($"Type the {form.Noun}'s password. Boatdrill keeps it encrypted, for your Windows account only.", $"{form.Noun} 암호를 입력하세요. Boatdrill은 사용자의 Windows 계정만 읽을 수 있도록 암호화해 보관합니다."), warning: true);
             return;
         }
 
@@ -542,7 +562,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or InvalidOperationException)
         {
-            Say("That location cannot be used: " + ex.Message, warning: true);
+            Say(Language.Pick("That location cannot be used: ", "그 위치는 쓸 수 없습니다: ") + ex.Message, warning: true);
             return;
         }
 
@@ -561,7 +581,14 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         });
         CancelTool();
         var name = existing?.Name ?? destination.Name;
-        Say(existing is null ? $"Opening {name} with {form.Tool}…" : $"{name} is updated. Opening it with {form.Tool}…", warning: false);
+        // restic (레스틱) and rclone (알클론) both end in a consonant: 으로.
+        Say((existing is null, Language.IsKorean) switch
+        {
+            (true, false) => $"Opening {name} with {form.Tool}…",
+            (true, true) => $"{form.Tool}으로 {Korean.Object(name)} 여는 중…",
+            (false, false) => $"{name} is updated. Opening it with {form.Tool}…",
+            (false, true) => $"{Korean.Object(name)} 바꿨습니다. {form.Tool}으로 여는 중…",
+        }, warning: false);
 
         IsTestingTool = true;
         try
@@ -570,8 +597,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             IDestinationAdapter adapter = kind == DestinationKind.Rclone ? new RcloneAdapter() : new ResticAdapter();
             var probe = await Task.Run(() => adapter.ProbeAsync(target, CancellationToken.None));
             Say(probe.Reachable
-                    ? $"{name} is ready: {probe.Detail}. Boatdrill only ever reads from it."
-                    : $"{name} is in the list, but {form.Tool} could not open it: {probe.Detail}.",
+                    ? Language.Pick($"{name} is ready: {probe.Detail}. Boatdrill only ever reads from it.", $"{name} 준비 완료: {probe.Detail}. Boatdrill은 이곳을 읽기만 합니다.")
+                    : Language.Pick($"{name} is in the list, but {form.Tool} could not open it: {probe.Detail}.", $"{name} 백업을 목록에 넣었지만 {form.Tool}으로 열지 못했습니다: {probe.Detail}."),
                 warning: !probe.Reachable);
         }
         finally
@@ -584,14 +611,14 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     {
         if (row is null) return;
         _services.Settings.Update(s => s.Sources.RemoveAll(x => x.Id == row.Id));
-        Say($"{row.Name} is no longer protected. Its files stay where they are.", warning: false);
+        Say(Language.Pick($"{row.Name} is no longer protected. Its files stay where they are.", $"{row.Name} 폴더는 더 이상 보호하지 않습니다. 폴더의 파일은 그대로 있습니다."), warning: false);
     }
 
     private void RemoveDestination(DestinationRowViewModel? row)
     {
         if (row is null) return;
         _services.Settings.Update(s => s.Destinations.RemoveAll(x => x.Id == row.Id));
-        Say($"{row.Name} is no longer checked. Nothing in it was touched.", warning: false);
+        Say(Language.Pick($"{row.Name} is no longer checked. Nothing in it was touched.", $"{row.Name} 백업은 더 이상 확인하지 않습니다. 그 안의 어떤 것도 건드리지 않았습니다."), warning: false);
     }
 
     private static bool SameOrInside(string folder, string container)
@@ -606,6 +633,31 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     private void SetFrequency(bool chosen, DrillFrequency frequency)
     {
         if (chosen && Settings.Frequency != frequency) Change(s => s.Frequency = frequency);
+    }
+
+    public bool IsWindowsLanguage
+    {
+        get => Settings.UiLanguage.Length == 0;
+        set => SetLanguage(value, string.Empty);
+    }
+
+    public bool IsEnglish
+    {
+        get => Settings.UiLanguage == Language.EnglishCode;
+        set => SetLanguage(value, Language.EnglishCode);
+    }
+
+    public bool IsKorean
+    {
+        get => Settings.UiLanguage == Language.KoreanCode;
+        set => SetLanguage(value, Language.KoreanCode);
+    }
+
+    /// <summary>Saved here; the app hears the change and builds its window again in the new language.</summary>
+    private void SetLanguage(bool chosen, string code)
+    {
+        if (!chosen || Settings.UiLanguage == code) return;
+        Change(s => s.UiLanguage = code);
     }
 
     private void SetTheme(bool chosen, AppTheme theme)
@@ -659,6 +711,12 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             nameof(StartWithWindows), nameof(KeepRunningInTray),
             nameof(IsSystemTheme), nameof(IsLightTheme), nameof(IsDarkTheme));
     }
+
+    private static string AlreadyListed(string name) => Language.Pick($"{name} is already in the list.", $"{name} 백업은 이미 목록에 있습니다.");
+
+    private static string InsideProtected(string folder, string protectedName) => Language.Pick(
+        $"{folder} is inside {protectedName}, which Boatdrill protects. A backup on the same disk as the files it keeps would be lost with them.",
+        $"{folder} 위치는 Boatdrill이 보호하는 {protectedName} 폴더 안에 있습니다. 원본과 같은 디스크에 있는 백업은 원본과 함께 사라집니다.");
 
     /// <summary>A value set by hand in settings.json gets its own entry, so the drop-down never shows blank.</summary>
     private static IReadOnlyList<Choice<int>> WithCurrent(List<Choice<int>> choices, int current, Func<int, string> label)

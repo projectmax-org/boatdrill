@@ -3,6 +3,7 @@ using Boatdrill.Core;
 using Boatdrill.Core.Scan;
 using Boatdrill.Core.Settings;
 using Boatdrill.Platform;
+using Boatdrill.Core.Text;
 
 namespace Boatdrill.Drilling;
 
@@ -55,8 +56,8 @@ public sealed class ScanService : IDisposable
         if (_disposed || !await _gate.WaitAsync(0).ConfigureAwait(false)) return null;
 
         var settings = _settings.Snapshot();
-        var refusal = !settings.IsReadyToDrill ? "Choose a folder to protect and add the place its backup goes first."
-            : _drills.IsRunning ? "A drill is running. Look again when it has finished."
+        var refusal = !settings.IsReadyToDrill ? Language.Pick("Choose a folder to protect and add the place its backup goes first.", "먼저 보호할 폴더를 고르고 그 백업이 저장되는 곳을 추가하세요.")
+            : _drills.IsRunning ? Language.Pick("A drill is running. Look again when it has finished.", "복원 훈련이 진행 중입니다. 끝난 뒤에 다시 살펴보세요.")
             : null;
         if (refusal is not null)
         {
@@ -87,12 +88,12 @@ public sealed class ScanService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            LastError = "The scan was stopped before it finished.";
+            LastError = Language.Pick("The scan was stopped before it finished.", "살펴보기가 끝나기 전에 멈췄습니다.");
         }
         catch (Exception ex)
         {
             Log.Error("Scan failed.", ex);
-            LastError = "The scan could not finish: " + ex.Message;
+            LastError = Language.Pick("The scan could not finish: ", "살펴보기를 끝내지 못했습니다: ") + ex.Message;
         }
         finally
         {

@@ -102,23 +102,29 @@ public sealed class DashboardViewModel : ViewModelBase
 
         if (settings.Sources.Count == 0)
         {
-            Headline = "Choose what to protect";
+            Headline = Language.Pick("Choose what to protect", "보호할 폴더를 고르세요");
             HeadlineKind = VerdictStyle.None;
-            Summary = "Pick the folders whose files you could not bear to lose. Boatdrill will check that their backup could bring them back.";
-            SetupButtonText = "Choose folders";
+            Summary = Language.Pick(
+                "Pick the folders whose files you could not bear to lose. Boatdrill will check that their backup could bring them back.",
+                "잃어서는 안 될 파일이 있는 폴더를 고르세요. Boatdrill이 그 백업으로 파일을 되살릴 수 있는지 확인합니다.");
+            SetupButtonText = Language.Pick("Choose folders", "폴더 고르기");
         }
         else if (settings.Destinations.Count == 0)
         {
-            Headline = "Where does your backup go?";
+            Headline = Language.Pick("Where does your backup go?", "백업은 어디에 저장되나요?");
             HeadlineKind = VerdictStyle.None;
-            Summary = "Add the drive, network share or synced folder your backup copies to. Boatdrill only ever reads from it.";
-            SetupButtonText = "Add a destination";
+            Summary = Language.Pick(
+                "Add the drive, network share or synced folder your backup copies to. Boatdrill only ever reads from it.",
+                "백업이 복사되는 드라이브, 네트워크 공유 폴더, 동기화 폴더를 추가하세요. Boatdrill은 그곳을 읽기만 합니다.");
+            SetupButtonText = Language.Pick("Add a destination", "백업 위치 추가");
         }
         else if (results.Count == 0 || latest is null)
         {
-            Headline = "Ready for the first drill";
+            Headline = Language.Pick("Ready for the first drill", "첫 복원 훈련을 할 준비가 되었습니다");
             HeadlineKind = VerdictStyle.None;
-            Summary = "A drill reads a sample of your files back from each backup and checks every byte against the original. It takes a few minutes.";
+            Summary = Language.Pick(
+                "A drill reads a sample of your files back from each backup and checks every byte against the original. It takes a few minutes.",
+                "복원 훈련은 백업마다 파일 표본을 다시 읽어 원본과 한 바이트도 빠짐없이 비교합니다. 몇 분이면 끝납니다.");
         }
         else
         {
@@ -129,13 +135,23 @@ public sealed class DashboardViewModel : ViewModelBase
 
             var sampled = latest.Sources.Sum(s => s.Sampled);
             var reached = results.Count(r => r.Reachable);
-            var from = reached == results.Count
-                ? Humanize.Plural(results.Count, "backup")
-                : $"{reached} of {Humanize.Plural(results.Count, "backup")}";
-            Summary = reached == 0
-                ? $"The last drill, {Humanize.Ago(now - latest.FinishedUtc)}, could not reach any backup."
-                : $"The last drill, {Humanize.Ago(now - latest.FinishedUtc)}, read {Humanize.Plural(sampled, "sampled file")} back from " +
-                  $"{from} and compared every byte with the original.";
+            var ago = Humanize.Ago(now - latest.FinishedUtc);
+            if (Language.IsKorean)
+            {
+                var from = reached == results.Count ? $"백업 {results.Count:N0}개" : $"백업 {results.Count:N0}개 중 {reached:N0}개";
+                Summary = reached == 0
+                    ? $"{ago}에 한 마지막 복원 훈련에서는 어떤 백업에도 연결하지 못했습니다."
+                    : $"{ago}에 한 마지막 복원 훈련에서 표본 파일 {sampled:N0}개를 {from}에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.";
+            }
+            else
+            {
+                var from = reached == results.Count
+                    ? Humanize.Plural(results.Count, "backup")
+                    : $"{reached} of {Humanize.Plural(results.Count, "backup")}";
+                Summary = reached == 0
+                    ? $"The last drill, {ago}, could not reach any backup."
+                    : $"The last drill, {ago}, read {Humanize.Plural(sampled, "sampled file")} back from {from} and compared every byte with the original.";
+            }
         }
     }
 
@@ -143,8 +159,11 @@ public sealed class DashboardViewModel : ViewModelBase
     {
         if (_services.Drills.Latest is not { } latest) return;
 
-        var path = Shell.PickSaveFile("Save the drill report", $"Boatdrill report {latest.StartedUtc.ToLocalTime():yyyy-MM-dd}.html",
-            "Web page (*.html)|*.html");
+        var day = latest.StartedUtc.ToLocalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var path = Shell.PickSaveFile(
+            Language.Pick("Save the drill report", "복원 훈련 보고서 저장"),
+            Language.Pick($"Boatdrill report {day}.html", $"Boatdrill 보고서 {day}.html"),
+            Language.Pick("Web page (*.html)|*.html", "웹 페이지 (*.html)|*.html"));
         if (path is null) return;
 
         var version = typeof(DashboardViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
@@ -157,7 +176,7 @@ public sealed class DashboardViewModel : ViewModelBase
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Log.Warn("Could not save the report.", ex);
-            Summary = "The report could not be saved: " + ex.Message;
+            Summary = Language.Pick("The report could not be saved: ", "보고서를 저장할 수 없습니다: ") + ex.Message;
         }
     }
 
@@ -192,11 +211,16 @@ public sealed class DashboardViewModel : ViewModelBase
     {
         if (settings.Sources.Count == 0) return string.Empty;
 
-        var names = settings.Sources.Select(s => s.Name).ToList();
-        var list = names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
+        var list = Language.List(settings.Sources.Select(s => s.Name).ToList());
         var measured = latest?.Sources.Where(s => settings.Sources.Any(x => x.Id == s.SourceId)).ToList();
-        if (measured is not { Count: > 0 }) return "Protecting " + list + ".";
+        if (Language.IsKorean)
+        {
+            return measured is { Count: > 0 }
+                ? $"{Korean.Object(list)} 보호하고 있습니다: 파일 {measured.Sum(s => s.Population):N0}개, {Humanize.Bytes(measured.Sum(s => s.PopulationBytes))}."
+                : $"{Korean.Object(list)} 보호하고 있습니다.";
+        }
 
+        if (measured is not { Count: > 0 }) return "Protecting " + list + ".";
         return $"Protecting {list}: {measured.Sum(s => s.Population):N0} files, {Humanize.Bytes(measured.Sum(s => s.PopulationBytes))}.";
     }
 }

@@ -32,6 +32,26 @@ the schedule, notifications) and is tested anywhere; the app shows and schedules
 - One change per pull request, described in the first line of the description the way you would explain
   it to a user.
 
+## Words on screen: English and Korean
+
+Boatdrill speaks English and Korean, and every sentence is written whole in both, side by side, where it
+is used. There are no resource files: Korean orders a sentence differently, and its particles change with
+the word before them, so a sentence assembled from translated pieces reads badly.
+
+- In C#: `Language.Pick("Restore it all", "전부 복원하기")`, or `if (Language.IsKorean)` around a sentence
+  that is built differently.
+- In XAML: `Text="{ui:Say 'Restore it all', '전부 복원하기'}"`. Quote with single quotes; a quote inside
+  is `\'`.
+- After a name the user chose, use `Korean.Topic`, `Subject`, `Object`, `With` or `Toward` for 은/는,
+  이/가, 을/를, 과/와 and 으로/로, or word the sentence so no particle follows the name ("{name}에서",
+  "{name} 백업은").
+- Counts and times go through `Humanize` (`Humanize.Count(n, "file", "파일")` is "3 files" or "파일 3개").
+- The words used so far: a drill is 복원 훈련, a full-restore rehearsal 전체 복원 리허설, a backup 백업,
+  a sample 표본, File History 파일 히스토리, a repository 저장소, a remote 원격 저장소.
+
+`boatdrill-cli` always speaks English, so scripts can rely on its output. The view capture renders every
+page in Korean too, into `artifacts/screens/ko`; check those images for a change to a view.
+
 ## Adding a destination kind
 
 Implement `IDestinationAdapter` (start from `MirrorFolderAdapter`, or `ResticAdapter` for a tool-backed

@@ -1,6 +1,7 @@
 <UserControl x:Class="Boatdrill.UI.Views.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Boatdrill.UI"
              xmlns:controls="clr-namespace:Boatdrill.UI.Controls"
              xmlns:vm="clr-namespace:Boatdrill.UI.ViewModels"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -27,9 +28,9 @@
                 Background="{DynamicResource Brush.Surface}"
                 BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1">
             <StackPanel MaxWidth="900">
-                <TextBlock Text="Settings" Style="{StaticResource Text.Title}" />
+                <TextBlock Text="{ui:Say 'Settings', '설정'}" Style="{StaticResource Text.Title}" />
                 <TextBlock Style="{StaticResource Text.Body}" Margin="0,6,0,0"
-                           Text="What to protect, where its backup is, and when to rehearse a restore. Every change is saved as you make it." />
+                           Text="{ui:Say 'What to protect, where its backup is, and when to rehearse a restore. Every change is saved as you make it.', '무엇을 보호할지, 그 백업이 어디에 있는지, 언제 복원 훈련을 할지 정합니다. 바꾸는 즉시 저장됩니다.'}" />
 
                 <Border CornerRadius="{StaticResource CornerRadius.Small}"
                         Padding="10,6" Margin="0,12,0,0" HorizontalAlignment="Left"
@@ -62,9 +63,9 @@
                      ============================================================ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="WHAT TO PROTECT" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'WHAT TO PROTECT', '보호할 폴더'}" Style="{StaticResource Text.SectionLabel}" />
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,-4,0,12"
-                                   Text="The folders whose files must come back. Each drill picks a sample of their files, favouring the ones changed recently." />
+                                   Text="{ui:Say 'The folders whose files must come back. Each drill picks a sample of their files, favouring the ones changed recently.', '꼭 되찾아야 할 파일이 있는 폴더입니다. 복원 훈련마다 이 폴더들에서 파일 표본을 고르며, 최근에 바뀐 파일을 더 자주 고릅니다.'}" />
 
                         <ItemsControl ItemsSource="{Binding Sources}" Focusable="False">
                             <ItemsControl.ItemTemplate>
@@ -86,7 +87,7 @@
                                                 <TextBlock Text="{Binding Excludes, Mode=OneTime}" Style="{StaticResource Text.Caption}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
                                             </StackPanel>
                                             <Button Grid.Column="2" Style="{StaticResource Button.Icon}" VerticalAlignment="Center"
-                                                    ToolTip="Stop protecting this folder" AutomationProperties.Name="Stop protecting this folder"
+                                                    ToolTip="{ui:Say 'Stop protecting this folder', '이 폴더 보호 그만하기'}" AutomationProperties.Name="{ui:Say 'Stop protecting this folder', '이 폴더 보호 그만하기'}"
                                                     Command="{Binding DataContext.RemoveSourceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}">
                                                 <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Trash}" Stroke="{DynamicResource Brush.Danger}" />
@@ -97,10 +98,10 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <Button HorizontalAlignment="Left" Margin="0,4,0,0" Command="{Binding AddSourceCommand}" AutomationProperties.Name="Add a folder to protect">
+                        <Button HorizontalAlignment="Left" Margin="0,4,0,0" Command="{Binding AddSourceCommand}" AutomationProperties.Name="{ui:Say 'Add a folder to protect', '보호할 폴더 추가'}">
                             <StackPanel Orientation="Horizontal">
                                 <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Plus}" />
-                                <TextBlock Text="Add a folder" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                <TextBlock Text="{ui:Say 'Add a folder', '폴더 추가'}" Margin="7,0,0,0" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
@@ -111,9 +112,9 @@
                      ============================================================ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="WHERE YOUR BACKUPS ARE" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'WHERE YOUR BACKUPS ARE', '백업 위치'}" Style="{StaticResource Text.SectionLabel}" />
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,-4,0,12"
-                                   Text="An external drive, a network share, a folder that OneDrive, Dropbox or Google Drive keeps in step, a File History drive, a restic repository or an rclone remote. Boatdrill only ever reads from these." />
+                                   Text="{ui:Say 'An external drive, a network share, a folder that OneDrive, Dropbox or Google Drive keeps in step, a File History drive, a restic repository, an rclone remote or a folder of zip or 7z archives. Boatdrill only ever reads from these.', '외장 드라이브, 네트워크 공유 폴더, OneDrive·Dropbox·Google Drive가 동기화하는 폴더, 파일 히스토리 드라이브, restic 저장소, rclone 원격 저장소, zip·7z 압축 파일이 있는 폴더를 쓸 수 있습니다. Boatdrill은 이곳들을 읽기만 합니다.'}" />
 
                         <ItemsControl ItemsSource="{Binding Destinations}" Focusable="False">
                             <ItemsControl.ItemTemplate>
@@ -135,9 +136,9 @@
 
                                             <Path Style="{StaticResource Icon}" Data="{Binding Kind, Mode=OneTime, Converter={StaticResource DestinationIcon}}" VerticalAlignment="Center" />
                                             <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
-                                                <TextBox Text="{Binding Name, UpdateSourceTrigger=LostFocus}" controls:Hint.Text="A name for this backup"
+                                                <TextBox Text="{Binding Name, UpdateSourceTrigger=LostFocus}" controls:Hint.Text="{ui:Say 'A name for this backup', '이 백업의 이름'}"
                                                          MaxWidth="360" HorizontalAlignment="Left" MinWidth="220"
-                                                         AutomationProperties.Name="Name of this backup" />
+                                                         AutomationProperties.Name="{ui:Say 'Name of this backup', '백업 이름'}" />
                                                 <TextBlock Text="{Binding Folder, Mode=OneTime}" Style="{StaticResource Text.Caption}" TextTrimming="CharacterEllipsis" Margin="2,5,0,0" />
                                                 <TextBlock Text="{Binding PasswordNote, Mode=OneTime}" TextWrapping="Wrap" Margin="2,4,0,0"
                                                            Visibility="{Binding PasswordNote, Mode=OneTime, Converter={StaticResource BoolToVisibility}}">
@@ -153,7 +154,7 @@
                                                 </TextBlock>
                                             </StackPanel>
                                             <Button Grid.Column="2" Style="{StaticResource Button.Icon}" VerticalAlignment="Center"
-                                                    ToolTip="Stop checking this backup" AutomationProperties.Name="Stop checking this backup"
+                                                    ToolTip="{ui:Say 'Stop checking this backup', '이 백업 확인 그만하기'}" AutomationProperties.Name="{ui:Say 'Stop checking this backup', '이 백업 확인 그만하기'}"
                                                     Command="{Binding DataContext.RemoveDestinationCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}">
                                                 <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Trash}" Stroke="{DynamicResource Brush.Danger}" />
@@ -161,11 +162,11 @@
 
                                             <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="12,10,0,0"
                                                         Visibility="{Binding HasLayout, Mode=OneTime, Converter={StaticResource BoolToVisibility}}">
-                                                <TextBlock Text="Copies are kept as" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                                <TextBlock Text="{ui:Say 'Copies are kept as', '사본 저장 방식'}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,10,0" />
                                                 <ComboBox MinWidth="290" ItemsSource="{Binding LayoutChoices, Mode=OneTime}"
                                                           SelectedItem="{Binding Layout}"
                                                           ItemTemplate="{StaticResource Template.LabelText}"
-                                                          AutomationProperties.Name="How the copies are laid out" />
+                                                          AutomationProperties.Name="{ui:Say 'How the copies are laid out', '사본이 놓인 방식'}" />
                                             </StackPanel>
                                         </Grid>
                                     </Border>
@@ -199,8 +200,8 @@
                                     <TextBox Grid.Column="1" Text="{Binding NewToolLocation, UpdateSourceTrigger=PropertyChanged}"
                                              controls:Hint.Text="{Binding Form.LocationHint}"
                                              AutomationProperties.Name="{Binding Form.LocationLabel}" />
-                                    <Button Grid.Column="2" Style="{StaticResource Button.Ghost}" Content="Browse…" Margin="6,0,0,0"
-                                            Command="{Binding BrowseToolCommand}" AutomationProperties.Name="Choose the repository's folder"
+                                    <Button Grid.Column="2" Style="{StaticResource Button.Ghost}" Content="{ui:Say 'Browse…', '찾아보기…'}" Margin="6,0,0,0"
+                                            Command="{Binding BrowseToolCommand}" AutomationProperties.Name="{ui:Say 'Choose the repository\'s folder', '저장소 폴더 고르기'}"
                                             Visibility="{Binding Form.CanBrowse, Converter={StaticResource BoolToVisibility}}" />
 
                                     <TextBlock Grid.Row="1" Text="{Binding Form.PasswordLabel}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,8,0,0" />
@@ -217,40 +218,40 @@
 
                                 <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                     <Button Style="{StaticResource Button.Accent}" Content="{Binding Form.AddText}" Click="AddTool_Click" Padding="14,6" />
-                                    <Button Content="Cancel" Click="CancelTool_Click" Margin="8,0,0,0" />
+                                    <Button Content="{ui:Say 'Cancel', '취소'}" Click="CancelTool_Click" Margin="8,0,0,0" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
 
                         <WrapPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <Button Command="{Binding AddDestinationCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a backup folder or drive">
+                            <Button Command="{Binding AddDestinationCommand}" Margin="0,0,8,8" AutomationProperties.Name="{ui:Say 'Add a backup folder or drive', '백업 폴더나 드라이브 추가'}">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Plus}" />
-                                    <TextBlock Text="Add a folder or drive" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="{ui:Say 'Add a folder or drive', '폴더나 드라이브 추가'}" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding AddFileHistoryCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a File History drive">
+                            <Button Command="{Binding AddFileHistoryCommand}" Margin="0,0,8,8" AutomationProperties.Name="{ui:Say 'Add a File History drive', '파일 히스토리 드라이브 추가'}">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Versions}" />
-                                    <TextBlock Text="Add File History" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="{ui:Say 'Add File History', '파일 히스토리 추가'}" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding AddArchivesCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a folder of zip or 7z archives">
+                            <Button Command="{Binding AddArchivesCommand}" Margin="0,0,8,8" AutomationProperties.Name="{ui:Say 'Add a folder of zip or 7z archives', 'zip이나 7z 압축 파일이 있는 폴더 추가'}">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Archive}" />
-                                    <TextBlock Text="Add zip or 7z archives" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="{ui:Say 'Add zip or 7z archives', 'zip·7z 압축 파일 추가'}" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding StartResticCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a restic repository">
+                            <Button Command="{Binding StartResticCommand}" Margin="0,0,8,8" AutomationProperties.Name="{ui:Say 'Add a restic repository', 'restic 저장소 추가'}">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Repository}" />
-                                    <TextBlock Text="Add a restic repository" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="{ui:Say 'Add a restic repository', 'restic 저장소 추가'}" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding StartRcloneCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add an rclone remote">
+                            <Button Command="{Binding StartRcloneCommand}" Margin="0,0,8,8" AutomationProperties.Name="{ui:Say 'Add an rclone remote', 'rclone 원격 저장소 추가'}">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Cloud}" />
-                                    <TextBlock Text="Add an rclone remote" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="{ui:Say 'Add an rclone remote', 'rclone 원격 저장소 추가'}" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                         </WrapPanel>
@@ -258,7 +259,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
                                     Visibility="{Binding IsTestingTool, Converter={StaticResource BoolToVisibility}}">
                             <ProgressBar Width="120" Height="4" IsIndeterminate="True" Background="{DynamicResource Brush.Pressed}" VerticalAlignment="Center" />
-                            <TextBlock Text="Opening it to check that it works…" Style="{StaticResource Text.Caption}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                            <TextBlock Text="{ui:Say 'Opening it to check that it works…', '제대로 열리는지 확인하는 중…'}" Style="{StaticResource Text.Caption}" Margin="10,0,0,0" VerticalAlignment="Center" />
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -268,7 +269,7 @@
                      ============================================================ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="WHEN TO DRILL" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'WHEN TO DRILL', '복원 훈련 일정'}" Style="{StaticResource Text.SectionLabel}" />
 
                         <Grid Style="{StaticResource Row}">
                             <Grid.ColumnDefinitions>
@@ -276,15 +277,15 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="How often" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="Counted from the last drill, including one you run yourself."
+                                <TextBlock Text="{ui:Say 'How often', '얼마나 자주'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Counted from the last drill, including one you run yourself.', '직접 실행한 것을 포함해 마지막 복원 훈련부터 셉니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <RadioButton Style="{StaticResource Chip}" GroupName="Frequency" Content="Daily" IsChecked="{Binding IsDaily}" Margin="0,0,6,0" />
-                                <RadioButton Style="{StaticResource Chip}" GroupName="Frequency" Content="Weekly" IsChecked="{Binding IsWeekly}" Margin="0,0,6,0" />
-                                <RadioButton Style="{StaticResource Chip}" GroupName="Frequency" Content="Monthly" IsChecked="{Binding IsMonthly}" Margin="0,0,6,0" />
-                                <RadioButton Style="{StaticResource Chip}" GroupName="Frequency" Content="Off" IsChecked="{Binding IsOff}" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Frequency" Content="{ui:Say 'Daily', '매일'}" IsChecked="{Binding IsDaily}" Margin="0,0,6,0" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Frequency" Content="{ui:Say 'Weekly', '매주'}" IsChecked="{Binding IsWeekly}" Margin="0,0,6,0" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Frequency" Content="{ui:Say 'Monthly', '매월'}" IsChecked="{Binding IsMonthly}" Margin="0,0,6,0" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Frequency" Content="{ui:Say 'Off', '끔'}" IsChecked="{Binding IsOff}" />
                             </StackPanel>
                         </Grid>
 
@@ -296,12 +297,12 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Only when you step away" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="Waits until the keyboard and mouse have been idle for five minutes. After a day of waiting, it runs at the next chance."
+                                <TextBlock Text="{ui:Say 'Only when you step away', '자리를 비웠을 때만'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Waits until the keyboard and mouse have been idle for five minutes. After a day of waiting, it runs at the next chance.', '키보드와 마우스를 5분 동안 쓰지 않을 때까지 기다립니다. 하루를 기다린 뒤에는 다음 기회에 바로 실행합니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
-                                          IsChecked="{Binding OnlyWhenAway}" AutomationProperties.Name="Only when you step away" />
+                                          IsChecked="{Binding OnlyWhenAway}" AutomationProperties.Name="{ui:Say 'Only when you step away', '자리를 비웠을 때만'}" />
                         </Grid>
 
                         <Grid Style="{StaticResource Row}">
@@ -310,12 +311,12 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Only when plugged in" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="On a laptop, waits for mains power. After three days of waiting, it runs on battery too."
+                                <TextBlock Text="{ui:Say 'Only when plugged in', '전원이 연결되었을 때만'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'On a laptop, waits for mains power. After three days of waiting, it runs on battery too.', '노트북에서는 전원이 연결될 때까지 기다립니다. 사흘을 기다린 뒤에는 배터리로도 실행합니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
-                                          IsChecked="{Binding OnlyOnMainsPower}" AutomationProperties.Name="Only when plugged in" />
+                                          IsChecked="{Binding OnlyOnMainsPower}" AutomationProperties.Name="{ui:Say 'Only when plugged in', '전원이 연결되었을 때만'}" />
                         </Grid>
 
                         <Grid Style="{StaticResource Row}">
@@ -324,12 +325,12 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Tell me when a backup would not restore" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="A Windows notification after a drill that finds a problem. Silence when everything would restore. Never during games or presentations."
+                                <TextBlock Text="{ui:Say 'Tell me when a backup would not restore', '백업으로 복원할 수 없으면 알려 주기'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'A Windows notification after a drill that finds a problem. Silence when everything would restore. Never during games or presentations.', '복원 훈련에서 문제를 찾으면 Windows 알림으로 알려 드립니다. 모두 복원할 수 있으면 알리지 않고, 게임이나 발표 중에도 알리지 않습니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
-                                          IsChecked="{Binding NotifyOnProblems}" AutomationProperties.Name="Tell me when a backup would not restore" />
+                                          IsChecked="{Binding NotifyOnProblems}" AutomationProperties.Name="{ui:Say 'Tell me when a backup would not restore', '백업으로 복원할 수 없으면 알려 주기'}" />
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -339,7 +340,7 @@
                      ============================================================ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="HOW MUCH TO READ" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'HOW MUCH TO READ', '읽을 양'}" Style="{StaticResource Text.SectionLabel}" />
 
                         <Grid Style="{StaticResource Row}">
                             <Grid.ColumnDefinitions>
@@ -347,13 +348,13 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Files sampled from each folder" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="More files give a tighter estimate and take longer. The margin of error is shown beside every coverage figure."
+                                <TextBlock Text="{ui:Say 'Files sampled from each folder', '폴더마다 고를 표본 파일 수'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'More files give a tighter estimate and take longer. The margin of error is shown beside every coverage figure.', '파일이 많을수록 추정이 정확해지지만 시간이 더 걸립니다. 오차 범위는 포함률 옆에 함께 표시됩니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ComboBox Grid.Column="1" MinWidth="230" VerticalAlignment="Center"
                                       ItemsSource="{Binding SampleSizes, Mode=OneTime}" SelectedItem="{Binding SelectedSampleSize}"
-                                      ItemTemplate="{StaticResource Template.LabelText}" AutomationProperties.Name="Files sampled from each folder" />
+                                      ItemTemplate="{StaticResource Template.LabelText}" AutomationProperties.Name="{ui:Say 'Files sampled from each folder', '폴더마다 고를 표본 파일 수'}" />
                         </Grid>
 
                         <Grid Style="{StaticResource Row}">
@@ -362,13 +363,13 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Most data read from each folder" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="Keeps a drill to minutes, even over a slow USB drive or Wi-Fi. The largest files are dropped from the sample first."
+                                <TextBlock Text="{ui:Say 'Most data read from each folder', '폴더마다 읽을 최대 데이터 양'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Keeps a drill to minutes, even over a slow USB drive or Wi-Fi. The largest files are dropped from the sample first.', '느린 USB 드라이브나 Wi-Fi에서도 복원 훈련이 몇 분 안에 끝나게 합니다. 가장 큰 파일부터 표본에서 뺍니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ComboBox Grid.Column="1" MinWidth="230" VerticalAlignment="Center"
                                       ItemsSource="{Binding ByteCaps, Mode=OneTime}" SelectedItem="{Binding SelectedByteCap}"
-                                      ItemTemplate="{StaticResource Template.LabelText}" AutomationProperties.Name="Most data read from each folder" />
+                                      ItemTemplate="{StaticResource Template.LabelText}" AutomationProperties.Name="{ui:Say 'Most data read from each folder', '폴더마다 읽을 최대 데이터 양'}" />
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -378,7 +379,7 @@
                      ============================================================ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="EXTRA CHECKS" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'EXTRA CHECKS', '추가 확인'}" Style="{StaticResource Text.SectionLabel}" />
 
                         <Grid Style="{StaticResource Row}">
                             <Grid.ColumnDefinitions>
@@ -386,12 +387,12 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Read earlier copies again, for bit rot" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="Boatdrill remembers each copy that read back correctly. Every drill reads a few of them again: one that changed while its name, size and date did not has decayed on the disk."
+                                <TextBlock Text="{ui:Say 'Read earlier copies again, for bit rot', '비트 부패를 찾도록 예전 사본 다시 읽기'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Boatdrill remembers each copy that read back correctly. Every drill reads a few of them again: one that changed while its name, size and date did not has decayed on the disk.', 'Boatdrill은 제대로 읽어 온 사본을 기억해 두고, 복원 훈련 때마다 그중 몇 개를 다시 읽습니다. 이름, 크기, 날짜는 그대로인데 내용이 바뀐 사본은 디스크에서 변질된 것입니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
-                                          IsChecked="{Binding RecheckForBitRot}" AutomationProperties.Name="Read earlier copies again, for bit rot" />
+                                          IsChecked="{Binding RecheckForBitRot}" AutomationProperties.Name="{ui:Say 'Read earlier copies again, for bit rot', '비트 부패를 찾도록 예전 사본 다시 읽기'}" />
                         </Grid>
 
                         <Grid Style="{StaticResource Row}" Margin="0,12,0,0">
@@ -400,12 +401,12 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Canary files" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="Keeps a small file named &quot;Boatdrill canary.txt&quot; in each protected folder and adds the time to it after every drill. Each backup's copy of it then shows when that backup last ran, even when nothing else changed. The only thing Boatdrill writes to your folders."
+                                <TextBlock Text="{ui:Say 'Canary files', '카나리아 파일'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Keeps a small file named &quot;Boatdrill canary.txt&quot; in each protected folder and adds the time to it after every drill. Each backup\'s copy of it then shows when that backup last ran, even when nothing else changed. The only thing Boatdrill writes to your folders.', '보호하는 폴더마다 &quot;Boatdrill canary.txt&quot;라는 작은 파일을 두고, 복원 훈련이 끝날 때마다 시각을 적어 넣습니다. 그러면 다른 파일이 바뀌지 않았더라도 각 백업에 있는 이 파일의 사본을 보고 그 백업이 마지막으로 언제 실행되었는지 알 수 있습니다. Boatdrill이 사용자의 폴더에 쓰는 것은 이 파일뿐입니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
-                                          IsChecked="{Binding UseCanaries}" AutomationProperties.Name="Canary files" />
+                                          IsChecked="{Binding UseCanaries}" AutomationProperties.Name="{ui:Say 'Canary files', '카나리아 파일'}" />
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -415,7 +416,7 @@
                      ============================================================ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="THE APP" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'THE APP', '앱'}" Style="{StaticResource Text.SectionLabel}" />
 
                         <Grid Style="{StaticResource Row}">
                             <Grid.ColumnDefinitions>
@@ -423,12 +424,12 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Start with Windows" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="Scheduled drills only run while Boatdrill is running. It starts in the notification area and does nothing until a drill is due."
+                                <TextBlock Text="{ui:Say 'Start with Windows', 'Windows와 함께 시작'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Scheduled drills only run while Boatdrill is running. It starts in the notification area and does nothing until a drill is due.', '예약된 복원 훈련은 Boatdrill이 실행 중일 때만 진행됩니다. 알림 영역에서 시작하며, 복원 훈련 시간이 될 때까지 아무것도 하지 않습니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
-                                          IsChecked="{Binding StartWithWindows}" AutomationProperties.Name="Start with Windows" />
+                                          IsChecked="{Binding StartWithWindows}" AutomationProperties.Name="{ui:Say 'Start with Windows', 'Windows와 함께 시작'}" />
                         </Grid>
 
                         <Grid Style="{StaticResource Row}">
@@ -437,12 +438,12 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Keep running in the notification area" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="Closing the window leaves Boatdrill waiting for the next drill. Quit from the icon's menu."
+                                <TextBlock Text="{ui:Say 'Keep running in the notification area', '알림 영역에서 계속 실행'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Closing the window leaves Boatdrill waiting for the next drill. Quit from the icon\'s menu.', '창을 닫아도 Boatdrill은 다음 복원 훈련을 기다립니다. 끝내려면 아이콘 메뉴를 쓰세요.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
-                                          IsChecked="{Binding KeepRunningInTray}" AutomationProperties.Name="Keep running in the notification area" />
+                                          IsChecked="{Binding KeepRunningInTray}" AutomationProperties.Name="{ui:Say 'Keep running in the notification area', '알림 영역에서 계속 실행'}" />
                         </Grid>
 
                         <Grid Style="{StaticResource Row}">
@@ -451,14 +452,32 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Appearance" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="Follow Windows, or choose light or dark."
+                                <TextBlock Text="{ui:Say 'Appearance', '모양'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Follow Windows, or choose light or dark.', 'Windows 설정을 따르거나, 밝은 화면이나 어두운 화면을 고르세요.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <RadioButton Style="{StaticResource Chip}" GroupName="Theme" Content="Windows" IsChecked="{Binding IsSystemTheme}" Margin="0,0,6,0" />
-                                <RadioButton Style="{StaticResource Chip}" GroupName="Theme" Content="Light" IsChecked="{Binding IsLightTheme}" Margin="0,0,6,0" />
-                                <RadioButton Style="{StaticResource Chip}" GroupName="Theme" Content="Dark" IsChecked="{Binding IsDarkTheme}" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Theme" Content="{ui:Say 'Windows', 'Windows 설정'}" IsChecked="{Binding IsSystemTheme}" Margin="0,0,6,0" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Theme" Content="{ui:Say 'Light', '밝게'}" IsChecked="{Binding IsLightTheme}" Margin="0,0,6,0" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Theme" Content="{ui:Say 'Dark', '어둡게'}" IsChecked="{Binding IsDarkTheme}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Style="{StaticResource Row}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="{ui:Say 'Language', '언어'}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{ui:Say 'Follow Windows, or choose English or Korean.', 'Windows 설정을 따르거나, 영어나 한국어를 고르세요.'}"
+                                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                            <!-- Each language is named in itself, so it can be found whichever one is showing. -->
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Language" Content="{ui:Say 'Windows', 'Windows 설정'}" IsChecked="{Binding IsWindowsLanguage}" Margin="0,0,6,0" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Language" Content="English" IsChecked="{Binding IsEnglish}" Margin="0,0,6,0" />
+                                <RadioButton Style="{StaticResource Chip}" GroupName="Language" Content="한국어" IsChecked="{Binding IsKorean}" />
                             </StackPanel>
                         </Grid>
 
@@ -472,13 +491,13 @@
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
                                 <TextBlock Text="{Binding Version}" Style="{StaticResource Text.Subheading}" />
                                 <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0"
-                                           Text="A Project Max app. Free and open source under the MIT licence. No account, no telemetry: nothing leaves this PC." />
+                                           Text="{ui:Say 'A Project Max app. Free and open source under the MIT licence. No account, no telemetry: nothing leaves this PC.', 'Project Max의 앱입니다. MIT 라이선스의 무료 오픈 소스이며, 계정도 원격 분석도 없습니다. 어떤 정보도 이 PC 밖으로 나가지 않습니다.'}" />
                                 <TextBlock Text="{Binding DataFolder}" Style="{StaticResource Text.Caption}" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button Style="{StaticResource Button.Ghost}" Content="Data folder" Command="{Binding OpenDataFolderCommand}" />
-                                <Button Style="{StaticResource Button.Ghost}" Content="Log" Command="{Binding OpenLogCommand}" Margin="4,0,0,0" />
-                                <Button Style="{StaticResource Button.Ghost}" Content="Source code" Command="{Binding OpenRepositoryCommand}" Margin="4,0,0,0" />
+                                <Button Style="{StaticResource Button.Ghost}" Content="{ui:Say 'Data folder', '데이터 폴더'}" Command="{Binding OpenDataFolderCommand}" />
+                                <Button Style="{StaticResource Button.Ghost}" Content="{ui:Say 'Log', '로그'}" Command="{Binding OpenLogCommand}" Margin="4,0,0,0" />
+                                <Button Style="{StaticResource Button.Ghost}" Content="{ui:Say 'Source code', '소스 코드'}" Command="{Binding OpenRepositoryCommand}" Margin="4,0,0,0" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>

@@ -3,6 +3,7 @@ using Boatdrill.Core;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.Settings;
 using Boatdrill.Platform;
+using Boatdrill.Core.Text;
 
 namespace Boatdrill.Drilling;
 
@@ -59,9 +60,9 @@ public sealed class RehearsalService : IDisposable
         var settings = _settings.Snapshot();
         var source = settings.Sources.FirstOrDefault(s => s.Id == sourceId);
         var destination = settings.Destinations.FirstOrDefault(d => d.Id == destinationId);
-        var refusal = source is null || destination is null ? "Choose a protected folder and the backup to restore it from."
-            : _drills.IsRunning ? "A drill is running. Rehearse when it has finished."
-            : _scans.IsRunning ? "A scan is running. Rehearse when it has finished."
+        var refusal = source is null || destination is null ? Language.Pick("Choose a protected folder and the backup to restore it from.", "보호하는 폴더와 복원에 쓸 백업을 고르세요.")
+            : _drills.IsRunning ? Language.Pick("A drill is running. Rehearse when it has finished.", "복원 훈련이 진행 중입니다. 끝난 뒤에 리허설하세요.")
+            : _scans.IsRunning ? Language.Pick("A scan is running. Rehearse when it has finished.", "살펴보기가 진행 중입니다. 끝난 뒤에 리허설하세요.")
             : null;
         if (refusal is not null)
         {
@@ -90,12 +91,12 @@ public sealed class RehearsalService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            LastError = "The rehearsal was stopped before it finished.";
+            LastError = Language.Pick("The rehearsal was stopped before it finished.", "리허설이 끝나기 전에 멈췄습니다.");
         }
         catch (Exception ex)
         {
             Log.Error("Rehearsal failed.", ex);
-            LastError = "The rehearsal could not finish: " + ex.Message;
+            LastError = Language.Pick("The rehearsal could not finish: ", "리허설을 끝내지 못했습니다: ") + ex.Message;
         }
         finally
         {

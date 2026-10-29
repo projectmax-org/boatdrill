@@ -1,6 +1,7 @@
 <UserControl x:Class="Boatdrill.UI.Views.OnlyHereView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Boatdrill.UI"
              xmlns:vm="clr-namespace:Boatdrill.UI.ViewModels"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -85,7 +86,7 @@
                     <Button Style="{StaticResource Button.Accent}" Padding="16,8" Command="{Binding ScanCommand}"
                             Content="{Binding ScanButtonText}"
                             Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}, ConverterParameter=invert}" />
-                    <Button Padding="16,8" Command="{Binding StopCommand}" Content="Stop"
+                    <Button Padding="16,8" Command="{Binding StopCommand}" Content="{ui:Say 'Stop', '멈추기'}"
                             Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}" />
                 </StackPanel>
             </Grid>
@@ -122,7 +123,7 @@
                 <Border Style="{StaticResource Card}" Margin="0,0,0,14"
                         Visibility="{Binding Folders, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel>
-                        <TextBlock Text="FOLDERS WITH THE MOST ONLY HERE" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'FOLDERS WITH THE MOST ONLY HERE', '이 PC에만 있는 파일이 가장 많은 폴더'}" Style="{StaticResource Text.SectionLabel}" />
                         <ItemsControl ItemsSource="{Binding Folders}" ItemTemplate="{StaticResource Template.AtRisk}" Focusable="False" />
                     </StackPanel>
                 </Border>
@@ -130,13 +131,13 @@
                 <Border Style="{StaticResource Card}" Margin="0,0,0,14"
                         Visibility="{Binding Files, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel>
-                        <TextBlock Text="LARGEST FILES ONLY HERE" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'LARGEST FILES ONLY HERE', '이 PC에만 있는 가장 큰 파일'}" Style="{StaticResource Text.SectionLabel}" />
                         <ItemsControl ItemsSource="{Binding Files}" ItemTemplate="{StaticResource Template.AtRisk}" Focusable="False" />
                     </StackPanel>
                 </Border>
 
                 <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="2,0,0,0"
-                           Text="A file counts as backed up when any backup holds a copy at least as new as the file; a cloud-only copy counts. Run a drill to check that the copies would actually restore." />
+                           Text="{ui:Say 'A file counts as backed up when any backup holds a copy at least as new as the file; a cloud-only copy counts. Run a drill to check that the copies would actually restore.', '어느 백업에든 파일보다 오래되지 않은 사본이 있으면 백업된 것으로 봅니다. 클라우드에만 있는 사본도 포함됩니다. 그 사본으로 실제로 복원할 수 있는지는 복원 훈련으로 확인하세요.'}" />
             </StackPanel>
         </ScrollViewer>
     </Grid>

@@ -2,6 +2,7 @@ using Boatdrill.Core.Drill;
 using Boatdrill.Core.History;
 using Boatdrill.Core.Settings;
 using Boatdrill.Platform;
+using Boatdrill.Core.Text;
 
 namespace Boatdrill.Drilling;
 
@@ -68,7 +69,9 @@ public sealed class DrillService : IDisposable
         var settings = _settings.Snapshot();
         if (!settings.IsReadyToDrill)
         {
-            LastError = "Choose a folder to protect and add the place its backup goes, then run a drill.";
+            LastError = Language.Pick(
+                "Choose a folder to protect and add the place its backup goes, then run a drill.",
+                "보호할 폴더를 고르고 그 백업이 저장되는 곳을 추가한 다음 복원 훈련을 실행하세요.");
             _gate.Release();
             StateChanged?.Invoke(this, EventArgs.Empty);
             return null;
@@ -113,13 +116,13 @@ public sealed class DrillService : IDisposable
         catch (OperationCanceledException)
         {
             Log.Info("Drill stopped before it finished.");
-            LastError = "The drill was stopped before it finished.";
+            LastError = Language.Pick("The drill was stopped before it finished.", "복원 훈련이 끝나기 전에 멈췄습니다.");
             report = null;
         }
         catch (Exception ex)
         {
             Log.Error("Drill failed.", ex);
-            LastError = "The drill could not finish: " + ex.Message;
+            LastError = Language.Pick("The drill could not finish: ", "복원 훈련을 끝내지 못했습니다: ") + ex.Message;
             report = null;
         }
         finally

@@ -1,6 +1,7 @@
 <UserControl x:Class="Boatdrill.UI.Views.DashboardView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Boatdrill.UI"
              xmlns:vm="clr-namespace:Boatdrill.UI.ViewModels"
              xmlns:drill="clr-namespace:Boatdrill.Core.Drill;assembly=Boatdrill.Core"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -27,12 +28,12 @@
                 </Grid.ColumnDefinitions>
 
                 <Button Grid.Column="2" Style="{StaticResource Button.Ghost}" VerticalAlignment="Top" Margin="16,2,0,0"
-                        Command="{Binding SaveReportCommand}" ToolTip="A one-page web page of the last drill, to keep, print or send"
+                        Command="{Binding SaveReportCommand}" ToolTip="{ui:Say 'A one-page web page of the last drill, to keep, print or send', '마지막 복원 훈련을 한 쪽짜리 웹 페이지로 저장합니다. 보관하거나 인쇄하거나 다른 사람에게 보낼 수 있습니다'}"
                         Visibility="{Binding HasReport, Converter={StaticResource BoolToVisibility}}"
-                        AutomationProperties.Name="Save a report of the last drill">
+                        AutomationProperties.Name="{ui:Say 'Save a report of the last drill', '마지막 복원 훈련 보고서 저장'}">
                     <StackPanel Orientation="Horizontal">
                         <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.External}" />
-                        <TextBlock Text="Save a report" Margin="7,0,0,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{ui:Say 'Save a report', '보고서 저장'}" Margin="7,0,0,0" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
 
@@ -73,9 +74,9 @@
                 <Border Style="{StaticResource Card}" Margin="0,0,0,14"
                         Visibility="{Binding NeedsSetup, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel>
-                        <TextBlock Text="Two things and Boatdrill can start" Style="{StaticResource Text.Heading}" />
+                        <TextBlock Text="{ui:Say 'Two things and Boatdrill can start', '두 가지만 알려 주면 Boatdrill이 시작합니다'}" Style="{StaticResource Text.Heading}" />
                         <TextBlock Style="{StaticResource Text.Body}" Margin="0,6,0,14"
-                                   Text="Tell it which folders matter, and where their backup is kept: an external drive, a network share, or a folder that OneDrive, Dropbox or Google Drive keeps in step. It never writes to the backup." />
+                                   Text="{ui:Say 'Tell it which folders matter, and where their backup is kept: an external drive, a network share, or a folder that OneDrive, Dropbox or Google Drive keeps in step. It never writes to the backup.', '어떤 폴더가 중요한지, 그리고 그 백업이 어디에 있는지 알려 주세요. 외장 드라이브, 네트워크 공유 폴더, 또는 OneDrive, Dropbox, Google Drive가 동기화하는 폴더면 됩니다. Boatdrill은 백업에 아무것도 쓰지 않습니다.'}" />
                         <Button Style="{StaticResource Button.Accent}" HorizontalAlignment="Left" Padding="16,8"
                                 Command="{Binding OpenSettingsCommand}" Content="{Binding SetupButtonText}" />
                     </StackPanel>
@@ -90,12 +91,12 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                            <TextBlock Text="Run the first drill now?" Style="{StaticResource Text.Heading}" />
+                            <TextBlock Text="{ui:Say 'Run the first drill now?', '첫 복원 훈련을 지금 할까요?'}" Style="{StaticResource Text.Heading}" />
                             <TextBlock Style="{StaticResource Text.Body}" Margin="0,4,0,0"
-                                       Text="Otherwise it runs on schedule, the next time you step away from the PC." />
+                                       Text="{ui:Say 'Otherwise it runs on schedule, the next time you step away from the PC.', '지금 하지 않으면 다음에 PC를 비우실 때 일정에 따라 실행됩니다.'}" />
                         </StackPanel>
                         <Button Grid.Column="1" Style="{StaticResource Button.Accent}" Padding="16,8" VerticalAlignment="Center"
-                                Command="{Binding RunDrillCommand}" Content="Run a drill now" />
+                                Command="{Binding RunDrillCommand}" Content="{ui:Say 'Run a drill now', '지금 복원 훈련하기'}" />
                     </Grid>
                 </Border>
 
@@ -186,7 +187,7 @@
                                                     Content="{Binding FindingsToggleText}"
                                                     Visibility="{Binding HasFindings, Converter={StaticResource BoolToVisibility}}" />
                                             <Button Style="{StaticResource Button.Ghost}" Command="{Binding OpenFolderCommand}" Margin="4,0,0,0"
-                                                    ToolTip="{Binding Folder}" Content="Open the backup folder"
+                                                    ToolTip="{Binding Folder}" Content="{ui:Say 'Open the backup folder', '백업 폴더 열기'}"
                                                     Visibility="{Binding CanOpenFolder, Converter={StaticResource BoolToVisibility}}" />
                                         </StackPanel>
                                     </Grid>

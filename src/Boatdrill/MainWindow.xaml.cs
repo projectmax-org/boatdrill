@@ -24,6 +24,8 @@ public partial class MainWindow : Window
         _services = services;
         _viewModel = viewModel;
 
+        // Bindings format numbers and dates in this language, and the text picks its fonts by it.
+        Language = System.Windows.Markup.XmlLanguage.GetLanguage(Core.Text.Language.Tag);
         InitializeComponent();
         DataContext = viewModel;
 
@@ -167,8 +169,10 @@ public partial class MainWindow : Window
 
         _services.Settings.Update(s => s.HasShownTrayHint = true);
         _services.Tray.ShowBalloon(
-            "Boatdrill is still running",
-            "It runs your drills on schedule from the notification area and stays out of the way until then. Click the icon to open it, or right-click it to quit.");
+            Core.Text.Language.Pick("Boatdrill is still running", "Boatdrill은 계속 실행 중입니다"),
+            Core.Text.Language.Pick(
+                "It runs your drills on schedule from the notification area and stays out of the way until then. Click the icon to open it, or right-click it to quit.",
+                "알림 영역에서 정해진 일정에 따라 복원 훈련을 실행하고, 그때까지는 조용히 기다립니다. 아이콘을 클릭하면 창이 열리고, 마우스 오른쪽 단추로 클릭하면 나오는 메뉴에서 끝낼 수 있습니다."));
     }
 
     private void OnMinimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;

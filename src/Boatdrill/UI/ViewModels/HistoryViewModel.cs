@@ -13,10 +13,14 @@ public sealed class HistoryRowViewModel
 {
     public HistoryRowViewModel(DrillReport report)
     {
-        When = report.StartedUtc.ToLocalTime().ToString("ddd d MMM yyyy, HH:mm");
-        How = report.Trigger == DrillTrigger.Scheduled ? "Scheduled" : "Run by hand";
+        var started = report.StartedUtc.ToLocalTime();
+        When = Language.IsKorean
+            ? started.ToString("yyyy. M. d. (ddd) HH:mm", System.Globalization.CultureInfo.GetCultureInfo("ko-KR"))
+            : started.ToString("ddd d MMM yyyy, HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        How = report.Trigger == DrillTrigger.Scheduled ? Language.Pick("Scheduled", "예약 실행") : Language.Pick("Run by hand", "직접 실행");
         Duration = Humanize.Duration(report.Duration);
-        Files = Humanize.Plural(report.Sources.Sum(s => s.Sampled), "file") + " sampled";
+        var sampled = report.Sources.Sum(s => s.Sampled);
+        Files = Language.Pick(Humanize.Plural(sampled, "file") + " sampled", $"표본 파일 {sampled:N0}개");
         Destinations = report.Destinations
             .Select(d => new HistoryCell(d.DestinationName, d.Reachable ? d.Score.Total.ToString() : "–", VerdictStyle.Kind(d.Score.Verdict), VerdictStyle.Text(d.Score.Verdict)))
             .ToList();

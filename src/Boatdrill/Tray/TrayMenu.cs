@@ -6,6 +6,7 @@ using Boatdrill.Platform;
 using Boatdrill.UI.ViewModels;
 // System.IO is a global using in this project, so Path needs disambiguating.
 using Path = System.Windows.Shapes.Path;
+using Boatdrill.Core.Text;
 
 namespace Boatdrill.Tray;
 
@@ -19,15 +20,15 @@ public static class TrayMenu
     {
         var menu = new ContextMenu();
 
-        var open = Item("Open Boatdrill", "Icon.Ring", showWindow);
+        var open = Item(Language.Pick("Open Boatdrill", "Boatdrill 열기"), "Icon.Ring", showWindow);
         open.FontWeight = FontWeights.SemiBold;
 
-        var run = Item("Run a drill now", "Icon.Play", () => viewModel.RunDrillCommand.Execute(null));
-        var stop = Item("Stop the drill", "Icon.Stop", () => viewModel.StopDrillCommand.Execute(null));
+        var run = Item(Language.Pick("Run a drill now", "지금 복원 훈련하기"), "Icon.Play", () => viewModel.RunDrillCommand.Execute(null));
+        var stop = Item(Language.Pick("Stop the drill", "복원 훈련 멈추기"), "Icon.Stop", () => viewModel.StopDrillCommand.Execute(null));
         var status = new MenuItem { IsEnabled = false, Icon = Icon("Icon.Clock") };
-        var history = Item("Drill history", "Icon.History", () => showSection(AppSection.History));
-        var settings = Item("Settings", "Icon.Settings", () => showSection(AppSection.Settings));
-        var quit = Item("Quit Boatdrill", "Icon.Close", exit);
+        var history = Item(Language.Pick("Drill history", "복원 훈련 기록"), "Icon.History", () => showSection(AppSection.History));
+        var settings = Item(Language.Pick("Settings", "설정"), "Icon.Settings", () => showSection(AppSection.Settings));
+        var quit = Item(Language.Pick("Quit Boatdrill", "Boatdrill 끝내기"), "Icon.Close", exit);
 
         menu.Items.Add(open);
         menu.Items.Add(new Separator());

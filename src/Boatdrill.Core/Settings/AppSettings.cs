@@ -61,6 +61,9 @@ public sealed class AppSettings
 
     public AppTheme Theme { get; set; } = AppTheme.System;
 
+    /// <summary>"en" or "ko"; empty for the language Windows is displayed in (Korean or else English).</summary>
+    public string UiLanguage { get; set; } = string.Empty;
+
     public double WindowWidth { get; set; } = 1080;
 
     public double WindowHeight { get; set; } = 740;

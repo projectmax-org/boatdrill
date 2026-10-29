@@ -18,6 +18,25 @@ internal static partial class NativeMethods
     [DllImport("shell32.dll")]
     internal static extern int SHQueryUserNotificationState(out QueryUserNotificationState state);
 
+    internal const uint SHGFI_DISPLAYNAME = 0x200;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct SHFILEINFO
+    {
+        public IntPtr hIcon;
+        public int iIcon;
+        public uint dwAttributes;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szDisplayName;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
+        public string szTypeName;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct SYSTEM_POWER_STATUS
     {

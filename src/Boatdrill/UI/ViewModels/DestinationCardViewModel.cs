@@ -185,8 +185,8 @@ public sealed class DestinationCardViewModel : ViewModelBase
     }
 
     public string FindingsToggleText => ShowFindings
-        ? "Hide the files"
-        : "Show " + (Result is { } r && r.Findings.Count == 1 ? "the file" : "the files") + " that need a look";
+        ? Language.Pick("Hide the files", "파일 목록 숨기기")
+        : Language.Pick("Show " + (Result is { } r && r.Findings.Count == 1 ? "the file" : "the files") + " that need a look", "확인이 필요한 파일 보기");
 
     private string _location = string.Empty;
 
@@ -209,9 +209,9 @@ public sealed class DestinationCardViewModel : ViewModelBase
         if (result is null || report is null)
         {
             ScoreText = "–";
-            VerdictText = "not checked yet";
+            VerdictText = Language.Pick("not checked yet", "아직 확인 전");
             VerdictKind = VerdictStyle.None;
-            Sentence = "The next drill will say whether this backup would restore.";
+            Sentence = Language.Pick("The next drill will say whether this backup would restore.", "다음 복원 훈련에서 이 백업으로 복원할 수 있는지 알려 드립니다.");
             CheckedText = string.Empty;
             Parts = [];
             Findings = [];
@@ -223,20 +223,21 @@ public sealed class DestinationCardViewModel : ViewModelBase
         ScoreText = result.Reachable ? score.Total.ToString() : "–";
         VerdictText = VerdictStyle.Text(score.Verdict);
         VerdictKind = VerdictStyle.Kind(score.Verdict);
-        Sentence = result.Sentence;
-        CheckedText = "Checked " + Humanize.Ago(now - report.FinishedUtc);
+        // Written again from the result's numbers, so it reads in the language Boatdrill speaks now.
+        Sentence = Verdicts.Sentence(result, report.FinishedUtc);
+        CheckedText = Language.Pick("Checked ", "확인: ") + Humanize.Ago(now - report.FinishedUtc);
 
         Parts = ScoreParts.Describe(result);
 
         Findings = result.Findings
             .Take(FindingsShown)
             .Select(f => new FindingRow(VerdictStyle.Text(f.Outcome), VerdictStyle.Kind(f.Outcome), f.RelativePath,
-                (f.Recheck ? "Read again: " : string.Empty) + (f.Detail ?? string.Empty)))
+                (f.Recheck ? Language.Pick("Read again: ", "다시 읽음: ") : string.Empty) + (f.Detail ?? string.Empty)))
             .ToList();
 
         var notVerified = result.Sampled - result.Verified + result.Findings.Count(f => f.Recheck);
         FindingsNote = result.Findings.Count > FindingsShown || notVerified > result.Findings.Count
-            ? $"The first {Findings.Count} of {notVerified:N0} files that did not verify."
+            ? Language.Pick($"The first {Findings.Count} of {notVerified:N0} files that did not verify.", $"확인되지 않은 파일 {notVerified:N0}개 중 처음 {Findings.Count}개입니다.")
             : string.Empty;
 
         OnPropertyChanged(nameof(FindingsToggleText));
@@ -269,6 +270,7 @@ public sealed class DestinationCardViewModel : ViewModelBase
         HasTrend = history.Count >= 2;
         TrendText = history.Count < 2
             ? string.Empty
-            : $"Score in the last {history.Count} drills: " + string.Join(", ", history.Select(h => h.Reachable ? h.Score.Total.ToString() : "not reached"));
+            : Language.Pick($"Score in the last {history.Count} drills: ", $"최근 복원 훈련 {history.Count}번의 점수: ") +
+              string.Join(", ", history.Select(h => h.Reachable ? h.Score.Total.ToString() : Language.Pick("not reached", "연결 안 됨")));
     }
 }

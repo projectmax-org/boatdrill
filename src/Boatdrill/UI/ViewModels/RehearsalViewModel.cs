@@ -172,9 +172,11 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
         ProgressValue = progress is { BytesTotal: > 0 } ? (double)progress.BytesDone / progress.BytesTotal : 0;
         ProgressText = progress switch
         {
-            null when rehearsals.IsRunning => "Starting…",
+            null when rehearsals.IsRunning => Language.Pick("Starting…", "시작하는 중…"),
             null => string.Empty,
-            { FilesTotal: > 0 } p => $"{p.Stage}: {p.FilesDone:N0} of {p.FilesTotal:N0} files, {Humanize.Bytes(p.BytesDone)} of {Humanize.Bytes(p.BytesTotal)}",
+            { FilesTotal: > 0 } p => Language.Pick(
+                $"{p.Stage}: {p.FilesDone:N0} of {p.FilesTotal:N0} files, {Humanize.Bytes(p.BytesDone)} of {Humanize.Bytes(p.BytesTotal)}",
+                $"{p.Stage}: 파일 {p.FilesTotal:N0}개 중 {p.FilesDone:N0}개, {Humanize.Bytes(p.BytesTotal)} 중 {Humanize.Bytes(p.BytesDone)}"),
             var p => p.Stage + "…",
         };
         ErrorText = rehearsals.IsRunning ? string.Empty : rehearsals.LastError ?? string.Empty;
@@ -191,10 +193,13 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
     {
         if (r is null)
         {
-            Headline = "Rehearse a full restore";
+            Headline = Language.Pick("Rehearse a full restore", "전체 복원 리허설");
             HeadlineKind = VerdictStyle.None;
-            Sentence = "A drill reads a sample. A rehearsal restores every file of one folder from one backup and checks each against the original, " +
-                       "so you know it would all come back, and how long it would take.";
+            Sentence = Language.Pick(
+                "A drill reads a sample. A rehearsal restores every file of one folder from one backup and checks each against the original, " +
+                "so you know it would all come back, and how long it would take.",
+                "복원 훈련은 표본만 읽습니다. 리허설은 한 폴더의 모든 파일을 한 백업에서 복원해 하나하나 원본과 비교하므로, " +
+                "전부 돌아올지, 그리고 시간이 얼마나 걸릴지 알 수 있습니다.");
             WhenText = string.Empty;
             Tiles = [];
             Findings = [];
@@ -202,25 +207,43 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
         }
 
         var what = r.Folder.Length == 0 ? r.SourceName : r.SourceName + "\\" + r.Folder;
-        (Headline, HeadlineKind) = r switch
+        var notIntact = r.Files - r.Verified;
+        (Headline, HeadlineKind) = (r, Language.IsKorean) switch
         {
-            { Reachable: false } => ($"{r.DestinationName} could not be reached", VerdictStyle.Bad),
-            { Refusal: not null } => ("The rehearsal did not start", VerdictStyle.Fair),
-            { Files: 0 } => ($"{what} has no files to restore", VerdictStyle.None),
-            { AllIntact: true } => ($"All of {what} came back intact", VerdictStyle.Good),
-            _ when r.Missing + r.Corrupt + r.Errors > 0 => ($"{r.Files - r.Verified:N0} of {r.Files:N0} files in {what} did not come back intact", VerdictStyle.Bad),
-            _ => ($"{r.Files - r.Verified:N0} of {r.Files:N0} files in {what} came back older", VerdictStyle.Fair),
+            ({ Reachable: false }, false) => ($"{r.DestinationName} could not be reached", VerdictStyle.Bad),
+            ({ Reachable: false }, true) => ($"{r.DestinationName}에 연결할 수 없습니다", VerdictStyle.Bad),
+            ({ Refusal: not null }, _) => (Language.Pick("The rehearsal did not start", "리허설을 시작하지 못했습니다"), VerdictStyle.Fair),
+            ({ Files: 0 }, false) => ($"{what} has no files to restore", VerdictStyle.None),
+            ({ Files: 0 }, true) => ($"{what}에는 복원할 파일이 없습니다", VerdictStyle.None),
+            ({ AllIntact: true }, false) => ($"All of {what} came back intact", VerdictStyle.Good),
+            ({ AllIntact: true }, true) => ($"{what} 전체가 그대로 돌아왔습니다", VerdictStyle.Good),
+            (_, false) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{notIntact:N0} of {r.Files:N0} files in {what} did not come back intact", VerdictStyle.Bad),
+            (_, true) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개가 그대로 돌아오지 않았습니다", VerdictStyle.Bad),
+            (_, false) => ($"{notIntact:N0} of {r.Files:N0} files in {what} came back older", VerdictStyle.Fair),
+            (_, true) => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개가 이전 버전으로 돌아왔습니다", VerdictStyle.Fair),
         };
-        Sentence = r.Sentence;
-        WhenText = $"Rehearsed {Humanize.Ago(now - r.FinishedUtc)} from {r.DestinationName}, in {Humanize.Duration(r.FinishedUtc - r.StartedUtc)} altogether.";
 
+        // Written again from the result's numbers, so it reads in the language Boatdrill speaks now.
+        Sentence = RehearsalRunner.Sentence(r);
+        var ago = Humanize.Ago(now - r.FinishedUtc);
+        var took = Humanize.Duration(r.FinishedUtc - r.StartedUtc);
+        WhenText = Language.Pick(
+            $"Rehearsed {ago} from {r.DestinationName}, in {took} altogether.",
+            $"{ago}에 {r.DestinationName}에서 리허설했고, 모두 {Korean.Subject(took)} 걸렸습니다.");
+
+        var older = r.Outdated + r.Placeholder;
+        var broken = r.Corrupt + r.Errors;
         Tiles = r.Reachable && r.Refusal is null && r.Files > 0
             ?
             [
-                new ScorePart("Came back intact", $"{r.Verified:N0}", $"of {r.Files:N0} files, {Humanize.Bytes(r.Bytes)}"),
-                new ScorePart("No copy", $"{r.Missing:N0}", r.Missing == 0 ? "every file has one" : "no copy in the backup"),
-                new ScorePart("Older, or cloud only", $"{r.Outdated + r.Placeholder:N0}", r.Outdated + r.Placeholder == 0 ? "all up to date" : "not the latest bytes here"),
-                new ScorePart("Corrupt or unreadable", $"{r.Corrupt + r.Errors:N0}", r.Corrupt + r.Errors == 0 ? "none" : "would not restore as they are"),
+                new ScorePart(Language.Pick("Came back intact", "그대로 돌아온 파일"), $"{r.Verified:N0}",
+                    Language.Pick($"of {r.Files:N0} files, {Humanize.Bytes(r.Bytes)}", $"전체 {r.Files:N0}개, {Humanize.Bytes(r.Bytes)}")),
+                new ScorePart(Language.Pick("No copy", "사본 없음"), $"{r.Missing:N0}",
+                    r.Missing == 0 ? Language.Pick("every file has one", "모든 파일에 사본이 있음") : Language.Pick("no copy in the backup", "백업에 사본이 없음")),
+                new ScorePart(Language.Pick("Older, or cloud only", "이전 버전, 클라우드 전용"), $"{older:N0}",
+                    older == 0 ? Language.Pick("all up to date", "모두 최신 상태") : Language.Pick("not the latest bytes here", "최신 내용이 여기에 없음")),
+                new ScorePart(Language.Pick("Corrupt or unreadable", "손상, 읽을 수 없음"), $"{broken:N0}",
+                    broken == 0 ? Language.Pick("none", "없음") : Language.Pick("would not restore as they are", "이대로는 복원되지 않음")),
             ]
             : [];
         Findings = r.Findings
@@ -241,14 +264,14 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
     private void Browse()
     {
         if (_services.Settings.Settings.Sources.FirstOrDefault(s => s.Id == SelectedSource?.Value) is not { } source) return;
-        if (Shell.PickFolder($"Choose a folder inside {source.Name}") is not { } picked) return;
+        if (Shell.PickFolder(Language.Pick($"Choose a folder inside {source.Name}", $"{source.Name} 안의 폴더 고르기")) is not { } picked) return;
 
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(source.Folder));
         var chosen = Path.TrimEndingDirectorySeparator(Path.GetFullPath(picked));
         var relative = Path.GetRelativePath(root, chosen);
         if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
         {
-            ErrorText = $"Choose a folder inside {source.Folder}.";
+            ErrorText = Language.Pick($"Choose a folder inside {source.Folder}.", $"{source.Folder} 안에 있는 폴더를 고르세요.");
             return;
         }
 

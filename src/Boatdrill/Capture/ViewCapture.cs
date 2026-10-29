@@ -13,9 +13,10 @@ namespace Boatdrill.Capture;
 
 /// <summary>
 /// <c>Boatdrill.exe --capture &lt;folder&gt;</c>: loads every view against sample data in a throwaway data
-/// folder, renders each to PNG in the light and the dark theme, and exits. Exit code 1 when anything
-/// throws (a XAML error, a missing resource), 2 when a binding names a property that does not exist.
-/// The Windows CI job runs it on every push, so the UI is exercised even where nobody can look at it.
+/// folder, renders each to PNG in the light and the dark theme, in English and then in Korean (into
+/// <c>ko</c>), and exits. Exit code 1 when anything throws (a XAML error, a missing resource), 2 when a
+/// binding names a property that does not exist. The Windows CI job runs it on every push, so the UI is
+/// exercised even where nobody can look at it.
 /// </summary>
 internal static class ViewCapture
 {
@@ -40,67 +41,8 @@ internal static class ViewCapture
 
         try
         {
-            var data = Path.Combine(Path.GetTempPath(), "boatdrill-capture-" + Guid.NewGuid().ToString("N")[..8]);
-            Paths.UseDataDirectory(data);
-            SampleData.Write(data);
-
-            using var services = new AppServices(withTray: false);
-            using var viewModel = new MainViewModel(services);
-            await viewModel.History.ReloadAsync();
-
-            // The report a user would save from the dashboard, kept with the images.
-            if (services.Drills.Latest is { } latest)
-            {
-                File.WriteAllText(Path.Combine(output, "report.html"), Core.Reporting.HtmlReport.Render(latest, services.Drills.Recent, "capture"));
-            }
-
-            var window = new MainWindow(services, viewModel)
-            {
-                WindowStartupLocation = WindowStartupLocation.Manual,
-                Left = -32000,
-                Top = -32000,
-                Width = 1180,
-                Height = 800,
-                ShowActivated = false,
-                ShowInTaskbar = false,
-            };
-            window.Show();
-
-            foreach (var theme in new[] { AppTheme.Light, AppTheme.Dark })
-            {
-                ThemeManager.Apply(theme);
-                foreach (var section in Enum.GetValues<AppSection>())
-                {
-                    viewModel.Section = section;
-                    foreach (var card in viewModel.Dashboard.Cards) card.ShowFindings = card.Id == "nas";
-                    await Settle(window);
-                    await SavePages(window, Path.Combine(output, $"{Name(section)}-{Name(theme)}"));
-                }
-            }
-
-            // Adding a restic repository: the form that opens in Settings.
-            ThemeManager.Apply(AppTheme.Light);
-            viewModel.Section = AppSection.Settings;
-            viewModel.Settings.AddingKind = Core.DestinationKind.Restic;
-            await Settle(window);
-            if (window.CurrentView?.FindName("ToolPassword") is FrameworkElement password)
-            {
-                password.BringIntoView(new Rect(0, -220, 10, 420));
-                await Settle(window);
-            }
-
-            Save(window, Path.Combine(output, "settings-add-restic-light.png"));
-            viewModel.Settings.CancelTool();
-
-            // A first run: folders chosen, no destination yet.
-            ThemeManager.Apply(AppTheme.Light);
-            services.Settings.Update(s => s.Destinations.Clear());
-            viewModel.Section = AppSection.Dashboard;
-            viewModel.Refresh();
-            await Settle(window);
-            await SavePages(window, Path.Combine(output, "dashboard-first-run-light"));
-
-            window.CloseForReal();
+            await CaptureAsync(output, Core.Text.Language.EnglishCode);
+            await CaptureAsync(Path.Combine(output, Core.Text.Language.KoreanCode), Core.Text.Language.KoreanCode);
 
             File.WriteAllLines(Path.Combine(output, "binding-messages.txt"), bindings.Messages);
             var pathErrors = bindings.Messages.Count(m => m.Contains("BindingExpression path error", StringComparison.Ordinal));
@@ -111,6 +53,75 @@ internal static class ViewCapture
             File.WriteAllText(Path.Combine(output, "capture-error.txt"), ex.ToString());
             return 1;
         }
+    }
+
+    /// <summary>Every view, in one language, against sample data written in that language.</summary>
+    private static async Task CaptureAsync(string output, string language)
+    {
+        Directory.CreateDirectory(output);
+        Core.Text.Language.Use(language);
+
+        var data = Path.Combine(Path.GetTempPath(), "boatdrill-capture-" + Guid.NewGuid().ToString("N")[..8]);
+        Paths.UseDataDirectory(data);
+        SampleData.Write(data);
+
+        using var services = new AppServices(withTray: false);
+        using var viewModel = new MainViewModel(services);
+        await viewModel.History.ReloadAsync();
+
+        // The report a user would save from the dashboard, kept with the images.
+        if (services.Drills.Latest is { } latest)
+        {
+            File.WriteAllText(Path.Combine(output, "report.html"), Core.Reporting.HtmlReport.Render(latest, services.Drills.Recent, "capture"));
+        }
+
+        var window = new MainWindow(services, viewModel)
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -32000,
+            Top = -32000,
+            Width = 1180,
+            Height = 800,
+            ShowActivated = false,
+            ShowInTaskbar = false,
+        };
+        window.Show();
+
+        foreach (var theme in new[] { AppTheme.Light, AppTheme.Dark })
+        {
+            ThemeManager.Apply(theme);
+            foreach (var section in Enum.GetValues<AppSection>())
+            {
+                viewModel.Section = section;
+                foreach (var card in viewModel.Dashboard.Cards) card.ShowFindings = card.Id == "nas";
+                await Settle(window);
+                await SavePages(window, Path.Combine(output, $"{Name(section)}-{Name(theme)}"));
+            }
+        }
+
+        // Adding a restic repository: the form that opens in Settings.
+        ThemeManager.Apply(AppTheme.Light);
+        viewModel.Section = AppSection.Settings;
+        viewModel.Settings.AddingKind = Core.DestinationKind.Restic;
+        await Settle(window);
+        if (window.CurrentView?.FindName("ToolPassword") is FrameworkElement password)
+        {
+            password.BringIntoView(new Rect(0, -220, 10, 420));
+            await Settle(window);
+        }
+
+        Save(window, Path.Combine(output, "settings-add-restic-light.png"));
+        viewModel.Settings.CancelTool();
+
+        // A first run: folders chosen, no destination yet.
+        ThemeManager.Apply(AppTheme.Light);
+        services.Settings.Update(s => s.Destinations.Clear());
+        viewModel.Section = AppSection.Dashboard;
+        viewModel.Refresh();
+        await Settle(window);
+        await SavePages(window, Path.Combine(output, "dashboard-first-run-light"));
+
+        window.CloseForReal();
     }
 
     private static string Name<T>(T value) where T : Enum => value.ToString().ToLowerInvariant();

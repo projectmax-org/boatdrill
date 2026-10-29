@@ -17,6 +17,7 @@ public partial class App : Application
     private MainViewModel? _viewModel;
     private MainWindow? _window;
     private bool _exiting;
+    private string _language = string.Empty;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -78,13 +79,20 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Error("Fatal error during start-up.", ex);
-            MessageBox.Show("Boatdrill could not start.\n\n" + ex.Message, "Boatdrill", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(Core.Text.Language.Pick("Boatdrill could not start.", "Boatdrill을 시작할 수 없습니다.") + "\n\n" + ex.Message, "Boatdrill",
+                MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
             return;
         }
 
         var settings = _services.Settings.Settings;
         ThemeManager.Apply(settings.Theme);
+        _language = settings.UiLanguage;
+        Core.Text.Language.Use(_language);
+        _services.Settings.Changed += (_, changed) =>
+        {
+            if (changed.UiLanguage != _language) Dispatcher.BeginInvoke(new Action(() => ApplyLanguage(changed.UiLanguage)));
+        };
 
         // Scheduled drills need Boatdrill running, so the first run registers it to start with Windows,
         // as the setting says. From then on the entry belongs to the user and Task Manager.
@@ -126,16 +134,46 @@ public partial class App : Application
     {
         if (_services?.Tray is not { } tray || _viewModel is null) return;
 
-        tray.Menu = TrayMenu.Build(_viewModel, ShowWindow, ShowSection, ExitApplication);
         tray.Selected += (_, _) => Dispatcher.BeginInvoke(new Action(ShowWindow));
         tray.DoubleClicked += (_, _) => Dispatcher.BeginInvoke(new Action(ShowWindow));
         tray.BalloonClicked += (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowSection(AppSection.Dashboard)));
-        tray.SetTooltip(_viewModel.TrayTooltip);
-        _viewModel.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName == nameof(MainViewModel.TrayTooltip)) tray.SetTooltip(_viewModel.TrayTooltip);
-        };
+        AttachTray();
         tray.Show();
+    }
+
+    /// <summary>The tray's menu and tooltip, from the view model of the moment: built again when the language changes.</summary>
+    private void AttachTray()
+    {
+        if (_services?.Tray is not { } tray || _viewModel is not { } viewModel) return;
+
+        tray.Menu = TrayMenu.Build(viewModel, ShowWindow, ShowSection, ExitApplication);
+        tray.SetTooltip(viewModel.TrayTooltip);
+        viewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(MainViewModel.TrayTooltip) && ReferenceEquals(viewModel, _viewModel)) tray.SetTooltip(viewModel.TrayTooltip);
+        };
+    }
+
+    /// <summary>
+    /// Speaks the language chosen in Settings from now on: the window, its pages and the tray menu are built
+    /// again in it, on the page that was showing. A drill that is running carries on.
+    /// </summary>
+    private void ApplyLanguage(string code)
+    {
+        if (_services is null || _viewModel is null || _exiting || code == _language) return;
+
+        _language = code;
+        Core.Text.Language.Use(code);
+        Log.Info($"Speaking {(Core.Text.Language.IsKorean ? "Korean" : "English")} from now on.");
+
+        var old = _viewModel;
+        var wasOpen = _window is { IsVisible: true };
+        _viewModel = new MainViewModel(_services) { Section = old.Section };
+        _window?.CloseForReal();
+        _window = null;
+        old.Dispose();
+        AttachTray();
+        if (wasOpen) ShowWindow();
     }
 
     /// <summary>

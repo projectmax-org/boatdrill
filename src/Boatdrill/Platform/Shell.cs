@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Boatdrill.Core.Text;
 
 namespace Boatdrill.Platform;
 
@@ -92,6 +93,22 @@ public static class Shell
     }
 
     /// <summary>"Backup (E:)" for the root of a labelled drive, "Drive E:" without a label, null for any other folder.</summary>
+    /// <summary>A folder's name as Explorer shows it, "문서" for Documents on Korean Windows; null when Windows does not say.</summary>
+    public static string? FolderDisplayName(string folder)
+    {
+        try
+        {
+            var info = new NativeMethods.SHFILEINFO();
+            var found = NativeMethods.SHGetFileInfo(folder, 0, ref info, (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.SHFILEINFO>(),
+                NativeMethods.SHGFI_DISPLAYNAME);
+            return found != IntPtr.Zero && !string.IsNullOrWhiteSpace(info.szDisplayName) ? info.szDisplayName : null;
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return null;
+        }
+    }
+
     public static string? DriveName(string folder)
     {
         try
@@ -104,7 +121,7 @@ public static class Shell
             var letter = root.TrimEnd('\\', '/');
             var drive = new DriveInfo(root);
             var label = drive.IsReady ? drive.VolumeLabel : string.Empty;
-            return string.IsNullOrWhiteSpace(label) ? $"Drive {letter}" : $"{label} ({letter})";
+            return string.IsNullOrWhiteSpace(label) ? Language.Pick($"Drive {letter}", $"드라이브 {letter}") : $"{label} ({letter})";
         }
         catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException)
         {

@@ -14,8 +14,8 @@
     <CornerRadius x:Key="CornerRadius.Large">14</CornerRadius>
     <CornerRadius x:Key="CornerRadius.Pill">999</CornerRadius>
 
-    <FontFamily x:Key="Font.UI">Segoe UI Variable Text, Segoe UI, San Francisco, Helvetica Neue, sans-serif</FontFamily>
-    <FontFamily x:Key="Font.Display">Segoe UI Variable Display, Segoe UI Semibold, Segoe UI, sans-serif</FontFamily>
+    <FontFamily x:Key="Font.UI">Segoe UI Variable Text, Segoe UI, Malgun Gothic, San Francisco, Helvetica Neue, sans-serif</FontFamily>
+    <FontFamily x:Key="Font.Display">Segoe UI Variable Display, Segoe UI Semibold, Segoe UI, Malgun Gothic, sans-serif</FontFamily>
 
     <Duration x:Key="Duration.Fast">0:0:0.12</Duration>
     <Duration x:Key="Duration.Normal">0:0:0.2</Duration>

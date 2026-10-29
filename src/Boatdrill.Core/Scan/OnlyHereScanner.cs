@@ -34,9 +34,26 @@ public sealed class OnlyHereScanner
         Current,
     }
 
-    /// <param name="scratchDirectory">Handed to adapters that need somewhere to work; a scan restores nothing.</param>
+    /// <param name="scratchDirectory">
+    /// Where adapters may keep lists while they work, in a folder of the scan's own that is removed afterwards. A scan restores nothing.
+    /// </param>
     public async Task<OnlyHereReport> ScanAsync(IReadOnlyList<Source> sources, IReadOnlyList<Destination> destinations, string scratchDirectory,
         IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
+    {
+        Directory.CreateDirectory(scratchDirectory);
+        var work = Directory.CreateDirectory(Path.Combine(scratchDirectory, Scratch.Prefix + "scan-" + Guid.NewGuid().ToString("N")[..8]));
+        try
+        {
+            return await ScanInAsync(sources, destinations, work.FullName, progress, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            Scratch.TryDelete(work.FullName);
+        }
+    }
+
+    private async Task<OnlyHereReport> ScanInAsync(IReadOnlyList<Source> sources, IReadOnlyList<Destination> destinations, string scratchDirectory,
+        IProgress<ScanProgress>? progress, CancellationToken ct)
     {
         var started = _clock.GetUtcNow();
         var reachable = new List<(Destination Destination, IDestinationAdapter Adapter)>();

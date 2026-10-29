@@ -12,6 +12,9 @@ public enum DestinationKind
 
     /// <summary>A restic repository, read through the restic command-line tool.</summary>
     Restic,
+
+    /// <summary>An rclone remote (Google Drive, OneDrive, S3, B2 and rclone's other back ends), read through rclone itself.</summary>
+    Rclone,
 }
 
 /// <summary>How a mirror destination lays out the copies of one source.</summary>
@@ -63,17 +66,34 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
         };
     }
 
+    /// <param name="location">A remote and a path as rclone writes them, such as "gdrive:Backups/Laptop".</param>
+    /// <param name="configPassword">The password of an encrypted rclone config, if it is encrypted.</param>
+    public static Destination Rclone(string location, string? configPassword = null, string? name = null, string? toolPath = null)
+    {
+        var normalised = NormaliseLocation(DestinationKind.Rclone, location);
+        return new Destination(IdFor(DestinationKind.Rclone, normalised), name ?? DefaultName(DestinationKind.Rclone, normalised), DestinationKind.Rclone, normalised)
+        {
+            Secret = configPassword,
+            ToolPath = toolPath,
+        };
+    }
+
     /// <summary>The same id for the same place on every run, so history lines up.</summary>
     public static string IdFor(DestinationKind kind, string location)
     {
         var normalised = NormaliseLocation(kind, location);
-        return kind == DestinationKind.Restic && IsRepositoryUrl(normalised) ? Source.IdForText("restic:" + normalised) : Source.IdForPath(normalised);
+        return kind switch
+        {
+            DestinationKind.Restic when IsRepositoryUrl(normalised) => Source.IdForText("restic:" + normalised),
+            DestinationKind.Rclone => Source.IdForText("rclone:" + normalised),
+            _ => Source.IdForPath(normalised),
+        };
     }
 
     /// <summary>The last folder of a path, or the end of a repository URL.</summary>
     public static string DefaultName(DestinationKind kind, string location)
     {
-        if (kind == DestinationKind.Restic && IsRepositoryUrl(location))
+        if ((kind == DestinationKind.Restic && IsRepositoryUrl(location)) || kind == DestinationKind.Rclone)
         {
             var tail = location.TrimEnd('/', '\\');
             var cut = tail.LastIndexOfAny(['/', '\\', ':']);
@@ -85,7 +105,7 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
 
     /// <summary>A folder is made absolute; a repository URL such as sftp:host:/srv/restic is kept as it is.</summary>
     public static string NormaliseLocation(DestinationKind kind, string location) =>
-        kind == DestinationKind.Restic && IsRepositoryUrl(location) ? location.Trim() : Path.GetFullPath(location);
+        kind == DestinationKind.Rclone || (kind == DestinationKind.Restic && IsRepositoryUrl(location)) ? location.Trim() : Path.GetFullPath(location);
 
     /// <summary>restic's remote back ends; anything else is a folder.</summary>
     public static bool IsRepositoryUrl(string location) => RepositoryUrl().IsMatch(location);

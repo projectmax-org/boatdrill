@@ -13,25 +13,25 @@ public partial class SettingsView : UserControl
     }
 
     // A PasswordBox cannot be bound, by design; its text goes straight to the view model and the box is cleared.
-    private async void AddRestic_Click(object sender, RoutedEventArgs e)
+    private async void AddTool_Click(object sender, RoutedEventArgs e)
     {
         if (DataContext is not SettingsViewModel viewModel) return;
 
-        var password = ResticPassword.Password;
-        ResticPassword.Clear();
+        var password = ToolPassword.Password;
+        ToolPassword.Clear();
         try
         {
-            await viewModel.AddResticAsync(password);
+            await viewModel.AddToolAsync(password);
         }
         catch (Exception ex)
         {
-            Log.Error("Could not add the repository.", ex);
+            Log.Error("Could not add the repository or remote.", ex);
         }
     }
 
-    private void CancelRestic_Click(object sender, RoutedEventArgs e)
+    private void CancelTool_Click(object sender, RoutedEventArgs e)
     {
-        ResticPassword.Clear();
-        (DataContext as SettingsViewModel)?.CancelRestic();
+        ToolPassword.Clear();
+        (DataContext as SettingsViewModel)?.CancelTool();
     }
 }

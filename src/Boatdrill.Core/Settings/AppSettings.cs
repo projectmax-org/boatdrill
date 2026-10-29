@@ -142,6 +142,14 @@ public sealed class DestinationSetting
     public static DestinationSetting ForFileHistory(string folder, string? name = null) => From(Destination.FileHistory(folder, name));
 
     /// <param name="storedSecret">The password as it is to be stored, already protected by the caller.</param>
+    /// <param name="storedSecret">An encrypted rclone config's password, already protected by the caller; null when the config is not encrypted.</param>
+    public static DestinationSetting ForRclone(string location, string? storedSecret, string? name = null, string? toolPath = null)
+    {
+        var setting = From(Destination.Rclone(location, null, name, toolPath));
+        setting.Secret = storedSecret;
+        return setting;
+    }
+
     public static DestinationSetting ForRestic(string repository, string? storedSecret, string? name = null, string? toolPath = null)
     {
         var setting = From(Destination.Restic(repository, null, name, toolPath));

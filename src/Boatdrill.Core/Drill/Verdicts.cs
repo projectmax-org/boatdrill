@@ -15,7 +15,12 @@ public static class Verdicts
         switch (r.Score.Verdict)
         {
             case Verdict.Unreachable:
-                var fix = r.Kind == DestinationKind.Restic ? "Check the repository in Settings" : "Plug it in or check the share";
+                var fix = r.Kind switch
+                {
+                    DestinationKind.Restic => "Check the repository in Settings",
+                    DestinationKind.Rclone => "Check the remote in Settings",
+                    _ => "Plug it in or check the share",
+                };
                 return $"{name} could not be reached: {r.ProbeDetail}. {fix}, then run a drill.";
             case Verdict.NothingToCheck:
                 return $"{name} is reachable, but no files were sampled, so there is nothing to verify yet.";

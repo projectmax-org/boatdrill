@@ -143,6 +143,7 @@ public static class HtmlReport
     {
         DestinationKind.FileHistory => "File History on " + r.RootPath,
         DestinationKind.Restic => "restic repository at " + r.RootPath,
+        DestinationKind.Rclone => "rclone remote at " + r.RootPath,
         _ => r.RootPath,
     };
 
@@ -192,10 +193,14 @@ public static class HtmlReport
         {
             DestinationKind.FileHistory => "M8.4 3.6 H17.6 A1.6 1.6 0 0 1 19.2 5.2 V14.4 M5.6 6.8 H14.8 A1.6 1.6 0 0 1 16.4 8.4 V18.8 A1.6 1.6 0 0 1 14.8 20.4 H5.6 A1.6 1.6 0 0 1 4 18.8 V8.4 A1.6 1.6 0 0 1 5.6 6.8 Z M10.2 11 V14.2 L12.2 15.4",
             DestinationKind.Restic => "M4.8 6.4 C4.8 3.9 19.2 3.9 19.2 6.4 C19.2 8.9 4.8 8.9 4.8 6.4 Z M4.8 6.4 V17.6 C4.8 20.1 19.2 20.1 19.2 17.6 V6.4 M4.8 12 C4.8 14.5 19.2 14.5 19.2 12",
+            DestinationKind.Rclone => CloudIcon,
             _ => "M3.2 13.6 L5.7 5.9 A1.8 1.8 0 0 1 7.4 4.6 H16.6 A1.8 1.8 0 0 1 18.3 5.9 L20.8 13.6 M3.2 13.6 H20.8 V18 A1.6 1.6 0 0 1 19.2 19.6 H4.8 A1.6 1.6 0 0 1 3.2 18 Z M16.6 16.6 H16.61 M13.6 16.6 H13.61",
         };
         return $"<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\"><path d=\"{path}\"/></svg>";
     }
+
+    /// <summary>A cloud, for a remote; the same figure as Icon.Cloud in the app.</summary>
+    internal const string CloudIcon = "M7.2 18.6 H17.4 A3.9 3.9 0 0 0 17.9 10.8 A5.6 5.6 0 0 0 7.1 9.7 A4.5 4.5 0 0 0 7.2 18.6 Z";
 
     private static string E(string text) => WebUtility.HtmlEncode(text);
 

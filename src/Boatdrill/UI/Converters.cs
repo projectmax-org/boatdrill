@@ -34,6 +34,7 @@ public sealed class DestinationIconConverter : IValueConverter
         {
             Core.DestinationKind.FileHistory => "Icon.Versions",
             Core.DestinationKind.Restic => "Icon.Repository",
+            Core.DestinationKind.Rclone => "Icon.Cloud",
             _ => "Icon.Drive",
         });
 

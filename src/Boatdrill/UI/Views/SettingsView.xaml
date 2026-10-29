@@ -113,7 +113,7 @@
                     <StackPanel>
                         <TextBlock Text="WHERE YOUR BACKUPS ARE" Style="{StaticResource Text.SectionLabel}" />
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,-4,0,12"
-                                   Text="An external drive, a network share, a folder that OneDrive, Dropbox or Google Drive keeps in step, a File History drive, or a restic repository. Boatdrill only ever reads from these." />
+                                   Text="An external drive, a network share, a folder that OneDrive, Dropbox or Google Drive keeps in step, a File History drive, a restic repository or an rclone remote. Boatdrill only ever reads from these." />
 
                         <ItemsControl ItemsSource="{Binding Destinations}" Focusable="False">
                             <ItemsControl.ItemTemplate>
@@ -173,16 +173,15 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <!-- A restic repository needs more than a folder: where it is, its password, and restic. -->
+                        <!-- A repository or a remote needs more than a folder: where it is, perhaps a password, and its tool. -->
                         <Border Margin="0,0,0,10" Padding="14,12"
                                 Background="{DynamicResource Brush.SurfaceAlt}"
                                 BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="1"
                                 CornerRadius="{StaticResource CornerRadius.Medium}"
-                                Visibility="{Binding IsAddingRestic, Converter={StaticResource BoolToVisibility}}">
+                                Visibility="{Binding IsAddingTool, Converter={StaticResource BoolToVisibility}}">
                             <StackPanel>
-                                <TextBlock Text="A restic repository" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,12"
-                                           Text="Boatdrill reads it with restic, which has to be installed. Each drill restores a sample of files into Boatdrill's own folder; nothing is written to the repository, not even a lock." />
+                                <TextBlock Text="{Binding Form.Title}" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="{Binding Form.Intro}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,12" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="130" />
@@ -193,58 +192,67 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
-                                    <TextBlock Text="Where it is" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
-                                    <TextBox Grid.Column="1" Text="{Binding NewResticLocation, UpdateSourceTrigger=PropertyChanged}"
-                                             controls:Hint.Text="E:\restic, or sftp:nas:/srv/restic"
-                                             AutomationProperties.Name="Where the repository is" />
+                                    <TextBlock Text="{Binding Form.LocationLabel}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="1" Text="{Binding NewToolLocation, UpdateSourceTrigger=PropertyChanged}"
+                                             controls:Hint.Text="{Binding Form.LocationHint}"
+                                             AutomationProperties.Name="{Binding Form.LocationLabel}" />
                                     <Button Grid.Column="2" Style="{StaticResource Button.Ghost}" Content="Browse…" Margin="6,0,0,0"
-                                            Command="{Binding BrowseResticCommand}" AutomationProperties.Name="Choose the repository's folder" />
+                                            Command="{Binding BrowseToolCommand}" AutomationProperties.Name="Choose the repository's folder"
+                                            Visibility="{Binding Form.CanBrowse, Converter={StaticResource BoolToVisibility}}" />
 
-                                    <TextBlock Grid.Row="1" Text="Password" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,8,0,0" />
-                                    <PasswordBox Grid.Row="1" Grid.Column="1" x:Name="ResticPassword" Margin="0,8,0,0"
-                                                 AutomationProperties.Name="The repository's password" />
+                                    <TextBlock Grid.Row="1" Text="{Binding Form.PasswordLabel}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <PasswordBox Grid.Row="1" Grid.Column="1" x:Name="ToolPassword" Margin="0,8,0,0"
+                                                 AutomationProperties.Name="{Binding Form.PasswordLabel}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Form.PasswordHint}" Style="{StaticResource Text.Caption}" Margin="2,4,0,0"
+                                               Visibility="{Binding Form.PasswordHint, Converter={StaticResource BoolToVisibility}}" />
 
-                                    <TextBlock Grid.Row="2" Text="restic itself" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,8,0,0" />
-                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding NewResticTool, UpdateSourceTrigger=PropertyChanged}" Margin="0,8,0,0"
-                                             controls:Hint.Text="Leave empty when restic is on the PATH"
-                                             AutomationProperties.Name="Where restic.exe is" />
+                                    <TextBlock Grid.Row="3" Text="{Binding Form.ToolLabel}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding NewToolPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,8,0,0"
+                                             controls:Hint.Text="{Binding Form.ToolHint}"
+                                             AutomationProperties.Name="{Binding Form.ToolLabel}" />
                                 </Grid>
 
                                 <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                                    <Button Style="{StaticResource Button.Accent}" Content="Add the repository" Click="AddRestic_Click" Padding="14,6" />
-                                    <Button Content="Cancel" Click="CancelRestic_Click" Margin="8,0,0,0" />
+                                    <Button Style="{StaticResource Button.Accent}" Content="{Binding Form.AddText}" Click="AddTool_Click" Padding="14,6" />
+                                    <Button Content="Cancel" Click="CancelTool_Click" Margin="8,0,0,0" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
 
                         <WrapPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <Button Command="{Binding AddDestinationCommand}" Margin="0,0,8,0" AutomationProperties.Name="Add a backup folder or drive">
+                            <Button Command="{Binding AddDestinationCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a backup folder or drive">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Plus}" />
                                     <TextBlock Text="Add a folder or drive" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding AddFileHistoryCommand}" Margin="0,0,8,0" AutomationProperties.Name="Add a File History drive">
+                            <Button Command="{Binding AddFileHistoryCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a File History drive">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Versions}" />
                                     <TextBlock Text="Add File History" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding StartResticCommand}" AutomationProperties.Name="Add a restic repository"
-                                    IsEnabled="{Binding IsAddingRestic, Converter={StaticResource InverseBool}}">
+                            <Button Command="{Binding StartResticCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add a restic repository">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Repository}" />
                                     <TextBlock Text="Add a restic repository" Margin="7,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
+                            <Button Command="{Binding StartRcloneCommand}" Margin="0,0,8,8" AutomationProperties.Name="Add an rclone remote">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Cloud}" />
+                                    <TextBlock Text="Add an rclone remote" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
                         </WrapPanel>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0"
-                                    Visibility="{Binding IsTestingRestic, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
+                                    Visibility="{Binding IsTestingTool, Converter={StaticResource BoolToVisibility}}">
                             <ProgressBar Width="120" Height="4" IsIndeterminate="True" Background="{DynamicResource Brush.Pressed}" VerticalAlignment="Center" />
-                            <TextBlock Text="Opening the repository with restic…" Style="{StaticResource Text.Caption}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Opening it to check that it works…" Style="{StaticResource Text.Caption}" Margin="10,0,0,0" VerticalAlignment="Center" />
                         </StackPanel>
                     </StackPanel>
                 </Border>

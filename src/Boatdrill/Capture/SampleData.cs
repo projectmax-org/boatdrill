@@ -36,6 +36,7 @@ internal static class SampleData
                 new DestinationSetting { Id = "nas", Name = "Family NAS", Folder = @"\\nas\backups\laptop", Layout = MirrorLayout.RootFolder },
                 new DestinationSetting { Id = "offsite", Name = "Offsite repository", Kind = DestinationKind.Restic, Folder = "sftp:backup@cabin.example:/srv/restic", Secret = Protect("sample password") },
                 new DestinationSetting { Id = "history", Name = "File History (F:)", Kind = DestinationKind.FileHistory, Folder = @"F:\" },
+                new DestinationSetting { Id = "gdrive", Name = "Google Drive", Kind = DestinationKind.Rclone, Folder = "gdrive:Backups/Laptop" },
             ],
             UseCanaries = true,
             HasCompletedFirstRun = true,

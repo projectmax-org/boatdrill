@@ -307,7 +307,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         foreach (var item in document.RootElement.EnumerateArray())
         {
             if (!item.TryGetProperty("id", out var i) || i.GetString() is not { Length: >= 8 } id) continue;
-            if (!item.TryGetProperty("time", out var t) || ParseTime(t.GetString()) is not { } time) continue;
+            if (!item.TryGetProperty("time", out var t) || GoTime.Parse(t.GetString()) is not { } time) continue;
 
             var shortId = item.TryGetProperty("short_id", out var s) ? s.GetString() ?? id[..8] : id[..8];
             var paths = item.TryGetProperty("paths", out var p) && p.ValueKind == JsonValueKind.Array
@@ -332,24 +332,13 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             if (!root.TryGetProperty("path", out var path) || path.GetString() is not { } p) return null;
 
             var size = root.TryGetProperty("size", out var s) && s.TryGetInt64(out var n) ? n : 0;
-            var modified = root.TryGetProperty("mtime", out var m) ? ParseTime(m.GetString()) : null;
+            var modified = root.TryGetProperty("mtime", out var m) ? GoTime.Parse(m.GetString()) : null;
             return new Node(p, size, modified ?? DateTimeOffset.MinValue);
         }
         catch (JsonException)
         {
             return null;
         }
-    }
-
-    /// <summary>restic writes Go's RFC 3339 with up to nine digits of seconds; .NET keeps seven.</summary>
-    internal static DateTimeOffset? ParseTime(string? text)
-    {
-        if (string.IsNullOrEmpty(text)) return null;
-
-        var trimmed = LongFraction().Replace(text, m => m.Groups[1].Value);
-        return DateTimeOffset.TryParse(trimmed, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var when)
-            ? when.ToUniversalTime()
-            : null;
     }
 
     /// <summary>
@@ -443,6 +432,4 @@ public sealed partial class ResticAdapter : IDestinationAdapter
     [GeneratedRegex(@"^ignoring error for (?<path>.+?): (?<error>.+)$", RegexOptions.Multiline)]
     private static partial Regex RestoreError();
 
-    [GeneratedRegex(@"(\.\d{7})\d+")]
-    private static partial Regex LongFraction();
 }

@@ -81,16 +81,16 @@ internal static class ViewCapture
             // Adding a restic repository: the form that opens in Settings.
             ThemeManager.Apply(AppTheme.Light);
             viewModel.Section = AppSection.Settings;
-            viewModel.Settings.IsAddingRestic = true;
+            viewModel.Settings.AddingKind = Core.DestinationKind.Restic;
             await Settle(window);
-            if (window.CurrentView?.FindName("ResticPassword") is FrameworkElement password)
+            if (window.CurrentView?.FindName("ToolPassword") is FrameworkElement password)
             {
                 password.BringIntoView(new Rect(0, -220, 10, 420));
                 await Settle(window);
             }
 
             Save(window, Path.Combine(output, "settings-add-restic-light.png"));
-            viewModel.Settings.CancelRestic();
+            viewModel.Settings.CancelTool();
 
             // A first run: folders chosen, no destination yet.
             ThemeManager.Apply(AppTheme.Light);

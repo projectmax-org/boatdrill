@@ -25,6 +25,8 @@ public static class Program
           --restic <repository>     a restic repository: a folder, or a URL such as sftp:host:/srv/restic
           --password-file <file>    the restic password, on the first line; without it, RESTIC_PASSWORD
           --restic-tool <path>      restic itself, when it is not on the PATH
+          --rclone <remote:path>    an rclone remote from your rclone config, such as gdrive:Backups/Laptop
+          --rclone-tool <path>      rclone itself, when it is not on the PATH
 
         drill rehearses restoring a sample of files from every source out of every destination and says
         whether the backup would work. It never writes to a destination; it writes the scratch folder and,
@@ -319,7 +321,7 @@ public static class Program
             long capMb = 512;
             int? seed = null;
             var churnHours = 2.0;
-            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, html = null, folder = null;
+            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, rcloneTool = null, html = null, folder = null;
             long batchMb = RehearsalRunner.DefaultBatchBytes / 1024 / 1024;
             bool canaries = false, json = false;
 
@@ -332,6 +334,8 @@ public static class Program
                     case "--dest": destinations.Add((DestinationKind.MirrorFolder, Next())); break;
                     case "--file-history": destinations.Add((DestinationKind.FileHistory, Next())); break;
                     case "--restic": destinations.Add((DestinationKind.Restic, Next())); break;
+                    case "--rclone": destinations.Add((DestinationKind.Rclone, Next())); break;
+                    case "--rclone-tool": rcloneTool = Next(); break;
                     case "--password-file": passwordFile = Next(); break;
                     case "--restic-tool": resticTool = Next(); break;
                     case "--sample": sampleSize = int.Parse(Next(), CultureInfo.InvariantCulture); break;
@@ -374,6 +378,7 @@ public static class Program
                 {
                     DestinationKind.FileHistory => Destination.FileHistory(d.Location),
                     DestinationKind.Restic => Destination.Restic(d.Location, password, toolPath: resticTool),
+                    DestinationKind.Rclone => Destination.Rclone(d.Location, toolPath: rcloneTool),
                     _ => Destination.MirrorFolder(d.Location),
                 }).ToList(),
                 new SampleOptions

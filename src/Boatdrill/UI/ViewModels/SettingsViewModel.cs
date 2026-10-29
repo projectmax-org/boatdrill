@@ -46,15 +46,31 @@ public sealed class DestinationRowViewModel : ViewModelBase
         {
             DestinationKind.FileHistory => "File History on " + destination.Folder,
             DestinationKind.Restic => "restic repository at " + Destination.Redact(destination.Folder),
+            DestinationKind.Rclone => "rclone remote at " + destination.Folder,
             _ => destination.Folder,
         };
-        PasswordNote = destination.Kind != DestinationKind.Restic ? string.Empty
-            : Dpapi.Unprotect(destination.Secret) is null ? "No password is saved that this Windows account can read. Add the repository again with its password."
-            : "Its password is saved, encrypted so that only your Windows account can read it. Add the repository again to change it.";
-        PasswordMissing = destination.Kind == DestinationKind.Restic && Dpapi.Unprotect(destination.Secret) is null;
+        PasswordMissing = IsPasswordMissing(destination);
+        PasswordNote = destination.Kind switch
+        {
+            DestinationKind.Restic or DestinationKind.Rclone when PasswordMissing =>
+                "No password is saved that this Windows account can read. Add it again with its password.",
+            DestinationKind.Restic => "Its password is saved, encrypted so that only your Windows account can read it. Add the repository again to change it.",
+            DestinationKind.Rclone when destination.Secret is not null =>
+                "Its config password is saved, encrypted so that only your Windows account can read it. Add the remote again to change it.",
+            DestinationKind.Rclone => "Read with your rclone config as it is.",
+            _ => string.Empty,
+        };
         _name = destination.Name;
         _layout = Layouts.FirstOrDefault(l => l.Value == destination.Layout) ?? Layouts[0];
     }
+
+    /// <summary>A repository with no password, or a password this Windows account cannot decrypt (settings from elsewhere).</summary>
+    public static bool IsPasswordMissing(DestinationSetting destination) => destination.Kind switch
+    {
+        DestinationKind.Restic => Dpapi.Unprotect(destination.Secret) is null,
+        DestinationKind.Rclone => destination.Secret is not null && Dpapi.Unprotect(destination.Secret) is null,
+        _ => false,
+    };
 
     public string Id { get; }
 
@@ -100,6 +116,22 @@ public sealed class DestinationRowViewModel : ViewModelBase
     }
 }
 
+/// <summary>The words of the form for a backup read through a tool, for one kind.</summary>
+public sealed record ToolForm(
+    string Title,
+    string Intro,
+    string LocationLabel,
+    string LocationHint,
+    string PasswordLabel,
+    string PasswordHint,
+    bool PasswordRequired,
+    string ToolLabel,
+    string ToolHint,
+    string AddText,
+    bool CanBrowse,
+    string Tool,
+    string Noun);
+
 /// <summary>Everything on the Settings page. Each change is saved as it is made.</summary>
 public sealed class SettingsViewModel : ViewModelBase, IDisposable
 {
@@ -108,10 +140,28 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     private readonly AppServices _services;
     private string _message = string.Empty;
     private bool _messageIsWarning;
-    private bool _isAddingRestic;
-    private bool _isTestingRestic;
-    private string _newResticLocation = string.Empty;
-    private string _newResticTool = string.Empty;
+    private DestinationKind? _addingKind;
+    private bool _isTestingTool;
+    private string _newToolLocation = string.Empty;
+    private string _newToolPath = string.Empty;
+
+    private static readonly IReadOnlyDictionary<DestinationKind, ToolForm> Forms = new Dictionary<DestinationKind, ToolForm>
+    {
+        [DestinationKind.Restic] = new(
+            "A restic repository",
+            "Boatdrill reads it with restic, which has to be installed. Each drill restores a sample of files into Boatdrill's own folder; nothing is written to the repository, not even a lock.",
+            "Where it is", "E:\\restic, or sftp:nas:/srv/restic",
+            "Password", string.Empty, PasswordRequired: true,
+            "restic itself", "Leave empty when restic is on the PATH",
+            "Add the repository", CanBrowse: true, "restic", "repository"),
+        [DestinationKind.Rclone] = new(
+            "An rclone remote",
+            "Boatdrill reads it with rclone, which has to be installed with the remote set up in its config. Each drill downloads a sample of files into Boatdrill's own folder; nothing is written to the remote.",
+            "Remote and path", "gdrive:Backups/Laptop",
+            "Config password", "Only if your rclone config is encrypted", PasswordRequired: false,
+            "rclone itself", "Leave empty when rclone is on the PATH",
+            "Add the remote", CanBrowse: false, "rclone", "remote"),
+    };
 
     public SettingsViewModel(AppServices services)
     {
@@ -136,8 +186,9 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         AddSourceCommand = new RelayCommand(AddSource);
         AddDestinationCommand = new RelayCommand(AddDestination);
         AddFileHistoryCommand = new AsyncRelayCommand(AddFileHistoryAsync);
-        StartResticCommand = new RelayCommand(() => IsAddingRestic = true);
-        BrowseResticCommand = new RelayCommand(BrowseRestic);
+        StartResticCommand = new RelayCommand(() => AddingKind = DestinationKind.Restic, () => AddingKind is null);
+        StartRcloneCommand = new RelayCommand(() => AddingKind = DestinationKind.Rclone, () => AddingKind is null);
+        BrowseToolCommand = new RelayCommand(BrowseTool);
         RemoveSourceCommand = new RelayCommand(p => RemoveSource(p as SourceRowViewModel));
         RemoveDestinationCommand = new RelayCommand(p => RemoveDestination(p as DestinationRowViewModel));
         OpenDataFolderCommand = new RelayCommand(() => Shell.OpenFolder(Paths.DataDirectory));
@@ -162,7 +213,9 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
     public RelayCommand StartResticCommand { get; }
 
-    public RelayCommand BrowseResticCommand { get; }
+    public RelayCommand StartRcloneCommand { get; }
+
+    public RelayCommand BrowseToolCommand { get; }
 
     public RelayCommand RemoveSourceCommand { get; }
 
@@ -187,32 +240,43 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         private set => Set(ref _messageIsWarning, value);
     }
 
-    // ---------------- adding a restic repository ----------------
+    // ---------------- adding a repository or a remote ----------------
 
-    /// <summary>The form for a repository is open.</summary>
-    public bool IsAddingRestic
+    /// <summary>The kind of backup whose form is open, or null when it is closed.</summary>
+    public DestinationKind? AddingKind
     {
-        get => _isAddingRestic;
-        set => Set(ref _isAddingRestic, value);
+        get => _addingKind;
+        set
+        {
+            if (!Set(ref _addingKind, value)) return;
+            Raise(nameof(IsAddingTool), nameof(Form));
+            StartResticCommand.RaiseCanExecuteChanged();
+            StartRcloneCommand.RaiseCanExecuteChanged();
+        }
     }
 
-    /// <summary>A repository just added is being opened, to say whether its password works.</summary>
-    public bool IsTestingRestic
+    public bool IsAddingTool => AddingKind is not null;
+
+    /// <summary>The open form's words.</summary>
+    public ToolForm? Form => AddingKind is { } kind ? Forms[kind] : null;
+
+    /// <summary>A repository or remote just added is being opened, to say whether it works.</summary>
+    public bool IsTestingTool
     {
-        get => _isTestingRestic;
-        private set => Set(ref _isTestingRestic, value);
+        get => _isTestingTool;
+        private set => Set(ref _isTestingTool, value);
     }
 
-    public string NewResticLocation
+    public string NewToolLocation
     {
-        get => _newResticLocation;
-        set => Set(ref _newResticLocation, value ?? string.Empty);
+        get => _newToolLocation;
+        set => Set(ref _newToolLocation, value ?? string.Empty);
     }
 
-    public string NewResticTool
+    public string NewToolPath
     {
-        get => _newResticTool;
-        set => Set(ref _newResticTool, value ?? string.Empty);
+        get => _newToolPath;
+        set => Set(ref _newToolPath, value ?? string.Empty);
     }
 
     // ---------------- checks ----------------
@@ -408,42 +472,47 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         Say($"{destination.Name} is added. Each drill reads the newest version of every sampled file.", warning: false);
     }
 
-    private void BrowseRestic()
+    private void BrowseTool()
     {
-        if (Shell.PickFolder("Choose the folder that holds the restic repository") is { } folder) NewResticLocation = folder;
+        if (Shell.PickFolder("Choose the folder that holds the repository") is { } folder) NewToolLocation = folder;
     }
 
-    public void CancelRestic()
+    public void CancelTool()
     {
-        IsAddingRestic = false;
-        NewResticLocation = string.Empty;
-        NewResticTool = string.Empty;
+        AddingKind = null;
+        NewToolLocation = string.Empty;
+        NewToolPath = string.Empty;
     }
 
     /// <summary>
-    /// Adds the repository in the form, or, when it is already in the list, replaces its password. Then opens it
-    /// with restic to say whether the password works. The password is kept only encrypted (DPAPI).
+    /// Adds the repository or remote in the form, or, when it is already in the list, replaces its password. Then
+    /// opens it with its tool to say whether it works. A password is kept only encrypted (DPAPI).
     /// </summary>
-    public async Task AddResticAsync(string password)
+    public async Task AddToolAsync(string password)
     {
-        var location = NewResticLocation.Trim();
+        if (AddingKind is not { } kind || Form is not { } form) return;
+
+        var location = NewToolLocation.Trim();
         if (location.Length == 0)
         {
-            Say("Type where the repository is: a folder, or a URL such as sftp:nas:/srv/restic.", warning: true);
+            Say($"Type where the {form.Noun} is, such as {form.LocationHint}.", warning: true);
             return;
         }
 
-        if (password.Length == 0)
+        if (form.PasswordRequired && password.Length == 0)
         {
-            Say("Type the repository's password. Boatdrill keeps it encrypted, for your Windows account only.", warning: true);
+            Say($"Type the {form.Noun}'s password. Boatdrill keeps it encrypted, for your Windows account only.", warning: true);
             return;
         }
 
         DestinationSetting destination;
         try
         {
-            var tool = NewResticTool.Trim();
-            destination = DestinationSetting.ForRestic(location, Dpapi.Protect(password), toolPath: tool.Length == 0 ? null : tool);
+            var tool = NewToolPath.Trim();
+            var stored = password.Length == 0 ? null : Dpapi.Protect(password);
+            destination = kind == DestinationKind.Rclone
+                ? DestinationSetting.ForRclone(location, stored, toolPath: tool.Length == 0 ? null : tool)
+                : DestinationSetting.ForRestic(location, stored, toolPath: tool.Length == 0 ? null : tool);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or InvalidOperationException)
         {
@@ -464,22 +533,24 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
                 s.Destinations.Add(destination);
             }
         });
-        CancelRestic();
+        CancelTool();
         var name = existing?.Name ?? destination.Name;
-        Say(existing is null ? $"Opening {name} with restic…" : $"The password for {name} is replaced. Opening it with restic…", warning: false);
+        Say(existing is null ? $"Opening {name} with {form.Tool}…" : $"{name} is updated. Opening it with {form.Tool}…", warning: false);
 
-        IsTestingRestic = true;
+        IsTestingTool = true;
         try
         {
-            var probe = await Task.Run(() => new ResticAdapter().ProbeAsync(destination.ToDestination(_ => password), CancellationToken.None));
+            var target = destination.ToDestination(_ => password.Length == 0 ? null : password);
+            IDestinationAdapter adapter = kind == DestinationKind.Rclone ? new RcloneAdapter() : new ResticAdapter();
+            var probe = await Task.Run(() => adapter.ProbeAsync(target, CancellationToken.None));
             Say(probe.Reachable
                     ? $"{name} is ready: {probe.Detail}. Boatdrill only ever reads from it."
-                    : $"{name} is in the list, but restic could not open it: {probe.Detail}.",
+                    : $"{name} is in the list, but {form.Tool} could not open it: {probe.Detail}.",
                 warning: !probe.Reachable);
         }
         finally
         {
-            IsTestingRestic = false;
+            IsTestingTool = false;
         }
     }
 
@@ -549,7 +620,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             foreach (var source in settings.Sources) Sources.Add(new SourceRowViewModel(source));
         }
 
-        if (!Destinations.Select(d => (d.Id, d.PasswordMissing)).SequenceEqual(settings.Destinations.Select(d => (d.Id, d.Kind == DestinationKind.Restic && Dpapi.Unprotect(d.Secret) is null))))
+        if (!Destinations.Select(d => (d.Id, d.PasswordNote)).SequenceEqual(settings.Destinations.Select(d => (d.Id, new DestinationRowViewModel(_services.Settings, d).PasswordNote))))
         {
             Destinations.Clear();
             foreach (var destination in settings.Destinations) Destinations.Add(new DestinationRowViewModel(_services.Settings, destination));

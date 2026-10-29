@@ -199,9 +199,15 @@ public sealed class DestinationCardViewModel : ViewModelBase
         {
             DestinationKind.FileHistory => "File History on " + destination.Folder,
             DestinationKind.Restic => "restic repository at " + Destination.Redact(destination.Folder),
+            DestinationKind.Rclone => "rclone remote at " + destination.Folder,
             _ => destination.Folder,
         };
-        CanOpenFolder = !(destination.Kind == DestinationKind.Restic && Destination.IsRepositoryUrl(destination.Folder));
+        CanOpenFolder = destination.Kind switch
+        {
+            DestinationKind.Restic => !Destination.IsRepositoryUrl(destination.Folder),
+            DestinationKind.Rclone => Directory.Exists(destination.Folder),
+            _ => true,
+        };
         Result = result;
         ApplyTrend(recent);
 

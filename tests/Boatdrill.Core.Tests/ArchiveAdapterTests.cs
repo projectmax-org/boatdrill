@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using Boatdrill.Core.Adapters;
@@ -61,10 +60,10 @@ public sealed class ArchiveAdapterTests
 
     private static Destination Archives(string location) => Destination.Archive(location, "Archives", SevenZipTool.Path);
 
-    private static async Task<DestinationResult> DrillAsync(TempTree source, Destination destination)
+    private static async Task<DestinationResult> DrillAsync(TempTree source, Destination destination, ArchiveAdapter? adapter = null)
     {
         using var scratch = new TempTree();
-        var report = await new DrillRunner().RunAsync(new DrillPlan
+        var report = await new DrillRunner(adapter is null ? null : [adapter]).RunAsync(new DrillPlan
         {
             Sources = [Source.FromPath(source.Root, "Docs")],
             Destinations = [destination],
@@ -203,17 +202,8 @@ public sealed class ArchiveAdapterTests
             zip.CreateEntryFromFile(source.At("plain.txt"), "plain.txt");
         }
 
-        var culture = CultureInfo.CurrentCulture;
-        try
-        {
-            CultureInfo.CurrentCulture = new CultureInfo("ko-KR");
-            var result = await DrillAsync(source, Archives(folder.Root));
-            Assert.Equal((2, 0), (result.Verified, result.Missing));
-        }
-        finally
-        {
-            CultureInfo.CurrentCulture = culture;
-        }
+        var result = await DrillAsync(source, Archives(folder.Root), new ArchiveAdapter(zipCodePage: 949));
+        Assert.Equal((2, 0), (result.Verified, result.Missing));
 
         // Valid UTF-8 without the mark (as macOS writes) is read as UTF-8 whatever the code page.
         var names = new ArchiveAdapter.ZipNameEncoding(949);

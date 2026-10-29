@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using Boatdrill.Core.Drill;
@@ -32,6 +33,14 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
     private const string Encrypted = "it is password-protected, and Boatdrill cannot open encrypted archives yet";
 
     private static StringComparer NameComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    private readonly ZipNameEncoding _zipNames;
+
+    /// <param name="zipCodePage">The code page of zip names not marked as UTF-8; by default Windows' OEM code page.</param>
+    public ArchiveAdapter(int? zipCodePage = null)
+    {
+        _zipNames = new ZipNameEncoding(zipCodePage ?? OemCodePage());
+    }
 
     public DestinationKind Kind => DestinationKind.Archive;
 
@@ -179,7 +188,7 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
     // ---------------- listing ----------------
 
     /// <summary>An archive's files by name, laid out with forward slashes; null and why when it cannot be read.</summary>
-    private static async Task<(Dictionary<string, Entry>? Entries, string? Problem)> ListAsync(Destination destination, string archive, CancellationToken ct)
+    private async Task<(Dictionary<string, Entry>? Entries, string? Problem)> ListAsync(Destination destination, string archive, CancellationToken ct)
     {
         var entries = new Dictionary<string, Entry>(NameComparer);
         if (IsZip(archive))
@@ -243,7 +252,7 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
     // ---------------- extracting ----------------
 
     /// <summary>Extracts the files the archive holds into the stage folder, in one pass, timing it.</summary>
-    private static async Task ExtractAsync(Destination destination, IEnumerable<string> relativePaths, State state, CancellationToken ct)
+    private async Task ExtractAsync(Destination destination, IEnumerable<string> relativePaths, State state, CancellationToken ct)
     {
         var wanted = relativePaths
             .Select(p => state.Prefix + Normalise(p))
@@ -280,7 +289,7 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
     }
 
     /// <summary>Extracts zip entries to the given paths; what failed, by entry name, with why.</summary>
-    private static IReadOnlyDictionary<string, Failure> ExtractZip(string archive, IReadOnlyList<(Entry Entry, string Path)> files)
+    private IReadOnlyDictionary<string, Failure> ExtractZip(string archive, IReadOnlyList<(Entry Entry, string Path)> files)
     {
         var failures = new Dictionary<string, Failure>(NameComparer);
         try
@@ -417,8 +426,13 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
 
     private static bool IsZip(string path) => Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase);
 
-    private static ZipArchive OpenZip(string path) =>
-        ZipFile.Open(path, ZipArchiveMode.Read, new ZipNameEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage));
+    private ZipArchive OpenZip(string path) => ZipFile.Open(path, ZipArchiveMode.Read, _zipNames);
+
+    /// <summary>The code page Windows' own zip and 7-Zip write names in: the system's OEM code page, whatever the culture.</summary>
+    private static int OemCodePage() => OperatingSystem.IsWindows() ? (int)GetOEMCP() : CultureInfo.CurrentCulture.TextInfo.OEMCodePage;
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetOEMCP();
 
     private static string StagedPath(string stage, string key) => Path.Combine(stage, key.Replace('/', Path.DirectorySeparatorChar));
 

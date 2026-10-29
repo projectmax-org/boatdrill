@@ -11,6 +11,7 @@ namespace Boatdrill.UI.ViewModels;
 public enum AppSection
 {
     Dashboard,
+    OnlyHere,
     History,
     Settings,
 }
@@ -48,6 +49,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ShowSettingsCommand = new RelayCommand(() => Section = AppSection.Settings);
 
         Dashboard = new DashboardViewModel(services, this);
+        OnlyHere = new OnlyHereViewModel(services);
         History = new HistoryViewModel(services);
         Settings = new SettingsViewModel(services);
 
@@ -65,6 +67,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public DashboardViewModel Dashboard { get; }
 
+    public OnlyHereViewModel OnlyHere { get; }
+
     public HistoryViewModel History { get; }
 
     public SettingsViewModel Settings { get; }
@@ -81,7 +85,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (!Set(ref _section, value)) return;
-            Raise(nameof(IsDashboard), nameof(IsHistory), nameof(IsSettings), nameof(SectionTitle));
+            Raise(nameof(IsDashboard), nameof(IsOnlyHere), nameof(IsHistory), nameof(IsSettings), nameof(SectionTitle));
             if (value == AppSection.History) _ = History.ReloadAsync();
         }
     }
@@ -90,6 +94,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         get => Section == AppSection.Dashboard;
         set { if (value) Section = AppSection.Dashboard; }
+    }
+
+    public bool IsOnlyHere
+    {
+        get => Section == AppSection.OnlyHere;
+        set { if (value) Section = AppSection.OnlyHere; }
     }
 
     public bool IsHistory
@@ -107,6 +117,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string SectionTitle => Section switch
     {
         AppSection.Dashboard => "Your backups",
+        AppSection.OnlyHere => "Only on this PC",
         AppSection.History => "Drill history",
         _ => "Settings",
     };
@@ -214,6 +225,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         TrayTooltip = DescribeForTray(latest);
         Dashboard.Refresh();
+        OnlyHere.Refresh();
         RunDrillCommand.RaiseCanExecuteChanged();
         StopDrillCommand.RaiseCanExecuteChanged();
     }
@@ -290,6 +302,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _services.Drills.Completed -= OnDrillCompleted;
         _services.Scheduler.ScheduleChanged -= OnBackgroundChange;
         _services.Settings.Changed -= OnSettingsChanged;
+        OnlyHere.Dispose();
         Settings.Dispose();
     }
 }

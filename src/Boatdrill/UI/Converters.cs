@@ -26,6 +26,20 @@ public sealed class BoolToVisibilityConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => value is Visibility.Visible;
 }
 
+/// <summary>The icon for a kind of destination: a drive, File History's versions, a repository.</summary>
+public sealed class DestinationIconConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Application.Current?.TryFindResource(value switch
+        {
+            Core.DestinationKind.FileHistory => "Icon.Versions",
+            Core.DestinationKind.Restic => "Icon.Repository",
+            _ => "Icon.Drive",
+        });
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}
+
 public sealed class InverseBoolConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value is not true;

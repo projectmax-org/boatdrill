@@ -21,6 +21,12 @@ public static class Paths
 
     public static string LogFile => Path.Combine(DataDirectory, "boatdrill.log");
 
+    /// <summary>Copies verified in past drills, re-checked for bit rot; see Boatdrill.Core.History.LedgerStore.</summary>
+    public static string LedgerFile => Path.Combine(DataDirectory, "ledger.json");
+
+    /// <summary>The last "only on this PC" scan, so the page has something to show after a restart.</summary>
+    public static string OnlyHereFile => Path.Combine(DataDirectory, "only-here.json");
+
     /// <summary>Where sampled copies are read back to during a drill. Emptied again when the drill ends.</summary>
     public static string ScratchDirectory => EnsureDirectory(Path.Combine(DataDirectory, "scratch"));
 

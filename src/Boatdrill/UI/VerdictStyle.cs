@@ -34,7 +34,7 @@ public static class VerdictStyle
 
     public static string Kind(FileOutcome outcome) => outcome switch
     {
-        FileOutcome.Corrupt or FileOutcome.Error or FileOutcome.Missing => Bad,
+        FileOutcome.Corrupt or FileOutcome.Rotted or FileOutcome.Error or FileOutcome.Missing => Bad,
         FileOutcome.Outdated or FileOutcome.Placeholder => Fair,
         _ => Good,
     };
@@ -42,6 +42,7 @@ public static class VerdictStyle
     public static string Text(FileOutcome outcome) => outcome switch
     {
         FileOutcome.Corrupt => "Corrupt",
+        FileOutcome.Rotted => "Changed",
         FileOutcome.Error => "Unreadable",
         FileOutcome.Missing => "Missing",
         FileOutcome.Outdated => "Behind",

@@ -98,12 +98,13 @@
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
 
                                         <Border Grid.Column="0" Width="42" Height="42" Style="{StaticResource Badge.ByKind}"
                                                 Tag="{Binding VerdictKind}" VerticalAlignment="Center">
                                             <Path Style="{StaticResource Icon.ByKind}" Tag="{Binding VerdictKind}"
-                                                  Data="{DynamicResource Icon.Drive}" Width="20" Height="20" />
+                                                  Data="{Binding Kind, Converter={StaticResource DestinationIcon}}" Width="20" Height="20" />
                                         </Border>
 
                                         <StackPanel Grid.Column="1" Margin="14,0,14,0" VerticalAlignment="Center">
@@ -111,7 +112,19 @@
                                             <TextBlock Text="{Binding Folder}" Style="{StaticResource Text.Caption}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
                                         </StackPanel>
 
-                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                        <!-- The score in recent drills: a line rising or falling is worth a glance. -->
+                                        <Border Grid.Column="2" Margin="0,0,16,0" VerticalAlignment="Center" Background="Transparent"
+                                                ToolTip="{Binding TrendText}" AutomationProperties.Name="{Binding TrendText}"
+                                                Visibility="{Binding HasTrend, Converter={StaticResource BoolToVisibility}}">
+                                            <Grid Width="96" Height="26">
+                                                <Line X1="0" X2="96" Y1="25" Y2="25" Stroke="{DynamicResource Brush.Border}" StrokeThickness="1" />
+                                                <Polyline Points="{Binding TrendPoints}" Stroke="{DynamicResource Brush.Accent}" StrokeThickness="1.6"
+                                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                                <Path Data="{Binding TrendMisses}" Fill="{DynamicResource Brush.Danger}" />
+                                            </Grid>
+                                        </Border>
+
+                                        <StackPanel Grid.Column="3" VerticalAlignment="Center">
                                             <TextBlock Text="{Binding ScoreText}" Style="{StaticResource Text.ByKind}" Tag="{Binding VerdictKind}"
                                                        FontFamily="{StaticResource Font.Display}" FontSize="30" FontWeight="SemiBold"
                                                        HorizontalAlignment="Right" />
@@ -161,7 +174,8 @@
                                                     Content="{Binding FindingsToggleText}"
                                                     Visibility="{Binding HasFindings, Converter={StaticResource BoolToVisibility}}" />
                                             <Button Style="{StaticResource Button.Ghost}" Command="{Binding OpenFolderCommand}" Margin="4,0,0,0"
-                                                    ToolTip="{Binding Folder}" Content="Open the backup folder" />
+                                                    ToolTip="{Binding Folder}" Content="Open the backup folder"
+                                                    Visibility="{Binding CanOpenFolder, Converter={StaticResource BoolToVisibility}}" />
                                         </StackPanel>
                                     </Grid>
 

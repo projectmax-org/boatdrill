@@ -2,16 +2,19 @@ using System.Text.Json;
 using Boatdrill.Core;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.History;
+using Boatdrill.Core.Scan;
 using Boatdrill.Core.Scoring;
 using Boatdrill.Core.Settings;
 using Boatdrill.Core.Verification;
+using Boatdrill.Platform;
 
 namespace Boatdrill.Capture;
 
 /// <summary>
-/// Settings and six weeks of drill history for the view capture: a drive that would restore, a NAS that
-/// has been falling behind, and a travel SSD that is not plugged in. Scores and sentences come from the
-/// real scorer and sentence writer, so the screenshots show what a user would see.
+/// Settings, six weeks of drill history and a scan for the view capture: a drive that would restore, a NAS
+/// that has been falling behind and has a rotting photo, a restic repository offsite, and a File History
+/// drive that is not plugged in. Scores and sentences come from the real scorer and sentence writers, so
+/// the screenshots show what a user would see.
 /// </summary>
 internal static class SampleData
 {
@@ -31,8 +34,10 @@ internal static class SampleData
             [
                 new DestinationSetting { Id = "drive", Name = "Backup drive (E:)", Folder = @"E:\Backup" },
                 new DestinationSetting { Id = "nas", Name = "Family NAS", Folder = @"\\nas\backups\laptop", Layout = MirrorLayout.RootFolder },
-                new DestinationSetting { Id = "ssd", Name = "Travel SSD (F:)", Folder = @"F:\" },
+                new DestinationSetting { Id = "offsite", Name = "Offsite repository", Kind = DestinationKind.Restic, Folder = "sftp:backup@cabin.example:/srv/restic", Secret = Protect("sample password") },
+                new DestinationSetting { Id = "history", Name = "File History (F:)", Kind = DestinationKind.FileHistory, Folder = @"F:\" },
             ],
+            UseCanaries = true,
             HasCompletedFirstRun = true,
             HasShownTrayHint = true,
         };
@@ -45,6 +50,21 @@ internal static class SampleData
         for (var weeksAgo = 5; weeksAgo >= 0; weeksAgo--)
         {
             history.AppendAsync(Drill(now.AddDays(-2 - 7 * weeksAgo).AddHours(-3), weeksAgo)).GetAwaiter().GetResult();
+        }
+
+        File.WriteAllText(Path.Combine(directory, "only-here.json"), JsonSerializer.Serialize(Scan(now.AddDays(-1)), BoatdrillJson.Options));
+    }
+
+    /// <summary>The password as the app would keep it; plain where DPAPI is missing, which the app also accepts.</summary>
+    private static string Protect(string password)
+    {
+        try
+        {
+            return Dpapi.Protect(password);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or DllNotFoundException or EntryPointNotFoundException)
+        {
+            return password;
         }
     }
 
@@ -71,33 +91,47 @@ internal static class SampleData
             Destinations =
             [
                 Reached("drive", "Backup drive (E:)", @"E:\Backup", finished, verified: 397, outdated: 3, missing: 0,
-                    lag: TimeSpan.FromDays(1), reachability: 1.0, bytesPerSecond: 96d * 1024 * 1024, DriveFindings()),
+                    lag: TimeSpan.FromDays(1), reachability: 1.0, bytesPerSecond: 96d * 1024 * 1024, DriveFindings(),
+                    rechecked: weeksAgo < 5 ? 25 : 0, canaryCopied: finished.AddHours(-20)),
                 Reached("nas", "Family NAS", @"\\nas\backups\laptop", finished, verified: 400 - nasMissing - nasOutdated, outdated: nasOutdated, missing: nasMissing,
-                    lag: nasLag, reachability: 0.9, bytesPerSecond: 31d * 1024 * 1024, NasFindings(nasMissing, nasOutdated)),
+                    lag: nasLag, reachability: 0.9, bytesPerSecond: 31d * 1024 * 1024, NasFindings(nasMissing, nasOutdated, rotting: weeksAgo <= 1),
+                    rechecked: weeksAgo < 5 ? 25 : 0, rotted: weeksAgo <= 1 ? 1 : 0),
+                Reached("offsite", "Offsite repository", "sftp:backup@cabin.example:/srv/restic", finished, verified: 400, outdated: 0, missing: 0,
+                    lag: null, reachability: weeksAgo == 2 ? 0.8 : 1.0, bytesPerSecond: 6.5 * 1024 * 1024, [],
+                    rechecked: weeksAgo < 5 ? 25 : 0, canaryCopied: finished.AddHours(-11), kind: DestinationKind.Restic),
                 weeksAgo >= 4
-                    ? Reached("ssd", "Travel SSD (F:)", @"F:\", finished, verified: 400, outdated: 0, missing: 0,
-                        lag: null, reachability: 1.0, bytesPerSecond: 380d * 1024 * 1024, [])
-                    : Unreached("ssd", "Travel SSD (F:)", @"F:\", finished, reachability: weeksAgo == 3 ? 0.8 : 0.5),
+                    ? Reached("history", "File History (F:)", @"F:\", finished, verified: 400, outdated: 0, missing: 0,
+                        lag: null, reachability: 1.0, bytesPerSecond: 380d * 1024 * 1024, [], kind: DestinationKind.FileHistory)
+                    : Unreached("history", "File History (F:)", @"F:\", finished, reachability: weeksAgo == 3 ? 0.8 : 0.5, kind: DestinationKind.FileHistory),
             ],
         };
     }
 
     private static DestinationResult Reached(string id, string name, string root, DateTimeOffset at, int verified, int outdated, int missing,
-        TimeSpan? lag, double reachability, double bytesPerSecond, IReadOnlyList<FileFinding> findings)
+        TimeSpan? lag, double reachability, double bytesPerSecond, IReadOnlyList<FileFinding> findings,
+        int rechecked = 0, int rotted = 0, DateTimeOffset? canaryCopied = null, DestinationKind kind = DestinationKind.MirrorFolder)
     {
         var sampled = verified + outdated + missing;
+        var restic = kind == DestinationKind.Restic;
         var result = new DestinationResult
         {
             DestinationId = id,
             DestinationName = name,
+            Kind = kind,
             RootPath = root,
             Reachable = true,
-            ProbeDetail = root + " is reachable",
-            Bindings =
-            [
-                new BoundSource("documents", "Documents", MirrorLayout.RootFolder, Path.Combine(root, "Documents"), 25, 25),
-                new BoundSource("pictures", "Pictures", MirrorLayout.RootFolder, Path.Combine(root, "Pictures"), 25, 25),
-            ],
+            ProbeDetail = restic ? root + " holds 214 snapshots" : root + " is reachable",
+            Bindings = restic
+                ?
+                [
+                    new BoundSource("documents", "Documents", MirrorLayout.FullPath, $"{root}, snapshot 4f1c2a9e of {at.AddHours(-11):d MMMM yyyy, HH:mm} UTC", 25, 25),
+                    new BoundSource("pictures", "Pictures", MirrorLayout.FullPath, $"{root}, snapshot 4f1c2a9e of {at.AddHours(-11):d MMMM yyyy, HH:mm} UTC", 25, 25),
+                ]
+                :
+                [
+                    new BoundSource("documents", "Documents", MirrorLayout.RootFolder, Path.Combine(root, "Documents"), 25, 25),
+                    new BoundSource("pictures", "Pictures", MirrorLayout.RootFolder, Path.Combine(root, "Pictures"), 25, 25),
+                ],
             Sampled = sampled,
             Verified = verified,
             Outdated = outdated,
@@ -110,7 +144,10 @@ internal static class SampleData
             EstimatedFullRestore = TimeSpan.FromSeconds(PopulationBytes / bytesPerSecond),
             BehindSince = lag is { } behind ? at - behind : null,
             Lag = lag,
-            Score = Scorer.Score(new ScoreInputs(sampled, verified, outdated, 0, missing, 0, 0, Population, lag, true, reachability)),
+            Rechecked = rechecked,
+            Rotted = rotted,
+            CanaryCopiedUtc = canaryCopied,
+            Score = Scorer.Score(new ScoreInputs(sampled, verified, outdated, 0, missing, 0, 0, Population, lag, true, reachability, rechecked, rotted)),
             Sentence = string.Empty,
             Findings = findings,
         };
@@ -118,12 +155,13 @@ internal static class SampleData
         return result with { Sentence = Verdicts.Sentence(result, at) };
     }
 
-    private static DestinationResult Unreached(string id, string name, string root, DateTimeOffset at, double reachability)
+    private static DestinationResult Unreached(string id, string name, string root, DateTimeOffset at, double reachability, DestinationKind kind)
     {
         var result = new DestinationResult
         {
             DestinationId = id,
             DestinationName = name,
+            Kind = kind,
             RootPath = root,
             Reachable = false,
             ProbeDetail = root + " was not found",
@@ -147,9 +185,16 @@ internal static class SampleData
         ];
     }
 
-    private static IReadOnlyList<FileFinding> NasFindings(int missing, int outdated)
+    private static IReadOnlyList<FileFinding> NasFindings(int missing, int outdated, bool rotting)
     {
         var findings = new List<FileFinding>();
+        if (rotting)
+        {
+            var shot = new DateTimeOffset(2019, 7, 14, 17, 3, 0, TimeSpan.Zero);
+            findings.Add(new FileFinding(@"Pictures\2019\Summer\IMG_2231.jpg", FileOutcome.Rotted, 3_912_441, shot, 3_912_441, shot,
+                "verified on 2 September 2026; its bytes have changed since, though its size and date have not") { Recheck = true });
+        }
+
         var taken = new DateTimeOffset(2026, 10, 4, 15, 12, 0, TimeSpan.Zero);
         for (var i = 0; i < Math.Min(missing, 12); i++)
         {
@@ -164,6 +209,49 @@ internal static class SampleData
         }
 
         return findings;
+    }
+
+    /// <summary>A scan from yesterday: new photos the NAS never got, and a few documents changed since every copy.</summary>
+    private static OnlyHereReport Scan(DateTimeOffset at)
+    {
+        const long MB = 1024 * 1024;
+        var report = new OnlyHereReport
+        {
+            StartedUtc = at.AddMinutes(-2).AddSeconds(-14),
+            FinishedUtc = at,
+            Checked = ["Backup drive (E:)", "Family NAS", "Offsite repository"],
+            Unreachable = [@"File History (F:): F:\ was not found"],
+            Sources =
+            [
+                new OnlyHereSource("documents", "Documents", @"C:\Users\you\Documents")
+                {
+                    Files = 18_412, Bytes = 41L * 1024 * MB, NoCopyFiles = 3, NoCopyBytes = 18 * MB, OlderFiles = 9, OlderBytes = 7 * MB,
+                },
+                new OnlyHereSource("pictures", "Pictures", @"C:\Users\you\Pictures")
+                {
+                    Files = 23_880, Bytes = 171L * 1024 * MB, NoCopyFiles = 64, NoCopyBytes = 1_310 * MB, OlderFiles = 0, OlderBytes = 0,
+                },
+            ],
+            Folders =
+            [
+                new OnlyHereFolder("Pictures", @"2026\10", 58, 1_190 * MB),
+                new OnlyHereFolder("Pictures", @"Screenshots", 6, 120 * MB),
+                new OnlyHereFolder("Documents", @"Projects\Kitchen", 4, 16 * MB),
+                new OnlyHereFolder("Documents", @"Taxes", 5, 6 * MB),
+                new OnlyHereFolder("Documents", "", 3, 3 * MB),
+            ],
+            Largest =
+            [
+                new OnlyHereFile("Pictures", @"2026\10\VID_20261024_181205.mp4", 612 * MB, at.AddDays(-4), false),
+                new OnlyHereFile("Pictures", @"2026\10\VID_20261019_120033.mp4", 344 * MB, at.AddDays(-9), false),
+                new OnlyHereFile("Pictures", @"Screenshots\Recording 2026-10-22.mp4", 98 * MB, at.AddDays(-6), false),
+                new OnlyHereFile("Documents", @"Projects\Kitchen\Survey scan.pdf", 12 * MB, at.AddDays(-2), false),
+                new OnlyHereFile("Documents", @"Taxes\2026 return draft.xlsx", 2 * MB, at.AddDays(-1), true),
+            ],
+            Sentence = string.Empty,
+        };
+
+        return report with { Sentence = OnlyHereScanner.Sentence(report) };
     }
 
     private static FileFinding Outdated(string path, DateTimeOffset written, int daysBehind) =>

@@ -44,6 +44,12 @@ public sealed class AppSettings
     /// <summary>A notification when a drill finds a destination that would not restore.</summary>
     public bool NotifyOnProblems { get; set; } = true;
 
+    /// <summary>Read again a few copies verified in earlier drills, to catch bit rot (the hash ledger).</summary>
+    public bool RecheckForBitRot { get; set; } = true;
+
+    /// <summary>Keep a canary file in each protected folder to measure how far behind each backup is. Off unless chosen: it writes to the user's folders.</summary>
+    public bool UseCanaries { get; set; }
+
     public int SampleSize { get; set; } = 200;
 
     public int ByteCapMb { get; set; } = 512;

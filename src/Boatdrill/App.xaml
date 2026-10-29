@@ -15,6 +15,7 @@
 
             <ui:BoolToVisibilityConverter x:Key="BoolToVisibility" />
             <ui:InverseBoolConverter x:Key="InverseBool" />
+            <ui:DestinationIconConverter x:Key="DestinationIcon" />
 
             <!-- Colours a TextBlock by a verdict kind: good, fair, bad or none. -->
             <Style x:Key="Text.ByKind" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">

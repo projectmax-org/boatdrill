@@ -156,7 +156,7 @@ public sealed class DashboardViewModel : ViewModelBase
                 if (at != i) Cards.Move(at, i);
             }
 
-            card.Apply(destination, latest?.Destinations.FirstOrDefault(r => r.DestinationId == destination.Id), latest, now);
+            card.Apply(destination, latest?.Destinations.FirstOrDefault(r => r.DestinationId == destination.Id), latest, _services.Drills.Recent, now);
         }
     }
 

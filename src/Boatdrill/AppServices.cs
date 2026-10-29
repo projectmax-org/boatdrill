@@ -8,7 +8,7 @@ namespace Boatdrill;
 
 /// <summary>
 /// Composition root. Everything long-lived is created here, in dependency order, and disposed in reverse.
-/// Five objects, wired by hand: easier to read than a container's registration list.
+/// Six objects, wired by hand: easier to read than a container's registration list.
 /// </summary>
 public sealed class AppServices : IDisposable
 {
@@ -21,6 +21,7 @@ public sealed class AppServices : IDisposable
         History = new HistoryStore(Paths.HistoryFile);
         Drills = new DrillService(Settings, History);
         Scheduler = new DrillScheduler(Settings, Drills);
+        Scans = new ScanService(Settings, Drills);
         Tray = withTray ? new TrayIcon() : null;
     }
 
@@ -31,6 +32,8 @@ public sealed class AppServices : IDisposable
     public DrillService Drills { get; }
 
     public DrillScheduler Scheduler { get; }
+
+    public ScanService Scans { get; }
 
     public TrayIcon? Tray { get; }
 
@@ -48,6 +51,7 @@ public sealed class AppServices : IDisposable
         _disposed = true;
 
         Tray?.Dispose();
+        Scans.Dispose();
         Scheduler.Dispose();
         Drills.Dispose();
     }

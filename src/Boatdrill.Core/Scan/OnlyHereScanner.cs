@@ -152,7 +152,7 @@ public sealed class OnlyHereScanner
         return best;
     }
 
-    internal static string Sentence(OnlyHereReport r)
+    public static string Sentence(OnlyHereReport r)
     {
         if (r.Checked.Count == 0)
         {

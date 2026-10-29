@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Reflection;
 using Boatdrill.Core;
+using Boatdrill.Core.Adapters;
 using Boatdrill.Core.Settings;
 using Boatdrill.Platform;
 
@@ -21,7 +22,7 @@ public sealed class SourceRowViewModel(SourceSetting source)
     public string Excludes { get; } = source.Excludes.Count == 0 ? "Every file is checked." : "Left out: " + string.Join(", ", source.Excludes);
 }
 
-/// <summary>A destination in the Settings list. Its name and layout are edited in place.</summary>
+/// <summary>A destination in the Settings list. Its name, and a folder's layout, are edited in place.</summary>
 public sealed class DestinationRowViewModel : ViewModelBase
 {
     public static readonly IReadOnlyList<Choice<MirrorLayout>> Layouts =
@@ -40,14 +41,34 @@ public sealed class DestinationRowViewModel : ViewModelBase
     {
         _settings = settings;
         Id = destination.Id;
-        Folder = destination.Folder;
+        Kind = destination.Kind;
+        Folder = destination.Kind switch
+        {
+            DestinationKind.FileHistory => "File History on " + destination.Folder,
+            DestinationKind.Restic => "restic repository at " + Destination.Redact(destination.Folder),
+            _ => destination.Folder,
+        };
+        PasswordNote = destination.Kind != DestinationKind.Restic ? string.Empty
+            : Dpapi.Unprotect(destination.Secret) is null ? "No password is saved that this Windows account can read. Add the repository again with its password."
+            : "Its password is saved, encrypted so that only your Windows account can read it. Add the repository again to change it.";
+        PasswordMissing = destination.Kind == DestinationKind.Restic && Dpapi.Unprotect(destination.Secret) is null;
         _name = destination.Name;
         _layout = Layouts.FirstOrDefault(l => l.Value == destination.Layout) ?? Layouts[0];
     }
 
     public string Id { get; }
 
+    public DestinationKind Kind { get; }
+
     public string Folder { get; }
+
+    /// <summary>Only a folder of plain copies has a layout to choose.</summary>
+    public bool HasLayout => Kind == DestinationKind.MirrorFolder;
+
+    /// <summary>For a repository, what is known about its password.</summary>
+    public string PasswordNote { get; }
+
+    public bool PasswordMissing { get; }
 
     public IReadOnlyList<Choice<MirrorLayout>> LayoutChoices => Layouts;
 
@@ -87,6 +108,10 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     private readonly AppServices _services;
     private string _message = string.Empty;
     private bool _messageIsWarning;
+    private bool _isAddingRestic;
+    private bool _isTestingRestic;
+    private string _newResticLocation = string.Empty;
+    private string _newResticTool = string.Empty;
 
     public SettingsViewModel(AppServices services)
     {
@@ -110,6 +135,9 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
         AddSourceCommand = new RelayCommand(AddSource);
         AddDestinationCommand = new RelayCommand(AddDestination);
+        AddFileHistoryCommand = new AsyncRelayCommand(AddFileHistoryAsync);
+        StartResticCommand = new RelayCommand(() => IsAddingRestic = true);
+        BrowseResticCommand = new RelayCommand(BrowseRestic);
         RemoveSourceCommand = new RelayCommand(p => RemoveSource(p as SourceRowViewModel));
         RemoveDestinationCommand = new RelayCommand(p => RemoveDestination(p as DestinationRowViewModel));
         OpenDataFolderCommand = new RelayCommand(() => Shell.OpenFolder(Paths.DataDirectory));
@@ -129,6 +157,12 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     public RelayCommand AddSourceCommand { get; }
 
     public RelayCommand AddDestinationCommand { get; }
+
+    public AsyncRelayCommand AddFileHistoryCommand { get; }
+
+    public RelayCommand StartResticCommand { get; }
+
+    public RelayCommand BrowseResticCommand { get; }
 
     public RelayCommand RemoveSourceCommand { get; }
 
@@ -151,6 +185,48 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     {
         get => _messageIsWarning;
         private set => Set(ref _messageIsWarning, value);
+    }
+
+    // ---------------- adding a restic repository ----------------
+
+    /// <summary>The form for a repository is open.</summary>
+    public bool IsAddingRestic
+    {
+        get => _isAddingRestic;
+        set => Set(ref _isAddingRestic, value);
+    }
+
+    /// <summary>A repository just added is being opened, to say whether its password works.</summary>
+    public bool IsTestingRestic
+    {
+        get => _isTestingRestic;
+        private set => Set(ref _isTestingRestic, value);
+    }
+
+    public string NewResticLocation
+    {
+        get => _newResticLocation;
+        set => Set(ref _newResticLocation, value ?? string.Empty);
+    }
+
+    public string NewResticTool
+    {
+        get => _newResticTool;
+        set => Set(ref _newResticTool, value ?? string.Empty);
+    }
+
+    // ---------------- checks ----------------
+
+    public bool RecheckForBitRot
+    {
+        get => Settings.RecheckForBitRot;
+        set => Change(s => s.RecheckForBitRot = value);
+    }
+
+    public bool UseCanaries
+    {
+        get => Settings.UseCanaries;
+        set => Change(s => s.UseCanaries = value);
     }
 
     // ---------------- when to drill ----------------
@@ -308,6 +384,105 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         Say($"{destination.Name} is added. Boatdrill only ever reads from it.", warning: false);
     }
 
+    private async Task AddFileHistoryAsync()
+    {
+        var folder = Shell.PickFolder("Choose the drive File History saves to, or its FileHistory folder");
+        if (folder is null) return;
+
+        var drive = Path.GetPathRoot(Path.GetFullPath(folder))?.TrimEnd('\\', '/');
+        var destination = DestinationSetting.ForFileHistory(folder, string.IsNullOrEmpty(drive) ? "File History" : $"File History ({drive})");
+        if (Settings.Destinations.Any(d => d.Id == destination.Id))
+        {
+            Say($"{destination.Name} is already in the list.", warning: false);
+            return;
+        }
+
+        var probe = await Task.Run(() => new FileHistoryAdapter().ProbeAsync(destination.ToDestination(), CancellationToken.None));
+        if (!probe.Reachable)
+        {
+            Say($"{probe.Detail}. Choose the drive that File History saves to, or the FileHistory folder on it.", warning: true);
+            return;
+        }
+
+        _services.Settings.Update(s => s.Destinations.Add(destination));
+        Say($"{destination.Name} is added. Each drill reads the newest version of every sampled file.", warning: false);
+    }
+
+    private void BrowseRestic()
+    {
+        if (Shell.PickFolder("Choose the folder that holds the restic repository") is { } folder) NewResticLocation = folder;
+    }
+
+    public void CancelRestic()
+    {
+        IsAddingRestic = false;
+        NewResticLocation = string.Empty;
+        NewResticTool = string.Empty;
+    }
+
+    /// <summary>
+    /// Adds the repository in the form, or, when it is already in the list, replaces its password. Then opens it
+    /// with restic to say whether the password works. The password is kept only encrypted (DPAPI).
+    /// </summary>
+    public async Task AddResticAsync(string password)
+    {
+        var location = NewResticLocation.Trim();
+        if (location.Length == 0)
+        {
+            Say("Type where the repository is: a folder, or a URL such as sftp:nas:/srv/restic.", warning: true);
+            return;
+        }
+
+        if (password.Length == 0)
+        {
+            Say("Type the repository's password. Boatdrill keeps it encrypted, for your Windows account only.", warning: true);
+            return;
+        }
+
+        DestinationSetting destination;
+        try
+        {
+            var tool = NewResticTool.Trim();
+            destination = DestinationSetting.ForRestic(location, Dpapi.Protect(password), toolPath: tool.Length == 0 ? null : tool);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or InvalidOperationException)
+        {
+            Say("That location cannot be used: " + ex.Message, warning: true);
+            return;
+        }
+
+        var existing = Settings.Destinations.FirstOrDefault(d => d.Id == destination.Id);
+        _services.Settings.Update(s =>
+        {
+            if (s.Destinations.FirstOrDefault(d => d.Id == destination.Id) is { } known)
+            {
+                known.Secret = destination.Secret;
+                known.ToolPath = destination.ToolPath;
+            }
+            else
+            {
+                s.Destinations.Add(destination);
+            }
+        });
+        CancelRestic();
+        var name = existing?.Name ?? destination.Name;
+        Say(existing is null ? $"Opening {name} with restic…" : $"The password for {name} is replaced. Opening it with restic…", warning: false);
+
+        IsTestingRestic = true;
+        try
+        {
+            var probe = await Task.Run(() => new ResticAdapter().ProbeAsync(destination.ToDestination(_ => password), CancellationToken.None));
+            Say(probe.Reachable
+                    ? $"{name} is ready: {probe.Detail}. Boatdrill only ever reads from it."
+                    : $"{name} is in the list, but restic could not open it: {probe.Detail}.",
+                warning: !probe.Reachable);
+        }
+        finally
+        {
+            IsTestingRestic = false;
+        }
+    }
+
     private void RemoveSource(SourceRowViewModel? row)
     {
         if (row is null) return;
@@ -374,7 +549,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             foreach (var source in settings.Sources) Sources.Add(new SourceRowViewModel(source));
         }
 
-        if (!Destinations.Select(d => d.Id).SequenceEqual(settings.Destinations.Select(d => d.Id)))
+        if (!Destinations.Select(d => (d.Id, d.PasswordMissing)).SequenceEqual(settings.Destinations.Select(d => (d.Id, d.Kind == DestinationKind.Restic && Dpapi.Unprotect(d.Secret) is null))))
         {
             Destinations.Clear();
             foreach (var destination in settings.Destinations) Destinations.Add(new DestinationRowViewModel(_services.Settings, destination));
@@ -382,6 +557,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
         Raise(nameof(IsDaily), nameof(IsWeekly), nameof(IsMonthly), nameof(IsOff),
             nameof(OnlyOnMainsPower), nameof(OnlyWhenAway), nameof(NotifyOnProblems),
+            nameof(RecheckForBitRot), nameof(UseCanaries),
             nameof(SelectedSampleSize), nameof(SelectedByteCap),
             nameof(StartWithWindows), nameof(KeepRunningInTray),
             nameof(IsSystemTheme), nameof(IsLightTheme), nameof(IsDarkTheme));

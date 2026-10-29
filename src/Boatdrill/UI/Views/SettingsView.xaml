@@ -113,7 +113,7 @@
                     <StackPanel>
                         <TextBlock Text="WHERE YOUR BACKUPS ARE" Style="{StaticResource Text.SectionLabel}" />
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,-4,0,12"
-                                   Text="An external drive, a network share, or a folder that OneDrive, Dropbox or Google Drive keeps in step. Boatdrill only ever reads from these." />
+                                   Text="An external drive, a network share, a folder that OneDrive, Dropbox or Google Drive keeps in step, a File History drive, or a restic repository. Boatdrill only ever reads from these." />
 
                         <ItemsControl ItemsSource="{Binding Destinations}" Focusable="False">
                             <ItemsControl.ItemTemplate>
@@ -133,12 +133,24 @@
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
 
-                                            <Path Style="{StaticResource Icon}" Data="{DynamicResource Icon.Drive}" VerticalAlignment="Center" />
+                                            <Path Style="{StaticResource Icon}" Data="{Binding Kind, Mode=OneTime, Converter={StaticResource DestinationIcon}}" VerticalAlignment="Center" />
                                             <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
                                                 <TextBox Text="{Binding Name, UpdateSourceTrigger=LostFocus}" controls:Hint.Text="A name for this backup"
                                                          MaxWidth="360" HorizontalAlignment="Left" MinWidth="220"
                                                          AutomationProperties.Name="Name of this backup" />
-                                                <TextBlock Text="{Binding Folder}" Style="{StaticResource Text.Caption}" TextTrimming="CharacterEllipsis" Margin="2,5,0,0" />
+                                                <TextBlock Text="{Binding Folder, Mode=OneTime}" Style="{StaticResource Text.Caption}" TextTrimming="CharacterEllipsis" Margin="2,5,0,0" />
+                                                <TextBlock Text="{Binding PasswordNote, Mode=OneTime}" TextWrapping="Wrap" Margin="2,4,0,0"
+                                                           Visibility="{Binding PasswordNote, Mode=OneTime, Converter={StaticResource BoolToVisibility}}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding PasswordMissing, Mode=OneTime}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Danger}" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
                                             </StackPanel>
                                             <Button Grid.Column="2" Style="{StaticResource Button.Icon}" VerticalAlignment="Center"
                                                     ToolTip="Stop checking this backup" AutomationProperties.Name="Stop checking this backup"
@@ -147,7 +159,8 @@
                                                 <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Trash}" Stroke="{DynamicResource Brush.Danger}" />
                                             </Button>
 
-                                            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="12,10,0,0">
+                                            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="12,10,0,0"
+                                                        Visibility="{Binding HasLayout, Mode=OneTime, Converter={StaticResource BoolToVisibility}}">
                                                 <TextBlock Text="Copies are kept as" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,10,0" />
                                                 <ComboBox MinWidth="290" ItemsSource="{Binding LayoutChoices, Mode=OneTime}"
                                                           SelectedItem="{Binding Layout}"
@@ -160,12 +173,79 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <Button HorizontalAlignment="Left" Margin="0,4,0,0" Command="{Binding AddDestinationCommand}" AutomationProperties.Name="Add a backup destination">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Plus}" />
-                                <TextBlock Text="Add a destination" Margin="7,0,0,0" VerticalAlignment="Center" />
+                        <!-- A restic repository needs more than a folder: where it is, its password, and restic. -->
+                        <Border Margin="0,0,0,10" Padding="14,12"
+                                Background="{DynamicResource Brush.SurfaceAlt}"
+                                BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="1"
+                                CornerRadius="{StaticResource CornerRadius.Medium}"
+                                Visibility="{Binding IsAddingRestic, Converter={StaticResource BoolToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="A restic repository" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,12"
+                                           Text="Boatdrill reads it with restic, which has to be installed. Each drill restores a sample of files into Boatdrill's own folder; nothing is written to the repository, not even a lock." />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="130" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Where it is" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="1" Text="{Binding NewResticLocation, UpdateSourceTrigger=PropertyChanged}"
+                                             controls:Hint.Text="E:\restic, or sftp:nas:/srv/restic"
+                                             AutomationProperties.Name="Where the repository is" />
+                                    <Button Grid.Column="2" Style="{StaticResource Button.Ghost}" Content="Browse…" Margin="6,0,0,0"
+                                            Command="{Binding BrowseResticCommand}" AutomationProperties.Name="Choose the repository's folder" />
+
+                                    <TextBlock Grid.Row="1" Text="Password" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <PasswordBox Grid.Row="1" Grid.Column="1" x:Name="ResticPassword" Margin="0,8,0,0"
+                                                 AutomationProperties.Name="The repository's password" />
+
+                                    <TextBlock Grid.Row="2" Text="restic itself" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding NewResticTool, UpdateSourceTrigger=PropertyChanged}" Margin="0,8,0,0"
+                                             controls:Hint.Text="Leave empty when restic is on the PATH"
+                                             AutomationProperties.Name="Where restic.exe is" />
+                                </Grid>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <Button Style="{StaticResource Button.Accent}" Content="Add the repository" Click="AddRestic_Click" Padding="14,6" />
+                                    <Button Content="Cancel" Click="CancelRestic_Click" Margin="8,0,0,0" />
+                                </StackPanel>
                             </StackPanel>
-                        </Button>
+                        </Border>
+
+                        <WrapPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <Button Command="{Binding AddDestinationCommand}" Margin="0,0,8,0" AutomationProperties.Name="Add a backup folder or drive">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Plus}" />
+                                    <TextBlock Text="Add a folder or drive" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding AddFileHistoryCommand}" Margin="0,0,8,0" AutomationProperties.Name="Add a File History drive">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Versions}" />
+                                    <TextBlock Text="Add File History" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding StartResticCommand}" AutomationProperties.Name="Add a restic repository"
+                                    IsEnabled="{Binding IsAddingRestic, Converter={StaticResource InverseBool}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource Icon.Small}" Data="{DynamicResource Icon.Repository}" />
+                                    <TextBlock Text="Add a restic repository" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </WrapPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0"
+                                    Visibility="{Binding IsTestingRestic, Converter={StaticResource BoolToVisibility}}">
+                            <ProgressBar Width="120" Height="4" IsIndeterminate="True" Background="{DynamicResource Brush.Pressed}" VerticalAlignment="Center" />
+                            <TextBlock Text="Opening the repository with restic…" Style="{StaticResource Text.Caption}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
@@ -275,6 +355,43 @@
                             <ComboBox Grid.Column="1" MinWidth="230" VerticalAlignment="Center"
                                       ItemsSource="{Binding ByteCaps, Mode=OneTime}" SelectedItem="{Binding SelectedByteCap}"
                                       ItemTemplate="{StaticResource Template.LabelText}" AutomationProperties.Name="Most data read from each folder" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ============================================================
+                     Extra checks
+                     ============================================================ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="EXTRA CHECKS" Style="{StaticResource Text.SectionLabel}" />
+
+                        <Grid Style="{StaticResource Row}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Read earlier copies again, for bit rot" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="Boatdrill remembers each copy that read back correctly. Every drill reads a few of them again: one that changed while its name, size and date did not has decayed on the disk."
+                                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                            <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
+                                          IsChecked="{Binding RecheckForBitRot}" AutomationProperties.Name="Read earlier copies again, for bit rot" />
+                        </Grid>
+
+                        <Grid Style="{StaticResource Row}" Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Canary files" Style="{StaticResource Text.Subheading}" />
+                                <TextBlock Text="Keeps a small file named &quot;Boatdrill canary.txt&quot; in each protected folder and adds the time to it after every drill. Each backup's copy of it then shows when that backup last ran, even when nothing else changed. The only thing Boatdrill writes to your folders."
+                                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                            <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"
+                                          IsChecked="{Binding UseCanaries}" AutomationProperties.Name="Canary files" />
                         </Grid>
                     </StackPanel>
                 </Border>

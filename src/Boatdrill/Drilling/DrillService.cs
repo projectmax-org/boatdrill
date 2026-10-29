@@ -6,7 +6,7 @@ using Boatdrill.Platform;
 namespace Boatdrill.Drilling;
 
 /// <summary>
-/// Runs drills, one at a time, and keeps the latest result. Everything a drill needs is read from a
+/// Runs drills, one at a time, and keeps the latest results. Everything a drill needs is read from a
 /// snapshot of the settings taken as it starts, so editing settings meanwhile is safe. Events are raised
 /// on whatever thread the drill is on; the view models move them to the UI thread.
 /// </summary>
@@ -14,10 +14,15 @@ public sealed class DrillService : IDisposable
 {
     private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>Drills kept in memory for the score trend on each card.</summary>
+    public const int RecentCount = 12;
+
     private readonly SettingsStore _settings;
     private readonly HistoryStore _history;
+    private readonly LedgerStore _ledger = new(Paths.LedgerFile);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private CancellationTokenSource? _cancel;
+    private IReadOnlyList<DrillReport> _recent = [];
     private bool _disposed;
 
     public DrillService(SettingsStore settings, HistoryStore history)
@@ -27,7 +32,7 @@ public sealed class DrillService : IDisposable
 
         try
         {
-            Latest = history.Latest();
+            _recent = history.ReadRecent(RecentCount);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -35,7 +40,10 @@ public sealed class DrillService : IDisposable
         }
     }
 
-    public DrillReport? Latest { get; private set; }
+    public DrillReport? Latest => _recent.Count > 0 ? _recent[^1] : null;
+
+    /// <summary>The last few drills, oldest first. Replaced whole when a drill finishes, so it is safe to read from any thread.</summary>
+    public IReadOnlyList<DrillReport> Recent => _recent;
 
     public bool IsRunning { get; private set; }
 
@@ -82,17 +90,24 @@ public sealed class DrillService : IDisposable
             var plan = new DrillPlan
             {
                 Sources = settings.Sources.Select(s => s.ToSource()).ToList(),
-                Destinations = settings.Destinations.Select(d => d.ToDestination()).ToList(),
+                Destinations = settings.Destinations.Select(d => d.ToDestination(Dpapi.Unprotect)).ToList(),
                 ScratchDirectory = Paths.ScratchDirectory,
                 Sampling = settings.ToSampleOptions(),
                 Trigger = trigger,
+                UseCanaries = settings.UseCanaries,
             };
 
             Log.Info($"{trigger} drill starting: {plan.Sources.Count} sources, {plan.Destinations.Count} destinations.");
-            var runner = new DrillRunner(reachabilityHistory: id => _history.Reachability(id));
-            report = await Task.Run(() => runner.RunAsync(plan, new ProgressSink(this), cancel.Token), cancel.Token).ConfigureAwait(false);
+            report = await Task.Run(async () =>
+            {
+                var ledger = settings.RecheckForBitRot ? _ledger.Load() : null;
+                var runner = new DrillRunner(reachabilityHistory: id => _history.Reachability(id), ledger: ledger);
+                var finished = await runner.RunAsync(plan, new ProgressSink(this), cancel.Token).ConfigureAwait(false);
+                if (ledger is not null) await SaveLedgerAsync(ledger, settings).ConfigureAwait(false);
+                return finished;
+            }, cancel.Token).ConfigureAwait(false);
             await _history.AppendAsync(report, CancellationToken.None).ConfigureAwait(false);
-            Latest = report;
+            _recent = [.. _recent.TakeLast(RecentCount - 1), report];
             Log.Info($"Drill {report.Id} finished in {report.Duration.TotalSeconds:0}s; worst verdict {report.Worst}.");
         }
         catch (OperationCanceledException)
@@ -121,6 +136,20 @@ public sealed class DrillService : IDisposable
         StateChanged?.Invoke(this, EventArgs.Empty);
         if (report is not null) Completed?.Invoke(this, report);
         return report;
+    }
+
+    /// <summary>Keeps the ledger to what is still set up. A ledger that cannot be saved costs re-checks, not the drill.</summary>
+    private async Task SaveLedgerAsync(HashLedger ledger, AppSettings settings)
+    {
+        try
+        {
+            ledger.Keep(settings.Destinations.Select(d => d.Id).ToList(), settings.Sources.Select(s => s.Id).ToList());
+            await _ledger.SaveAsync(ledger).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("Could not save the hash ledger.", ex);
+        }
     }
 
     /// <summary>Stops the running drill, if any. Nothing it read is kept.</summary>

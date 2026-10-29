@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -67,7 +68,7 @@ internal static class ViewCapture
                     viewModel.Section = section;
                     foreach (var card in viewModel.Dashboard.Cards) card.ShowFindings = card.Id == "nas";
                     await Settle(window);
-                    Save(window, Path.Combine(output, $"{Name(section)}-{Name(theme)}.png"));
+                    await SavePages(window, Path.Combine(output, $"{Name(section)}-{Name(theme)}"));
                 }
             }
 
@@ -77,7 +78,7 @@ internal static class ViewCapture
             viewModel.Section = AppSection.Dashboard;
             viewModel.Refresh();
             await Settle(window);
-            Save(window, Path.Combine(output, "dashboard-first-run-light.png"));
+            await SavePages(window, Path.Combine(output, "dashboard-first-run-light"));
 
             window.CloseForReal();
 
@@ -101,6 +102,37 @@ internal static class ViewCapture
         await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         window.UpdateLayout();
         await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+    }
+
+    /// <summary>The page as it opens, then a further image per screenful until its end, at most five.</summary>
+    private static async Task SavePages(MainWindow window, string stem)
+    {
+        Save(window, stem + ".png");
+        if (window.CurrentView is not { } view || FindPageScroller(view) is not { } scroller) return;
+
+        for (var page = 2; page <= 5 && scroller.VerticalOffset + scroller.ViewportHeight < scroller.ExtentHeight - 1; page++)
+        {
+            scroller.ScrollToVerticalOffset(scroller.VerticalOffset + scroller.ViewportHeight - 60);
+            await Settle(window);
+            Save(window, $"{stem}-{page}.png");
+        }
+
+        scroller.ScrollToTop();
+        await Settle(window);
+    }
+
+    /// <summary>The page's own scroller: the first one tall enough to hold the page, nearest the top of the tree.</summary>
+    private static ScrollViewer? FindPageScroller(DependencyObject root)
+    {
+        var queue = new Queue<DependencyObject>([root]);
+        while (queue.Count > 0)
+        {
+            var node = queue.Dequeue();
+            if (node is ScrollViewer { ActualHeight: > 300 } scroller) return scroller;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++) queue.Enqueue(VisualTreeHelper.GetChild(node, i));
+        }
+
+        return null;
     }
 
     private static void Save(Window window, string path)

@@ -43,6 +43,9 @@ public partial class MainWindow : Window
         if (!_closing) Close();
     }
 
+    /// <summary>The page currently on show: the dashboard, history or settings view.</summary>
+    public FrameworkElement? CurrentView => ContentHost.Children.OfType<FrameworkElement>().FirstOrDefault(v => v.Visibility == Visibility.Visible);
+
     private bool HidesToTray => _services.Tray is not null && _services.Settings.Settings.KeepRunningInTray;
 
     private void OnSourceInitialized(object? sender, EventArgs e)

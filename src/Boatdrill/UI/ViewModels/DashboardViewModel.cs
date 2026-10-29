@@ -122,8 +122,14 @@ public sealed class DashboardViewModel : ViewModelBase
             };
 
             var sampled = latest.Sources.Sum(s => s.Sampled);
-            Summary = $"The last drill, {Humanize.Ago(now - latest.FinishedUtc)}, read {Humanize.Plural(sampled, "sampled file")} back from " +
-                      $"{Humanize.Plural(results.Count, "backup")} and compared every byte with the original.";
+            var reached = results.Count(r => r.Reachable);
+            var from = reached == results.Count
+                ? Humanize.Plural(results.Count, "backup")
+                : $"{reached} of {Humanize.Plural(results.Count, "backup")}";
+            Summary = reached == 0
+                ? $"The last drill, {Humanize.Ago(now - latest.FinishedUtc)}, could not reach any backup."
+                : $"The last drill, {Humanize.Ago(now - latest.FinishedUtc)}, read {Humanize.Plural(sampled, "sampled file")} back from " +
+                  $"{from} and compared every byte with the original.";
         }
     }
 

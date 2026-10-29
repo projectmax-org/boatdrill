@@ -38,10 +38,12 @@
 
     <!-- ============================ Typography ============================ -->
 
+    <!-- No Foreground here. WPF applies this style to the TextBlock it creates for a button's string
+         content too, and a colour set here would beat the button's own (dark text on the accent button).
+         Text takes its colour from the window instead, which sets Brush.TextPrimary. -->
     <Style TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource Font.UI}" />
         <Setter Property="FontSize" Value="13" />
-        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
         <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
         <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
     </Style>
@@ -428,8 +430,8 @@
                                        VerticalAlignment="Center"
                                        IsHitTestVisible="False"
                                        Visibility="Collapsed" />
+                            <!-- No margin: TextBox applies its Padding to the text itself. -->
                             <ScrollViewer x:Name="PART_ContentHost"
-                                          Margin="{TemplateBinding Padding}"
                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                           Focusable="False"
                                           HorizontalScrollBarVisibility="Hidden"
@@ -472,7 +474,7 @@
                             BorderBrush="{DynamicResource Brush.Border}"
                             BorderThickness="1"
                             CornerRadius="{StaticResource CornerRadius.Medium}">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" Focusable="False" />
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsKeyboardFocused" Value="True">

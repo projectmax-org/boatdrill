@@ -14,6 +14,7 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         Background="{DynamicResource Brush.Base}"
+        Foreground="{DynamicResource Brush.TextPrimary}"
         TextOptions.TextFormattingMode="Ideal"
         UseLayoutRounding="True">
 
@@ -160,7 +161,7 @@
             </Border>
 
             <!-- Content -->
-            <Grid Grid.Column="1">
+            <Grid x:Name="ContentHost" Grid.Column="1">
                 <views:DashboardView DataContext="{Binding Dashboard}"
                                      Visibility="{Binding DataContext.IsDashboard, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
                 <views:HistoryView DataContext="{Binding History}"

@@ -97,7 +97,8 @@ dotnet run --project src/Boatdrill
 The engine, its tests, the command-line runner and the icon generator build and run on any OS; the app
 compiles anywhere and runs on Windows 10 and 11. `Boatdrill.exe --capture <folder>` loads every view
 against sample results, writes a PNG of each in the light and the dark theme, and fails on a XAML error or
-a binding to a missing property. CI runs it on every push and keeps the images as an artifact.
+a binding to a missing property. CI runs it on every push and keeps the images as an artifact. On Linux,
+`tools/capture-under-wine.sh` does the same under Wine, with Liberation Sans standing in for Segoe UI.
 
 ## How it's put together
 

@@ -22,7 +22,8 @@ the schedule, notifications) and is tested anywhere; the app shows and schedules
 - `dotnet test tests/Boatdrill.Core.Tests` passes. New behaviour comes with a test; drills run against
   temp folders built by `TempTree`, including deliberately broken ones.
 - Use the thing you changed, in the app or through `boatdrill-cli`. For a change to a view, run
-  `.\build.ps1 -Capture` and attach the images from `artifacts\screens` for both themes.
+  `.\build.ps1 -Capture` (or `tools/capture-under-wine.sh` on Linux) and attach the images from
+  `artifacts/screens` for both themes.
 - Keep the two promises. A drill never writes into a destination, and the app does nothing between
   drills: a change that adds a timer, a polling loop or a background thread needs a very good reason.
 - One change per pull request, described in the first line of the description the way you would explain

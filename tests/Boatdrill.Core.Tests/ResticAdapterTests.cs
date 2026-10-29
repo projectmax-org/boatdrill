@@ -1,6 +1,7 @@
 using Boatdrill.Core.Adapters;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.History;
+using Boatdrill.Core.Scan;
 using Boatdrill.Core.Sampling;
 using Boatdrill.Core.Scoring;
 using Boatdrill.Core.Verification;
@@ -174,6 +175,26 @@ public sealed class ResticAdapterTests
         Assert.Equal(3, result.Verified);
         Assert.Equal(stamps[1], result.CanaryCopiedUtc);
         Assert.Equal(stamps[0], result.CanaryBehindSince);
+    }
+
+    [ResticFact]
+    public async Task AScan_LooksFilesUpInTheSnapshotsIndex()
+    {
+        using var source = new TempTree();
+        using var repository = new ResticRepository();
+        using var scratch = new TempTree();
+        WriteDocuments(source, 5, LastWeek);
+        repository.Backup(source.Root);
+        source.Write("docs/new.txt", "made after the snapshot", LastWeek.AddDays(1));
+        source.Write("docs/0.txt", "document 0, edited", LastWeek.AddDays(1));
+
+        var report = await new OnlyHereScanner().ScanAsync([Source.FromPath(source.Root, "Docs")], [repository.Destination()], scratch.Root);
+
+        var summary = Assert.Single(report.Sources);
+        Assert.Equal(6, summary.Files);
+        Assert.Equal(1, summary.NoCopyFiles);
+        Assert.Equal(1, summary.OlderFiles);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root, "*", SearchOption.AllDirectories).Where(File.Exists));
     }
 
     [ResticFact]

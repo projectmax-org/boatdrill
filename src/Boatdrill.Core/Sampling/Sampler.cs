@@ -25,7 +25,6 @@ public sealed class Sampler(SampleOptions? options = null, TimeProvider? clock =
         }
 
         var random = _options.Seed is int seed ? new Random(seed) : Random.Shared;
-        var filter = new PathFilter(source.Excludes);
         var now = _clock.GetUtcNow();
         var churnCutoff = now - _options.ChurnWindow;
 
@@ -35,32 +34,9 @@ public sealed class Sampler(SampleOptions? options = null, TimeProvider? clock =
         long population = 0, populationBytes = 0, skippedLarge = 0, skippedChurning = 0;
         DateTimeOffset? newest = null;
 
-        var enumeration = new EnumerationOptions
+        foreach (var file in SourceFiles.Enumerate(source))
         {
-            RecurseSubdirectories = true,
-            IgnoreInaccessible = true,
-            // Hidden and system files are mostly churn (desktop.ini, Thumbs.db); reparse points are
-            // links and cloud placeholders, which a drill must never follow or pull down.
-            AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint,
-        };
-
-        foreach (var info in new DirectoryInfo(root).EnumerateFiles("*", enumeration))
-        {
-            var relative = Path.GetRelativePath(root, info.FullName);
-            if (filter.Excludes(relative)) continue;
-
-            // Boatdrill's own canary changes with every drill; it is checked on its own, never sampled.
-            if (string.Equals(relative, Drill.Canary.FileName, StringComparison.OrdinalIgnoreCase)) continue;
-
-            long length;
-            DateTimeOffset written;
-            try
-            {
-                length = info.Length;
-                written = info.LastWriteTimeUtc;
-            }
-            catch (IOException) { continue; }
-            catch (UnauthorizedAccessException) { continue; }
+            var (relative, length, written) = (file.RelativePath, file.Length, file.LastWriteUtc);
 
             population++;
             populationBytes += length;
@@ -69,7 +45,6 @@ public sealed class Sampler(SampleOptions? options = null, TimeProvider? clock =
             if (length > _options.MaxFileBytes) { skippedLarge++; continue; }
             if (written > churnCutoff) { skippedChurning++; continue; }
 
-            var file = new SampledFile(relative, info.FullName, length, written);
             var key = Math.Pow(random.NextDouble(), 1.0 / Weight(now - written));
 
             global.Offer(file, key);

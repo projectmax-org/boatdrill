@@ -38,6 +38,44 @@ public static class Shell
         }
     }
 
+    /// <summary>Opens a file Boatdrill wrote, such as a report, in the app Windows has for it.</summary>
+    public static void OpenFile(string path)
+    {
+        if (!File.Exists(path)) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Could not open " + path, ex);
+        }
+    }
+
+    /// <summary>Shows the save dialog. Returns null when the user cancels.</summary>
+    public static string? PickSaveFile(string title, string fileName, string filter)
+    {
+        try
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = title,
+                FileName = fileName,
+                Filter = filter,
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                AddExtension = true,
+                OverwritePrompt = true,
+            };
+            return dialog.ShowDialog() == true ? dialog.FileName : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Save dialog failed.", ex);
+            return null;
+        }
+    }
+
     /// <summary>Shows the folder picker. Returns null when the user cancels.</summary>
     public static string? PickFolder(string title)
     {

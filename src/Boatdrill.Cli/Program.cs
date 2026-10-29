@@ -3,6 +3,7 @@ using System.Text.Json;
 using Boatdrill.Core;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.History;
+using Boatdrill.Core.Reporting;
 using Boatdrill.Core.Sampling;
 using Boatdrill.Core.Scan;
 using Boatdrill.Core.Scoring;
@@ -15,6 +16,7 @@ public static class Program
     private const string Usage = """
         boatdrill-cli drill     --source <folder> [--source <folder> ...] <destinations> [options]
         boatdrill-cli only-here --source <folder> [--source <folder> ...] <destinations> [--json]
+        boatdrill-cli report    --history <file> [--html <file>]
 
         Destinations, as many as needed:
           --dest <folder>           a folder of plain copies: a drive, a NAS share, a synced cloud folder
@@ -32,13 +34,17 @@ public static class Program
           --scratch      where read-back lands (temp)     --history      append the report to this .jsonl file
           --ledger       hash ledger file: copies verified before are read again, to catch bit rot
           --canaries     keep a canary file in each source, to show how far behind each backup is
+          --html         also write the drill as a one-page HTML report to this file
           --json         print the full report as JSON instead of text
 
         only-here looks every file in the sources up in every destination, by name and date, and lists the
         ones no backup holds a current copy of.
 
+        report turns the latest drill in a history file into a one-page HTML report, with each backup's trend
+        over the drills before it (boatdrill-report.html unless --html names the file).
+
         Exit codes: drill 0 when every destination would restore (fully or mostly), 1 otherwise; only-here 0
-        when every file has a current copy, 1 otherwise; 2 for bad arguments.
+        when every file has a current copy, 1 otherwise; report 0 when it wrote the report; 2 for bad arguments.
         """;
 
     public static async Task<int> Main(string[] args)
@@ -55,7 +61,7 @@ public static class Program
             return 0;
         }
 
-        if (args[0] is not ("drill" or "only-here"))
+        if (args[0] is not ("drill" or "only-here" or "report"))
         {
             Console.Error.WriteLine($"Unknown command '{args[0]}'.\n\n{Usage}");
             return 2;
@@ -72,7 +78,12 @@ public static class Program
             return 2;
         }
 
-        return args[0] == "drill" ? await DrillAsync(options) : await OnlyHereAsync(options);
+        return args[0] switch
+        {
+            "drill" => await DrillAsync(options),
+            "only-here" => await OnlyHereAsync(options),
+            _ => await ReportAsync(options),
+        };
     }
 
     private static async Task<int> DrillAsync(Options options)
@@ -94,6 +105,11 @@ public static class Program
         if (!options.Json) Console.Error.WriteLine();
         if (store is not null) await store.AppendAsync(report);
         if (ledgerStore is not null && ledger is not null) await ledgerStore.SaveAsync(ledger);
+        if (options.Html is not null)
+        {
+            await File.WriteAllTextAsync(options.Html, HtmlReport.Render(report, store?.ReadRecent(12), Version));
+            if (!options.Json) Console.Error.WriteLine("Report written to " + Path.GetFullPath(options.Html));
+        }
 
         if (options.Json)
         {
@@ -125,6 +141,23 @@ public static class Program
 
         return report.Checked.Count > 0 && report.OnlyHereFiles == 0 ? 0 : 1;
     }
+
+    private static async Task<int> ReportAsync(Options options)
+    {
+        var recent = new HistoryStore(options.History!).ReadRecent(12);
+        if (recent.Count == 0)
+        {
+            Console.Error.WriteLine($"There is no drill in {options.History}.");
+            return 2;
+        }
+
+        var path = Path.GetFullPath(options.Html ?? "boatdrill-report.html");
+        await File.WriteAllTextAsync(path, HtmlReport.Render(recent[^1], recent, Version));
+        Console.WriteLine($"Report of the drill on {recent[^1].StartedUtc.ToLocalTime():yyyy-MM-dd HH:mm} written to {path}");
+        return 0;
+    }
+
+    private static string? Version => typeof(Program).Assembly.GetName().Version?.ToString(3);
 
     private static void Print(DrillReport report)
     {
@@ -227,7 +260,8 @@ public static class Program
         string? History,
         string? Ledger,
         bool Canaries,
-        bool Json)
+        bool Json,
+        string? Html)
     {
         public static Options Parse(string[] args)
         {
@@ -237,7 +271,7 @@ public static class Program
             long capMb = 512;
             int? seed = null;
             var churnHours = 2.0;
-            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null;
+            string? scratch = null, history = null, ledger = null, passwordFile = null, resticTool = null, html = null;
             bool canaries = false, json = false;
 
             for (var i = 1; i < args.Length; i++)
@@ -260,11 +294,16 @@ public static class Program
                     case "--ledger": ledger = Next(); break;
                     case "--canaries": canaries = true; break;
                     case "--json": json = true; break;
+                    case "--html": html = Next(); break;
                     default: throw new ArgumentException($"Unknown option '{args[i]}'.\n\n{Usage}");
                 }
             }
 
-            if (sources.Count == 0 || destinations.Count == 0)
+            if (args[0] == "report")
+            {
+                if (history is null) throw new ArgumentException("report needs --history <file>.\n\n" + Usage);
+            }
+            else if (sources.Count == 0 || destinations.Count == 0)
             {
                 throw new ArgumentException("At least one --source and one destination are needed.\n\n" + Usage);
             }
@@ -293,7 +332,8 @@ public static class Program
                 history,
                 ledger,
                 canaries,
-                json);
+                json,
+                html);
         }
     }
 

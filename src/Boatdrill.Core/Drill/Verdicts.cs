@@ -1,6 +1,8 @@
 using System.Text;
+using Boatdrill.Core.Notifications;
 using Boatdrill.Core.Scoring;
 using Boatdrill.Core.Text;
+using Boatdrill.Core.Verification;
 
 namespace Boatdrill.Core.Drill;
 
@@ -76,6 +78,60 @@ public static class Verdicts
 
         return text.ToString();
     }
+
+    /// <summary>The answer first, for a set of results: how the backups stand, in a few words.</summary>
+    public static string Headline(IReadOnlyList<DestinationResult> results)
+    {
+        if (results.Count == 0) return "No backups were checked";
+
+        var problems = results.Where(r => NotificationPolicy.IsProblem(r.Score.Verdict)).ToList();
+        return problems.Count switch
+        {
+            0 when results.All(r => r.Score.Verdict != Verdict.WouldMostlyRestore) => results.Count == 1 ? "Your backup would restore" : "Your backups would restore",
+            0 => results.Count == 1 ? "Your backup would mostly restore" : "Your backups would mostly restore",
+            1 => $"{problems[0].DestinationName} {Words(problems[0].Score.Verdict)}",
+            _ => $"{problems.Count} backups need attention",
+        };
+    }
+
+    /// <summary>A verdict in words, as it follows a destination's name.</summary>
+    public static string Words(Verdict verdict) => verdict switch
+    {
+        Verdict.WouldRestore => "would restore",
+        Verdict.WouldMostlyRestore => "would mostly restore",
+        Verdict.NeedsAttention => "needs attention",
+        Verdict.WouldNotRestore => "would not restore",
+        Verdict.Unreachable => "could not be reached",
+        _ => "nothing to check",
+    };
+
+    /// <summary>A file's outcome as a short label.</summary>
+    public static string Words(FileOutcome outcome) => outcome switch
+    {
+        FileOutcome.Corrupt => "Corrupt",
+        FileOutcome.Rotted => "Changed",
+        FileOutcome.Error => "Unreadable",
+        FileOutcome.Missing => "Missing",
+        FileOutcome.Outdated => "Behind",
+        FileOutcome.Placeholder => "Cloud only",
+        _ => "Verified",
+    };
+
+    /// <summary>The colour family a verdict is shown in: good, fair, bad or none.</summary>
+    public static string Tone(Verdict verdict) => verdict switch
+    {
+        Verdict.WouldRestore => "good",
+        Verdict.WouldMostlyRestore => "fair",
+        Verdict.NeedsAttention or Verdict.WouldNotRestore or Verdict.Unreachable => "bad",
+        _ => "none",
+    };
+
+    public static string Tone(FileOutcome outcome) => outcome switch
+    {
+        FileOutcome.Corrupt or FileOutcome.Rotted or FileOutcome.Error or FileOutcome.Missing => "bad",
+        FileOutcome.Outdated or FileOutcome.Placeholder => "fair",
+        _ => "good",
+    };
 
     private static string Join(IReadOnlyList<string> parts) => parts.Count switch
     {

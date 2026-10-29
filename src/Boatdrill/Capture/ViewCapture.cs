@@ -48,6 +48,12 @@ internal static class ViewCapture
             using var viewModel = new MainViewModel(services);
             await viewModel.History.ReloadAsync();
 
+            // The report a user would save from the dashboard, kept with the images.
+            if (services.Drills.Latest is { } latest)
+            {
+                File.WriteAllText(Path.Combine(output, "report.html"), Core.Reporting.HtmlReport.Render(latest, services.Drills.Recent, "capture"));
+            }
+
             var window = new MainWindow(services, viewModel)
             {
                 WindowStartupLocation = WindowStartupLocation.Manual,

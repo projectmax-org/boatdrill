@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Reflection;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.Notifications;
+using Boatdrill.Core.Reporting;
 using Boatdrill.Core.Settings;
 using Boatdrill.Core.Text;
+using Boatdrill.Platform;
 
 namespace Boatdrill.UI.ViewModels;
 
@@ -23,6 +26,7 @@ public sealed class DashboardViewModel : ViewModelBase
         _services = services;
         OpenSettingsCommand = main.ShowSettingsCommand;
         RunDrillCommand = main.RunDrillCommand;
+        SaveReportCommand = new AsyncRelayCommand(SaveReportAsync, () => _services.Drills.Latest is not null);
     }
 
     public ObservableCollection<DestinationCardViewModel> Cards { get; } = [];
@@ -30,6 +34,11 @@ public sealed class DashboardViewModel : ViewModelBase
     public RelayCommand OpenSettingsCommand { get; }
 
     public RelayCommand RunDrillCommand { get; }
+
+    /// <summary>Writes the latest drill as a one-page HTML report and opens it.</summary>
+    public AsyncRelayCommand SaveReportCommand { get; }
+
+    public bool HasReport => _services.Drills.Latest is not null;
 
     public string Headline
     {
@@ -83,6 +92,8 @@ public sealed class DashboardViewModel : ViewModelBase
         var now = DateTimeOffset.UtcNow;
 
         SyncCards(settings, latest, now);
+        OnPropertyChanged(nameof(HasReport));
+        SaveReportCommand.RaiseCanExecuteChanged();
 
         var results = Cards.Where(c => c.Result is not null).Select(c => c.Result!).ToList();
         NeedsSetup = !settings.IsReadyToDrill;
@@ -111,15 +122,10 @@ public sealed class DashboardViewModel : ViewModelBase
         }
         else
         {
-            var problems = results.Where(r => NotificationPolicy.IsProblem(r.Score.Verdict)).ToList();
-            var fair = results.Count(r => VerdictStyle.Kind(r.Score.Verdict) == VerdictStyle.Fair);
-            (Headline, HeadlineKind) = problems.Count switch
-            {
-                0 when fair == 0 => (results.Count == 1 ? "Your backup would restore" : "Your backups would restore", VerdictStyle.Good),
-                0 => ("Your backups would mostly restore", VerdictStyle.Fair),
-                1 => ($"{problems[0].DestinationName} {VerdictStyle.Text(problems[0].Score.Verdict)}", VerdictStyle.Bad),
-                _ => ($"{problems.Count} backups need attention", VerdictStyle.Bad),
-            };
+            Headline = Verdicts.Headline(results);
+            HeadlineKind = results.Any(r => NotificationPolicy.IsProblem(r.Score.Verdict)) ? VerdictStyle.Bad
+                : results.Any(r => r.Score.Verdict == Core.Scoring.Verdict.WouldMostlyRestore) ? VerdictStyle.Fair
+                : VerdictStyle.Good;
 
             var sampled = latest.Sources.Sum(s => s.Sampled);
             var reached = results.Count(r => r.Reachable);
@@ -130,6 +136,28 @@ public sealed class DashboardViewModel : ViewModelBase
                 ? $"The last drill, {Humanize.Ago(now - latest.FinishedUtc)}, could not reach any backup."
                 : $"The last drill, {Humanize.Ago(now - latest.FinishedUtc)}, read {Humanize.Plural(sampled, "sampled file")} back from " +
                   $"{from} and compared every byte with the original.";
+        }
+    }
+
+    private async Task SaveReportAsync()
+    {
+        if (_services.Drills.Latest is not { } latest) return;
+
+        var path = Shell.PickSaveFile("Save the drill report", $"Boatdrill report {latest.StartedUtc.ToLocalTime():yyyy-MM-dd}.html",
+            "Web page (*.html)|*.html");
+        if (path is null) return;
+
+        var version = typeof(DashboardViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        var recent = _services.Drills.Recent;
+        try
+        {
+            await File.WriteAllTextAsync(path, HtmlReport.Render(latest, recent, version));
+            Shell.OpenFile(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("Could not save the report.", ex);
+            Summary = "The report could not be saved: " + ex.Message;
         }
     }
 

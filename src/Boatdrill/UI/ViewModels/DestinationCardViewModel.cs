@@ -11,9 +11,6 @@ namespace Boatdrill.UI.ViewModels;
 // The two records below are immutable and bound OneTime: WPF keeps alive any object that it binds to
 // without INotifyPropertyChanged, so a one-way binding to them would leak on every refresh.
 
-/// <summary>One of the four parts of the score, as a small tile.</summary>
-public sealed record ScorePart(string Name, string Value, string Detail);
-
 /// <summary>A sampled file that did not verify.</summary>
 public sealed record FindingRow(string Outcome, string Kind, string Path, string Detail);
 
@@ -228,21 +225,7 @@ public sealed class DestinationCardViewModel : ViewModelBase
         Sentence = result.Sentence;
         CheckedText = "Checked " + Humanize.Ago(now - report.FinishedUtc);
 
-        Parts = result.Reachable && result.Sampled > 0
-            ?
-            [
-                new ScorePart("Coverage", Percent(score.Coverage),
-                    $"{result.Sampled - result.Missing - result.Placeholder - result.Errors:N0} of {result.Sampled:N0} found" +
-                    (score.CoverageMargin >= 0.005 ? $", ±{Percent(score.CoverageMargin)}" : string.Empty)),
-                new ScorePart("Freshness", Percent(score.Freshness),
-                    result.Lag is { } lag && lag > TimeSpan.Zero ? Humanize.Age(lag) + " behind"
-                    : result.CanaryCopiedUtc is not null ? "up to date, by the canary"
-                    : "up to date"),
-                new ScorePart("Integrity", Percent(score.Integrity), IntegrityDetail(result)),
-                new ScorePart("Reachability", Percent(score.Reachability),
-                    score.Reachability >= 0.995 ? "there at every drill" : "missing at some drills"),
-            ]
-            : [];
+        Parts = ScoreParts.Describe(result);
 
         Findings = result.Findings
             .Take(FindingsShown)
@@ -257,17 +240,6 @@ public sealed class DestinationCardViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(FindingsToggleText));
     }
-
-    private static string IntegrityDetail(DestinationResult r) => (r.Corrupt, r.Rotted) switch
-    {
-        (> 0, > 0) => $"{r.Corrupt:N0} corrupt, {r.Rotted:N0} changed since verified",
-        (1, _) => "1 corrupt copy",
-        (> 1, _) => $"{r.Corrupt:N0} corrupt copies",
-        (_, 1) => "1 copy changed since verified",
-        (_, > 1) => $"{r.Rotted:N0} copies changed since verified",
-        _ when r.Rechecked > 0 => $"{r.Rechecked:N0} read again, unchanged",
-        _ => "no corrupt copies",
-    };
 
     /// <summary>
     /// The score at each recent drill that checked this destination, and a dot for each that could not reach it.
@@ -297,14 +269,5 @@ public sealed class DestinationCardViewModel : ViewModelBase
         TrendText = history.Count < 2
             ? string.Empty
             : $"Score in the last {history.Count} drills: " + string.Join(", ", history.Select(h => h.Reachable ? h.Score.Total.ToString() : "not reached"));
-    }
-
-    /// <summary>Whole percents, except that a share just short of all (or just above none) keeps a decimal, so 99.6% never reads as 100%.</summary>
-    private static string Percent(double share)
-    {
-        var whole = Math.Round(share * 100);
-        return (whole == 100 && share < 1) || (whole == 0 && share > 0)
-            ? $"{Math.Round(share * 100, 1, MidpointRounding.ToZero):0.0}%"
-            : $"{whole:0}%";
     }
 }

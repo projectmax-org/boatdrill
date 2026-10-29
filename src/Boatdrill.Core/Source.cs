@@ -23,8 +23,10 @@ public sealed record Source(string Id, string Name, string RootPath)
     {
         var normalised = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         if (OperatingSystem.IsWindows()) normalised = normalised.ToUpperInvariant();
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(normalised)))[..12];
+        return IdForText(normalised);
     }
+
+    internal static string IdForText(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..12];
 
     /// <summary>The last path segment, or the whole path for a volume root.</summary>
     internal static string DisplayName(string path)

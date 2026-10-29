@@ -17,6 +17,15 @@ internal sealed class TempTree : IDisposable
         return full;
     }
 
+    public string Write(string relative, byte[] content, DateTimeOffset? written = null)
+    {
+        var full = At(relative);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
+        File.WriteAllBytes(full, content);
+        if (written is { } when) File.SetLastWriteTimeUtc(full, when.UtcDateTime);
+        return full;
+    }
+
     /// <summary>Copies every file into another root, keeping write times, the way a mirror backup does.</summary>
     public void MirrorTo(string destinationRoot, IEnumerable<string>? skip = null)
     {

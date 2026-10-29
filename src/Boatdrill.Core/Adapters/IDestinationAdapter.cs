@@ -11,38 +11,62 @@ public enum CopyState
     Error,
 }
 
-/// <summary>What a destination knows about the copy of one sampled file before any byte is read.</summary>
+/// <summary>What a binding is for: a drill reads copies back; a scan only asks which exist.</summary>
+public enum BindPurpose
+{
+    Read,
+    ListOnly,
+}
+
+/// <summary>What a destination knows about the copy of one file before any byte is read.</summary>
 public sealed record CopyLookup(CopyState State, string? Path, long Length, DateTimeOffset? LastWriteUtc, string? Detail)
 {
-    public static CopyLookup Missing(string path) => new(CopyState.Missing, path, 0, null, null);
+    /// <summary>Time already spent fetching this copy (a repository restores in batches), counted as part of reading it.</summary>
+    public TimeSpan FetchTime { get; init; }
 
-    public static CopyLookup Failed(string path, string detail) => new(CopyState.Error, path, 0, null, detail);
+    public static CopyLookup Missing(string? path, string? detail = null) => new(CopyState.Missing, path, 0, null, detail);
+
+    public static CopyLookup Failed(string? path, string detail) => new(CopyState.Error, path, 0, null, detail);
 }
 
 public sealed record DestinationProbe(bool Reachable, string Detail, long? FreeBytes);
 
 /// <summary>Where one source's copies live inside a destination, and how sure the adapter is about it.</summary>
-public sealed record SourceBinding(Destination Destination, Source Source, MirrorLayout Layout, string BasePath, int ProbeHits, int ProbeTried);
+public sealed record SourceBinding(Destination Destination, Source Source, MirrorLayout Layout, string BasePath, int ProbeHits, int ProbeTried)
+{
+    /// <summary>Whatever the adapter keeps between binding and reading: a directory cache, a snapshot's index.</summary>
+    public object? State { get; init; }
 
-public sealed record ReadBack(bool Success, long BytesRead, TimeSpan Elapsed, string? Sha256, string? Detail);
+    /// <summary>Why nothing can be found, when the adapter knows: "no snapshot in the repository covers it".</summary>
+    public string? Problem { get; init; }
+}
+
+public sealed record ReadBack(bool Success, long BytesRead, TimeSpan Elapsed, string? Sha256, string? Detail)
+{
+    /// <summary>The copy is there but fails the backup tool's own check of its bytes: corruption, not a read error.</summary>
+    public bool Damaged { get; init; }
+}
 
 /// <summary>
 /// Everything Boatdrill knows about one kind of destination. An adapter only ever reads from the
-/// destination; the one place it writes is the scratch folder on this PC.
+/// destination; the places it may write are the scratch folder and the scratch files it is handed.
 /// </summary>
 public interface IDestinationAdapter
 {
     DestinationKind Kind { get; }
 
-    /// <summary>Is the destination there at all right now?</summary>
+    /// <summary>Is the destination there at all right now, and can it be read?</summary>
     Task<DestinationProbe> ProbeAsync(Destination destination, CancellationToken ct);
 
-    /// <summary>Works out where this source's copies live in the destination.</summary>
-    Task<SourceBinding> BindAsync(Destination destination, Sample sample, CancellationToken ct);
+    /// <summary>
+    /// Works out where this source's copies live in the destination. For <see cref="BindPurpose.Read"/> the
+    /// adapter may also fetch the sampled files ahead of time into <paramref name="scratchDirectory"/>.
+    /// </summary>
+    Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose, CancellationToken ct);
 
-    /// <summary>Finds the copy of one sampled file without reading it.</summary>
-    Task<CopyLookup> LocateAsync(SourceBinding binding, SampledFile file, CancellationToken ct);
+    /// <summary>Finds the copy of one file, by its path below the source root, without reading it.</summary>
+    Task<CopyLookup> LocateAsync(SourceBinding binding, string relativePath, CancellationToken ct);
 
     /// <summary>Restores the copy into the scratch file, hashing the bytes as they stream through.</summary>
-    Task<ReadBack> ReadBackAsync(CopyLookup copy, string scratchPath, CancellationToken ct);
+    Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct);
 }

@@ -4,7 +4,11 @@ using Boatdrill.Core.Verification;
 namespace Boatdrill.Core.Drill;
 
 /// <summary>Where a source's copies were looked for inside a destination.</summary>
-public sealed record BoundSource(string SourceId, string SourceName, MirrorLayout Layout, string BasePath, int ProbeHits, int ProbeTried);
+public sealed record BoundSource(string SourceId, string SourceName, MirrorLayout Layout, string BasePath, int ProbeHits, int ProbeTried)
+{
+    /// <summary>Why nothing could be found there, when the adapter knew.</summary>
+    public string? Problem { get; init; }
+}
 
 /// <summary>One destination's side of a drill: the counts, the score, and the sentence the app shows.</summary>
 public sealed record DestinationResult
@@ -13,6 +17,9 @@ public sealed record DestinationResult
 
     public required string DestinationName { get; init; }
 
+    public DestinationKind Kind { get; init; } = DestinationKind.MirrorFolder;
+
+    /// <summary>Where the destination is, as shown; a password in a repository URL is masked.</summary>
     public required string RootPath { get; init; }
 
     public required bool Reachable { get; init; }

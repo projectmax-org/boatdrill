@@ -21,7 +21,7 @@ public sealed class MirrorFolderAdapterTests
         tree.MirrorTo(MirrorFolderAdapter.Candidates(destination, source).First(c => c.Layout == layout).BasePath);
 
         var sample = new Sampler(Everything).Take(source);
-        var binding = await new MirrorFolderAdapter().BindAsync(destination, sample, CancellationToken.None);
+        var binding = await new MirrorFolderAdapter().BindAsync(destination, sample, Path.GetTempPath(), BindPurpose.Read, CancellationToken.None);
 
         Assert.Equal(layout, binding.Layout);
         Assert.Equal(10, binding.ProbeHits);
@@ -37,7 +37,7 @@ public sealed class MirrorFolderAdapterTests
         var source = Source.FromPath(tree.Root);
         var destination = Destination.MirrorFolder(backup.Root, layout: MirrorLayout.RootFolder);
 
-        var binding = await new MirrorFolderAdapter().BindAsync(destination, new Sampler(Everything).Take(source), CancellationToken.None);
+        var binding = await new MirrorFolderAdapter().BindAsync(destination, new Sampler(Everything).Take(source), Path.GetTempPath(), BindPurpose.Read, CancellationToken.None);
 
         Assert.Equal(MirrorLayout.RootFolder, binding.Layout);
         Assert.Equal(Path.Combine(backup.Root, Path.GetFileName(tree.Root)), binding.BasePath);
@@ -53,9 +53,9 @@ public sealed class MirrorFolderAdapterTests
         var destination = Destination.MirrorFolder(backup.Root, layout: MirrorLayout.Contents);
         var adapter = new MirrorFolderAdapter();
         var sample = new Sampler(Everything).Take(source);
-        var binding = await adapter.BindAsync(destination, sample, CancellationToken.None);
+        var binding = await adapter.BindAsync(destination, sample, Path.GetTempPath(), BindPurpose.Read, CancellationToken.None);
 
-        var copy = await adapter.LocateAsync(binding, sample.Files[0], CancellationToken.None);
+        var copy = await adapter.LocateAsync(binding, sample.Files[0].RelativePath, CancellationToken.None);
 
         Assert.Equal(CopyState.Missing, copy.State);
         Assert.Equal(Path.Combine(backup.Root, "x.txt"), copy.Path);
@@ -70,7 +70,9 @@ public sealed class MirrorFolderAdapterTests
         var copy = new CopyLookup(CopyState.Found, copyPath, 5, DateTimeOffset.UtcNow, null);
         var scratchFile = scratch.At("restored");
 
-        var readBack = await new MirrorFolderAdapter().ReadBackAsync(copy, scratchFile, CancellationToken.None);
+        var source = Source.FromPath(backup.Root);
+        var binding = new SourceBinding(Destination.MirrorFolder(backup.Root), source, MirrorLayout.Contents, backup.Root, 0, 0);
+        var readBack = await new MirrorFolderAdapter().ReadBackAsync(binding, copy, scratchFile, CancellationToken.None);
 
         Assert.True(readBack.Success);
         Assert.Equal(5, readBack.BytesRead);

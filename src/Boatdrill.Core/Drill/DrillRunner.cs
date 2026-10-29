@@ -23,21 +23,25 @@ public sealed class DrillRunner
     private readonly TimeProvider _clock;
     private readonly Func<string, double?>? _reachabilityHistory;
 
-    /// <param name="adapters">One per destination kind; defaults to the mirror-folder adapter.</param>
+    /// <param name="adapters">One per destination kind; defaults to <see cref="DefaultAdapters"/>.</param>
     /// <param name="clock">Time source, replaceable in tests.</param>
     /// <param name="reachabilityHistory">Share of recent drills in which a destination (by id) was reachable, or null without history.</param>
     public DrillRunner(IEnumerable<IDestinationAdapter>? adapters = null, TimeProvider? clock = null, Func<string, double?>? reachabilityHistory = null)
     {
-        _adapters = (adapters ?? [new MirrorFolderAdapter()]).ToDictionary(a => a.Kind);
+        _adapters = (adapters ?? DefaultAdapters()).ToDictionary(a => a.Kind);
         _clock = clock ?? TimeProvider.System;
         _reachabilityHistory = reachabilityHistory;
     }
+
+    /// <summary>One adapter per kind of destination Boatdrill can read.</summary>
+    public static IReadOnlyList<IDestinationAdapter> DefaultAdapters() => [new MirrorFolderAdapter(), new FileHistoryAdapter(), new ResticAdapter()];
 
     public async Task<DrillReport> RunAsync(DrillPlan plan, IProgress<DrillProgress>? progress = null, CancellationToken ct = default)
     {
         var started = _clock.GetUtcNow();
         var id = started.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..6];
-        var scratch = Directory.CreateDirectory(Path.Combine(plan.ScratchDirectory, "boatdrill-" + id));
+        Scratch.Sweep(plan.ScratchDirectory, started);
+        var scratch = Directory.CreateDirectory(Path.Combine(plan.ScratchDirectory, Scratch.Prefix + id));
         try
         {
             var sampler = new Sampler(plan.Sampling, _clock);
@@ -68,14 +72,8 @@ public sealed class DrillRunner
         }
         finally
         {
-            try
-            {
-                scratch.Delete(recursive: true);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // A locked scratch file is cleaned up by the next drill's parent-folder sweep.
-            }
+            // A file another program held open stays behind; a later drill's sweep removes it.
+            Scratch.TryDelete(scratch.FullName);
         }
     }
 
@@ -102,7 +100,8 @@ public sealed class DrillRunner
             {
                 DestinationId = destination.Id,
                 DestinationName = destination.Name,
-                RootPath = destination.RootPath,
+                Kind = destination.Kind,
+                RootPath = destination.DisplayLocation,
                 Reachable = false,
                 ProbeDetail = probe.Detail,
                 Population = samples.Sum(s => s.Population),
@@ -129,8 +128,13 @@ public sealed class DrillRunner
             populationBytes += sample.PopulationBytes;
             if (sample.Files.Count == 0) continue;
 
-            var binding = await adapter.BindAsync(destination, sample, ct).ConfigureAwait(false);
-            bindings.Add(new BoundSource(sample.Source.Id, sample.Source.Name, binding.Layout, binding.BasePath, binding.ProbeHits, binding.ProbeTried));
+            // Binding may restore the whole sample at once (restic), so it already counts as reading back.
+            progress?.Report(new DrillProgress("Reading back from " + destination.Name, destination.Name, done, total, bytesRead));
+            var binding = await adapter.BindAsync(destination, sample, scratch, BindPurpose.Read, ct).ConfigureAwait(false);
+            bindings.Add(new BoundSource(sample.Source.Id, sample.Source.Name, binding.Layout, binding.BasePath, binding.ProbeHits, binding.ProbeTried)
+            {
+                Problem = binding.Problem,
+            });
 
             foreach (var file in sample.Files)
             {
@@ -174,7 +178,8 @@ public sealed class DrillRunner
         {
             DestinationId = destination.Id,
             DestinationName = destination.Name,
-            RootPath = destination.RootPath,
+            Kind = destination.Kind,
+            RootPath = destination.DisplayLocation,
             Reachable = true,
             ProbeDetail = probe.Detail,
             FreeBytes = probe.FreeBytes,
@@ -222,11 +227,12 @@ public sealed class DrillRunner
     private static async Task<(FileFinding Finding, long BytesRead, TimeSpan ReadTime)> VerifyFileAsync(
         IDestinationAdapter adapter, SourceBinding binding, SampledFile file, string scratch, CancellationToken ct)
     {
-        var copy = await adapter.LocateAsync(binding, file, ct).ConfigureAwait(false);
+        var copy = await adapter.LocateAsync(binding, file.RelativePath, ct).ConfigureAwait(false);
         switch (copy.State)
         {
             case CopyState.Missing:
-                return (new FileFinding(file.RelativePath, FileOutcome.Missing, file.Length, file.LastWriteUtc, null, null, $"expected at {copy.Path}"), 0, TimeSpan.Zero);
+                return (new FileFinding(file.RelativePath, FileOutcome.Missing, file.Length, file.LastWriteUtc, null, null,
+                    copy.Detail ?? $"expected at {copy.Path}"), 0, TimeSpan.Zero);
             case CopyState.Placeholder:
                 return (new FileFinding(file.RelativePath, FileOutcome.Placeholder, file.Length, file.LastWriteUtc, copy.Length, copy.LastWriteUtc, copy.Detail), 0, TimeSpan.Zero);
             case CopyState.Error:
@@ -236,11 +242,11 @@ public sealed class DrillRunner
         var scratchFile = Path.Combine(scratch, Guid.NewGuid().ToString("N"));
         try
         {
-            var readBack = await adapter.ReadBackAsync(copy, scratchFile, ct).ConfigureAwait(false);
+            var readBack = await adapter.ReadBackAsync(binding, copy, scratchFile, ct).ConfigureAwait(false);
             if (!readBack.Success)
             {
-                return (new FileFinding(file.RelativePath, FileOutcome.Error, file.Length, file.LastWriteUtc, copy.Length, copy.LastWriteUtc, readBack.Detail),
-                    readBack.BytesRead, readBack.Elapsed);
+                return (new FileFinding(file.RelativePath, readBack.Damaged ? FileOutcome.Corrupt : FileOutcome.Error, file.Length, file.LastWriteUtc,
+                    copy.Length, copy.LastWriteUtc, readBack.Detail), readBack.BytesRead, readBack.Elapsed);
             }
 
             string sourceHash;

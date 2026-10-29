@@ -13,7 +13,8 @@ public static class Verdicts
         switch (r.Score.Verdict)
         {
             case Verdict.Unreachable:
-                return $"{name} could not be reached: {r.ProbeDetail}. Plug it in or check the share, then run a drill.";
+                var fix = r.Kind == DestinationKind.Restic ? "Check the repository in Settings" : "Plug it in or check the share";
+                return $"{name} could not be reached: {r.ProbeDetail}. {fix}, then run a drill.";
             case Verdict.NothingToCheck:
                 return $"{name} is reachable, but no files were sampled, so there is nothing to verify yet.";
         }
@@ -35,10 +36,16 @@ public static class Verdicts
 
         var text = new StringBuilder(lead).Append(' ').Append(Join(facts)).Append('.');
 
-        var lost = r.Bindings.Where(b => b.ProbeTried > 0 && b.ProbeHits == 0).Select(b => b.SourceName).ToList();
-        if (lost.Count > 0)
+        var lost = r.Bindings.Where(b => b.ProbeTried > 0 && b.ProbeHits == 0).ToList();
+        var unexplained = lost.Where(b => b.Problem is null).Select(b => b.SourceName).ToList();
+        if (unexplained.Count > 0)
         {
-            text.Append($" No copy of {Join(lost)} was found under {r.RootPath}.");
+            text.Append($" No copy of {Join(unexplained)} was found under {r.RootPath}.");
+        }
+
+        foreach (var explained in lost.Where(b => b.Problem is not null))
+        {
+            text.Append($" {explained.SourceName}: {explained.Problem}.");
         }
 
         if (r.BehindSince is { } since)

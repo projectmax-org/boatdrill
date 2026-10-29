@@ -1,9 +1,17 @@
+using System.Text.RegularExpressions;
+
 namespace Boatdrill.Core;
 
 public enum DestinationKind
 {
     /// <summary>A folder that holds plain copies: an external drive, a NAS share, a OneDrive or Dropbox folder.</summary>
     MirrorFolder,
+
+    /// <summary>A Windows File History drive: versions named "name (2026_10_28 14_00_00 UTC).ext" under FileHistory\user\PC\Data.</summary>
+    FileHistory,
+
+    /// <summary>A restic repository, read through the restic command-line tool.</summary>
+    Restic,
 }
 
 /// <summary>How a mirror destination lays out the copies of one source.</summary>
@@ -23,13 +31,77 @@ public enum MirrorLayout
 }
 
 /// <summary>A place where copies are supposed to exist. Boatdrill only ever reads from it.</summary>
-public sealed record Destination(string Id, string Name, DestinationKind Kind, string RootPath)
+public sealed partial record Destination(string Id, string Name, DestinationKind Kind, string RootPath)
 {
     public MirrorLayout Layout { get; init; } = MirrorLayout.Auto;
+
+    /// <summary>A repository's password, already decrypted. Held in memory for a drill; Core never writes it anywhere.</summary>
+    public string? Secret { get; init; }
+
+    /// <summary>The command-line tool a repository is read with, when it is not on the PATH.</summary>
+    public string? ToolPath { get; init; }
 
     public static Destination MirrorFolder(string rootPath, string? name = null, MirrorLayout layout = MirrorLayout.Auto)
     {
         var full = Path.GetFullPath(rootPath);
-        return new Destination(Source.IdForPath(full), name ?? Source.DisplayName(full), DestinationKind.MirrorFolder, full) { Layout = layout };
+        return new Destination(IdFor(DestinationKind.MirrorFolder, full), name ?? DefaultName(DestinationKind.MirrorFolder, full), DestinationKind.MirrorFolder, full) { Layout = layout };
     }
+
+    public static Destination FileHistory(string rootPath, string? name = null)
+    {
+        var full = Path.GetFullPath(rootPath);
+        return new Destination(IdFor(DestinationKind.FileHistory, full), name ?? DefaultName(DestinationKind.FileHistory, full), DestinationKind.FileHistory, full);
+    }
+
+    public static Destination Restic(string repository, string? password, string? name = null, string? toolPath = null)
+    {
+        var location = NormaliseLocation(DestinationKind.Restic, repository);
+        return new Destination(IdFor(DestinationKind.Restic, location), name ?? DefaultName(DestinationKind.Restic, location), DestinationKind.Restic, location)
+        {
+            Secret = password,
+            ToolPath = toolPath,
+        };
+    }
+
+    /// <summary>The same id for the same place on every run, so history lines up.</summary>
+    public static string IdFor(DestinationKind kind, string location)
+    {
+        var normalised = NormaliseLocation(kind, location);
+        return kind == DestinationKind.Restic && IsRepositoryUrl(normalised) ? Source.IdForText("restic:" + normalised) : Source.IdForPath(normalised);
+    }
+
+    /// <summary>The last folder of a path, or the end of a repository URL.</summary>
+    public static string DefaultName(DestinationKind kind, string location)
+    {
+        if (kind == DestinationKind.Restic && IsRepositoryUrl(location))
+        {
+            var tail = location.TrimEnd('/', '\\');
+            var cut = tail.LastIndexOfAny(['/', '\\', ':']);
+            return cut >= 0 && cut < tail.Length - 1 ? tail[(cut + 1)..] : tail;
+        }
+
+        return Source.DisplayName(location);
+    }
+
+    /// <summary>A folder is made absolute; a repository URL such as sftp:host:/srv/restic is kept as it is.</summary>
+    public static string NormaliseLocation(DestinationKind kind, string location) =>
+        kind == DestinationKind.Restic && IsRepositoryUrl(location) ? location.Trim() : Path.GetFullPath(location);
+
+    /// <summary>restic's remote back ends; anything else is a folder.</summary>
+    public static bool IsRepositoryUrl(string location) => RepositoryUrl().IsMatch(location);
+
+    [GeneratedRegex(@"^(sftp|rest|s3|b2|azure|gs|swift|rclone):", RegexOptions.IgnoreCase)]
+    private static partial Regex RepositoryUrl();
+
+    /// <summary>The location to show and to keep in history: a password written into a repository URL is masked.</summary>
+    public string DisplayLocation => Redact(RootPath);
+
+    /// <summary>rest:https://max:secret@nas:8000/ becomes rest:https://max:***@nas:8000/.</summary>
+    public static string Redact(string location) => UrlPassword().Replace(location, "***");
+
+    [GeneratedRegex(@"(?<=://[^/@:\s]+:)[^/@\s]+(?=@)")]
+    private static partial Regex UrlPassword();
+
+    /// <summary>Never shows the secret, whatever else prints a destination.</summary>
+    public override string ToString() => $"{Kind} {Name} at {DisplayLocation}";
 }

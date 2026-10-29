@@ -118,21 +118,46 @@ public sealed class DestinationSetting
 
     public string Name { get; set; } = string.Empty;
 
+    public DestinationKind Kind { get; set; } = DestinationKind.MirrorFolder;
+
+    /// <summary>The folder, the File History drive, or the restic repository's location (a folder or a URL).</summary>
     public string Folder { get; set; } = string.Empty;
 
     public MirrorLayout Layout { get; set; } = MirrorLayout.Auto;
 
-    public static DestinationSetting ForFolder(string folder, string? name = null)
+    /// <summary>A repository password as stored: the app keeps it encrypted for the Windows user ("dpapi:…").</summary>
+    public string? Secret { get; set; }
+
+    /// <summary>Where the repository's command-line tool is, when it is not on the PATH.</summary>
+    public string? ToolPath { get; set; }
+
+    public static DestinationSetting ForFolder(string folder, string? name = null) => From(Destination.MirrorFolder(folder, name));
+
+    public static DestinationSetting ForFileHistory(string folder, string? name = null) => From(Destination.FileHistory(folder, name));
+
+    /// <param name="storedSecret">The password as it is to be stored, already protected by the caller.</param>
+    public static DestinationSetting ForRestic(string repository, string? storedSecret, string? name = null, string? toolPath = null)
     {
-        var destination = Destination.MirrorFolder(folder, name);
-        return new DestinationSetting
-        {
-            Id = destination.Id,
-            Name = destination.Name,
-            Folder = destination.RootPath,
-            Layout = destination.Layout,
-        };
+        var setting = From(Destination.Restic(repository, null, name, toolPath));
+        setting.Secret = storedSecret;
+        return setting;
     }
 
-    public Destination ToDestination() => new(Id, Name, DestinationKind.MirrorFolder, Folder) { Layout = Layout };
+    private static DestinationSetting From(Destination destination) => new()
+    {
+        Id = destination.Id,
+        Name = destination.Name,
+        Kind = destination.Kind,
+        Folder = destination.RootPath,
+        Layout = destination.Layout,
+        ToolPath = destination.ToolPath,
+    };
+
+    /// <param name="unprotect">Turns the stored secret back into the password; the app passes DPAPI here.</param>
+    public Destination ToDestination(Func<string?, string?>? unprotect = null) => new(Id, Name, Kind, Folder)
+    {
+        Layout = Layout,
+        Secret = unprotect is null ? Secret : unprotect(Secret),
+        ToolPath = ToolPath,
+    };
 }

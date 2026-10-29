@@ -117,8 +117,8 @@ public sealed class SettingsStore
             .Where(d => d is not null && !string.IsNullOrWhiteSpace(d.Folder))
             .Select(d =>
             {
-                if (string.IsNullOrWhiteSpace(d.Id)) d.Id = Source.IdForPath(d.Folder);
-                if (string.IsNullOrWhiteSpace(d.Name)) d.Name = Source.DisplayName(d.Folder);
+                if (string.IsNullOrWhiteSpace(d.Id)) d.Id = Destination.IdFor(d.Kind, d.Folder);
+                if (string.IsNullOrWhiteSpace(d.Name)) d.Name = Destination.DefaultName(d.Kind, d.Folder);
                 return d;
             })
             .DistinctBy(d => d.Id)

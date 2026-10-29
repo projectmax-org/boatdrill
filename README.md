@@ -165,8 +165,7 @@ Shell_NotifyIcon directly, the theme swaps one palette dictionary, and nothing r
 - **v0.2** Windows File History and restic destinations with passwords kept by DPAPI, a hash ledger that
   catches bit rot, opt-in canary files that measure backup lag directly, and the "only on this PC" scan.
   Built; waiting for a test against real drives and repositories on Windows.
-- **v0.3** Kopia repositories, and the scan's results per backup as well as across all of them.
-- **v1.0** installer, winget, code signing, exportable report.
+- **v1.0** Kopia repositories, an installer, winget, code signing, an exportable report.
 
 ## Licence
 

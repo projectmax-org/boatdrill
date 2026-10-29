@@ -42,6 +42,12 @@ public sealed record DestinationResult
 
     public int Placeholder { get; init; }
 
+    /// <summary>The newest canary stamp in the destination's copies (the oldest of them, with several sources): it last caught up after this.</summary>
+    public DateTimeOffset? CanaryCopiedUtc { get; init; }
+
+    /// <summary>The oldest canary stamp the destination's copies lack, past the grace period.</summary>
+    public DateTimeOffset? CanaryBehindSince { get; init; }
+
     /// <summary>Copies verified in earlier drills that were read again in this one, from the hash ledger.</summary>
     public int Rechecked { get; init; }
 

@@ -49,6 +49,9 @@ public sealed class Sampler(SampleOptions? options = null, TimeProvider? clock =
             var relative = Path.GetRelativePath(root, info.FullName);
             if (filter.Excludes(relative)) continue;
 
+            // Boatdrill's own canary changes with every drill; it is checked on its own, never sampled.
+            if (string.Equals(relative, Drill.Canary.FileName, StringComparison.OrdinalIgnoreCase)) continue;
+
             long length;
             DateTimeOffset written;
             try

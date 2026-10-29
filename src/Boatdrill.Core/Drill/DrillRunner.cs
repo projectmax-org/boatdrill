@@ -59,11 +59,22 @@ public sealed class DrillRunner
                 samples.Add(sampler.Take(source));
             }
 
+            // Each source's canary stamps, read before any destination is visited.
+            var canaries = plan.UseCanaries
+                ? plan.Sources.DistinctBy(s => s.Id).ToDictionary(s => s.Id, s => Canary.Read(Path.GetFullPath(s.RootPath)))
+                : null;
+
             var results = new List<DestinationResult>();
             foreach (var destination in plan.Destinations)
             {
                 ct.ThrowIfCancellationRequested();
-                results.Add(await VerifyDestinationAsync(destination, samples, scratch.FullName, progress, ct).ConfigureAwait(false));
+                results.Add(await VerifyDestinationAsync(destination, samples, canaries, scratch.FullName, progress, ct).ConfigureAwait(false));
+            }
+
+            // A new stamp for the backups to copy before the next drill.
+            if (plan.UseCanaries)
+            {
+                foreach (var source in plan.Sources.DistinctBy(s => s.Id)) Canary.Stamp(Path.GetFullPath(source.RootPath), _clock.GetUtcNow());
             }
 
             return new DrillReport
@@ -87,8 +98,8 @@ public sealed class DrillRunner
         s.Source.Id, s.Source.Name, s.Source.RootPath, s.Population, s.PopulationBytes,
         s.Files.Count, s.SampledBytes, s.SkippedLargeFiles, s.SkippedChurningFiles, s.NewestWriteUtc);
 
-    private async Task<DestinationResult> VerifyDestinationAsync(
-        Destination destination, List<Sample> samples, string scratch, IProgress<DrillProgress>? progress, CancellationToken ct)
+    private async Task<DestinationResult> VerifyDestinationAsync(Destination destination, List<Sample> samples,
+        IReadOnlyDictionary<string, IReadOnlyList<DateTimeOffset>>? canaries, string scratch, IProgress<DrillProgress>? progress, CancellationToken ct)
     {
         if (!_adapters.TryGetValue(destination.Kind, out var adapter))
         {
@@ -132,7 +143,7 @@ public sealed class DrillRunner
         var readTime = TimeSpan.Zero;
         var total = samples.Sum(s => s.Files.Count) + due.Count;
         var done = 0;
-        DateTimeOffset? newestVerified = null;
+        DateTimeOffset? newestVerified = null, canaryCopied = null, canaryBehind = null;
 
         foreach (var sample in samples)
         {
@@ -143,10 +154,13 @@ public sealed class DrillRunner
             var rechecks = due.Where(e => e.SourceId == sample.Source.Id).ToList();
             due.RemoveAll(e => e.SourceId == sample.Source.Id);
 
+            var stamps = canaries?.GetValueOrDefault(sample.Source.Id) ?? [];
+            List<string> alsoRead = [.. rechecks.Select(e => e.RelativePath)];
+            if (stamps.Count > 0) alsoRead.Add(Canary.FileName);
+
             // Binding may restore the whole sample at once (restic), so it already counts as reading back.
             progress?.Report(new DrillProgress("Reading back from " + destination.Name, destination.Name, done, total, bytesRead));
-            var binding = await adapter.BindAsync(destination, sample, scratch, BindPurpose.Read, rechecks.Select(e => e.RelativePath).ToList(), ct)
-                .ConfigureAwait(false);
+            var binding = await adapter.BindAsync(destination, sample, scratch, BindPurpose.Read, alsoRead, ct).ConfigureAwait(false);
             bindings.Add(new BoundSource(sample.Source.Id, sample.Source.Name, binding.Layout, binding.BasePath, binding.ProbeHits, binding.ProbeTried)
             {
                 Problem = binding.Problem,
@@ -211,12 +225,21 @@ public sealed class DrillRunner
                 done++;
                 progress?.Report(new DrillProgress("Reading back from " + destination.Name, destination.Name, done, total, bytesRead));
             }
+
+            if (stamps.Count > 0 && await ReadCanaryAsync(adapter, binding, scratch, ct).ConfigureAwait(false) is { } copyStamps)
+            {
+                if (copyStamps.Count > 0 && (canaryCopied is null || copyStamps.Max() < canaryCopied)) canaryCopied = copyStamps.Max();
+                if (Canary.BehindSince(stamps, copyStamps, now) is { } lacking && (canaryBehind is null || lacking < canaryBehind)) canaryBehind = lacking;
+            }
         }
 
         // Freshness looks only at changes newer than anything verified: an old file that was never copied is a
         // coverage hole, not a lag. The oldest such change says how long the backup has been falling behind.
         var floor = newestVerified ?? DateTimeOffset.MinValue;
         var behindSince = notCopied.Where(t => t > floor).Select(t => (DateTimeOffset?)t).Min();
+
+        // The canary tells even when nothing in the folder changed since the backup stopped.
+        if (canaryBehind is { } stalled && (behindSince is null || stalled < behindSince)) behindSince = stalled;
         TimeSpan? lag = behindSince is { } since ? (now - since < TimeSpan.Zero ? TimeSpan.Zero : now - since) : null;
 
         double? bytesPerSecond = readTime > TimeSpan.Zero && bytesRead > 0 ? bytesRead / readTime.TotalSeconds : null;
@@ -243,6 +266,8 @@ public sealed class DrillRunner
             Errors = errors,
             Rechecked = rechecked,
             Rotted = rotted,
+            CanaryCopiedUtc = canaryCopied,
+            CanaryBehindSince = canaryBehind,
             Population = population,
             PopulationBytes = populationBytes,
             BytesRead = bytesRead,
@@ -396,6 +421,32 @@ public sealed class DrillRunner
 
             return (Recheck.Rotted, Finding(FileOutcome.Rotted, $"{verifiedOn}; its bytes have changed since, though its size and date have not"),
                 readBack.BytesRead, readBack.Elapsed);
+        }
+        finally
+        {
+            Scratch.TryDeleteFile(scratchFile);
+        }
+    }
+
+    /// <summary>
+    /// The stamps in a destination's copy of a source's canary: none when there is no copy, null when it could
+    /// not be read, or when none of the source was found there either and the canary would add nothing.
+    /// </summary>
+    private static async Task<IReadOnlyList<DateTimeOffset>?> ReadCanaryAsync(IDestinationAdapter adapter, SourceBinding binding, string scratch, CancellationToken ct)
+    {
+        var copy = await adapter.LocateAsync(binding, Canary.FileName, ct).ConfigureAwait(false);
+        if (copy.State == CopyState.Missing) return binding.ProbeHits > 0 ? [] : null;
+        if (copy.State != CopyState.Found) return null;
+
+        var scratchFile = Path.Combine(scratch, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var readBack = await adapter.ReadBackAsync(binding, copy, scratchFile, ct).ConfigureAwait(false);
+            return readBack.Success ? Canary.Parse(await File.ReadAllTextAsync(scratchFile, ct).ConfigureAwait(false)) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
         finally
         {

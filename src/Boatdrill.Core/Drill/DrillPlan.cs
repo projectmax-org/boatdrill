@@ -21,4 +21,10 @@ public sealed record DrillPlan
     public SampleOptions Sampling { get; init; } = new();
 
     public DrillTrigger Trigger { get; init; } = DrillTrigger.Manual;
+
+    /// <summary>
+    /// Keep a canary file in each source folder, stamped after the drill, and compare each destination's copy of
+    /// it: the one thing Boatdrill writes outside its own folders, so only when asked.
+    /// </summary>
+    public bool UseCanaries { get; init; }
 }

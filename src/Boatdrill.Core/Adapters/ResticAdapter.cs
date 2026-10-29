@@ -122,20 +122,19 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         var state = (State)binding.State!;
         if (File.Exists(copy.Path))
         {
-            // Restored by a batch: that restore was the read-back, so hash the file where it landed, then free the space.
+            // Restored by a batch, which was the read-back: move the file into place (a rename, in the same scratch
+            // folder) and hash it there.
             var watch = Stopwatch.StartNew();
             try
             {
-                var hash = await Hashing.Sha256HexAsync(copy.Path, ct).ConfigureAwait(false);
-                return new ReadBack(true, new FileInfo(copy.Path).Length, watch.Elapsed + copy.FetchTime, hash, null);
+                File.SetAttributes(copy.Path, FileAttributes.Normal);
+                File.Move(copy.Path, scratchPath, overwrite: true);
+                var hash = await Hashing.Sha256HexAsync(scratchPath, ct).ConfigureAwait(false);
+                return new ReadBack(true, new FileInfo(scratchPath).Length, watch.Elapsed + copy.FetchTime, hash, null);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return new ReadBack(false, 0, watch.Elapsed + copy.FetchTime, null, ex.Message);
-            }
-            finally
-            {
-                Scratch.TryDeleteFile(copy.Path);
             }
         }
 

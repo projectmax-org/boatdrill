@@ -62,6 +62,13 @@ public static class Verdicts
             text.Append($" The oldest change not yet copied here is from {since.ToLocalTime():d MMMM yyyy} ({Humanize.Age(now - since)} ago).");
         }
 
+        if (r.CanaryBehindSince is not null)
+        {
+            text.Append(r.CanaryCopiedUtc is { } copied
+                ? $" The newest canary stamp copied here is from {copied.ToLocalTime():d MMMM yyyy, HH:mm}; the later ones have not been copied."
+                : " No copy of the canary file was found here.");
+        }
+
         if (r.EstimatedFullRestore is { } estimate && r.PopulationBytes > 0)
         {
             text.Append($" A full restore of {Humanize.Bytes(r.PopulationBytes)} would take about {Humanize.Duration(estimate)} at the speed measured.");

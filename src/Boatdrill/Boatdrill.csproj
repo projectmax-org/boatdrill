@@ -8,6 +8,8 @@
     <RootNamespace>Boatdrill</RootNamespace>
     <AssemblyTitle>Boatdrill</AssemblyTitle>
     <Description>Rehearses restoring from your backups on a schedule and says, in plain words, whether they would work.</Description>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Lets the WPF project compile (not run) on Linux and macOS, which is how CI and the engine's
          authors check it without a Windows machine. -->
     <EnableWindowsTargeting Condition="!$([MSBuild]::IsOSPlatform('Windows'))">true</EnableWindowsTargeting>
@@ -29,6 +31,15 @@
   <!-- The WindowsDesktop SDK's implicit usings omit System.IO; the codebase assumes it. -->
   <ItemGroup>
     <Using Include="System.IO" />
+  </ItemGroup>
+
+  <!-- app.ico becomes the executable's Win32 icon (read back from there for the tray icon, which keeps
+       single-file publishing to one file); logo-512.png is a WPF resource for the title bar. Both come
+       from tools/IconGen. -->
+  <ItemGroup>
+    <None Update="Assets\**" CopyToOutputDirectory="Never" />
+    <None Remove="Assets\logo-512.png" />
+    <Resource Include="Assets\logo-512.png" />
   </ItemGroup>
 
   <ItemGroup>

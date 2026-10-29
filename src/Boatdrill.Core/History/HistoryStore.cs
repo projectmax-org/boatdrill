@@ -5,10 +5,16 @@ namespace Boatdrill.Core.History;
 
 /// <summary>
 /// Append-only drill history, one JSON report per line. Trends, reachability and (from v0.2) the hash
-/// ledger are read from it. A half-written last line, left by a crash or a power cut, is skipped, not fatal.
+/// ledger are read from it. A half-written last line, left by a crash or a power cut, is skipped, not
+/// fatal. Past a few megabytes the oldest drills are dropped, keeping the most recent ones.
 /// </summary>
 public sealed class HistoryStore(string filePath)
 {
+    public const long TrimAboveBytes = 8L * 1024 * 1024;
+    public const int KeepWhenTrimming = 200;
+
+    private readonly Lock _gate = new();
+
     public string FilePath { get; } = filePath;
 
     public async Task AppendAsync(DrillReport report, CancellationToken ct = default)
@@ -17,16 +23,25 @@ public sealed class HistoryStore(string filePath)
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
         var line = JsonSerializer.Serialize(report, BoatdrillJson.Options) + "\n";
         await File.AppendAllTextAsync(FilePath, line, ct).ConfigureAwait(false);
+        TrimIfLarge(TrimAboveBytes, KeepWhenTrimming);
     }
 
-    public IReadOnlyList<DrillReport> ReadAll()
-    {
-        if (!File.Exists(FilePath)) return [];
+    public IReadOnlyList<DrillReport> ReadAll() => ReadRecent(int.MaxValue);
 
-        var reports = new List<DrillReport>();
-        foreach (var line in File.ReadLines(FilePath))
+    /// <summary>The last <paramref name="count"/> readable drills, oldest first.</summary>
+    public IReadOnlyList<DrillReport> ReadRecent(int count)
+    {
+        if (count <= 0 || !File.Exists(FilePath)) return [];
+
+        string[] lines;
+        lock (_gate)
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
+            lines = File.ReadLines(FilePath).Where(l => !string.IsNullOrWhiteSpace(l)).TakeLast(count).ToArray();
+        }
+
+        var reports = new List<DrillReport>(lines.Length);
+        foreach (var line in lines)
+        {
             try
             {
                 var report = JsonSerializer.Deserialize<DrillReport>(line, BoatdrillJson.Options);
@@ -41,16 +56,31 @@ public sealed class HistoryStore(string filePath)
         return reports;
     }
 
-    public DrillReport? Latest() => ReadAll().LastOrDefault();
+    /// <summary>The most recent readable drill. Looks a few lines back in case the last one is torn.</summary>
+    public DrillReport? Latest() => ReadRecent(5).LastOrDefault();
 
     /// <summary>Share of the last <paramref name="window"/> drills in which the destination was reachable, or null without history.</summary>
     public double? Reachability(string destinationId, int window = 10)
     {
-        var seen = ReadAll()
+        var seen = ReadRecent(50)
             .SelectMany(r => r.Destinations)
             .Where(d => d.DestinationId == destinationId)
             .TakeLast(window)
             .ToList();
         return seen.Count == 0 ? null : (double)seen.Count(d => d.Reachable) / seen.Count;
+    }
+
+    internal void TrimIfLarge(long maxBytes, int keep)
+    {
+        lock (_gate)
+        {
+            var info = new FileInfo(FilePath);
+            if (!info.Exists || info.Length <= maxBytes) return;
+
+            var kept = File.ReadLines(FilePath).Where(l => !string.IsNullOrWhiteSpace(l)).TakeLast(keep).ToArray();
+            var temporary = FilePath + ".tmp";
+            File.WriteAllLines(temporary, kept);
+            File.Move(temporary, FilePath, overwrite: true);
+        }
     }
 }

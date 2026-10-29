@@ -1,128 +1,295 @@
-using System.Collections.ObjectModel;
-using System.Windows;
-using Boatdrill.Core;
+using System.Windows.Threading;
 using Boatdrill.Core.Drill;
-using Boatdrill.Core.History;
-using Boatdrill.Core.Sampling;
+using Boatdrill.Core.Notifications;
+using Boatdrill.Core.Scheduling;
+using Boatdrill.Core.Settings;
 using Boatdrill.Core.Text;
+using Boatdrill.Platform;
 
 namespace Boatdrill.UI.ViewModels;
 
-/// <summary>
-/// The dashboard. Reads settings and the last drill from disk, runs a drill on request and shows each
-/// destination's score and sentence. Scheduling, the tray icon and the settings screen come with the
-/// v0.1 app milestone; until then sources and destinations are edited in settings.json.
-/// </summary>
-public sealed class MainViewModel : ObservableObject
+public enum AppSection
 {
-    private readonly SettingsStore _settings = new(Paths.SettingsFile);
-    private readonly HistoryStore _history = new(Paths.HistoryFile);
-    private bool _running;
-    private double _progress;
-    private string _status = string.Empty;
-    private string _footer = string.Empty;
+    Dashboard,
+    History,
+    Settings,
+}
 
-    public MainViewModel()
+/// <summary>
+/// The window's state: which section is showing, how the running drill is going, when the next one is due.
+/// Background events arrive on any thread and are folded into one refresh on the UI thread.
+/// </summary>
+public sealed class MainViewModel : ViewModelBase, IDisposable
+{
+    private readonly AppServices _services;
+    private readonly Dispatcher _dispatcher;
+    private readonly DispatcherTimer _ticker;
+    private AppSection _section;
+    private int _refreshQueued;
+    private bool _disposed;
+
+    private bool _isRunning;
+    private double _progressValue;
+    private bool _isProgressIndeterminate;
+    private string _progressText = string.Empty;
+    private string _nextDrillText = string.Empty;
+    private string _statusMessage = string.Empty;
+    private bool _statusIsError;
+    private string _trayTooltip = "Boatdrill";
+
+    public MainViewModel(AppServices services)
     {
-        RunDrill = new RelayCommand(() => _ = RunAsync(), () => !_running);
-        Load();
+        _services = services;
+        _dispatcher = Dispatcher.CurrentDispatcher;
+
+        RunDrillCommand = new RelayCommand(() => _ = _services.Drills.RunAsync(DrillTrigger.Manual),
+            () => !_services.Drills.IsRunning && _services.Settings.Settings.IsReadyToDrill);
+        StopDrillCommand = new RelayCommand(() => _services.Drills.Cancel(), () => _services.Drills.IsRunning);
+        ShowSettingsCommand = new RelayCommand(() => Section = AppSection.Settings);
+
+        Dashboard = new DashboardViewModel(services, this);
+        History = new HistoryViewModel(services);
+        Settings = new SettingsViewModel(services);
+
+        // "Next drill in 5 minutes" has to move while someone is looking at it, and only then.
+        _ticker = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(30) };
+        _ticker.Tick += (_, _) => Refresh();
+
+        _services.Drills.StateChanged += OnBackgroundChange;
+        _services.Drills.Completed += OnDrillCompleted;
+        _services.Scheduler.ScheduleChanged += OnBackgroundChange;
+        _services.Settings.Changed += OnSettingsChanged;
+
+        Refresh();
     }
 
-    public ObservableCollection<DestinationRow> Destinations { get; } = [];
+    public DashboardViewModel Dashboard { get; }
 
-    public RelayCommand RunDrill { get; }
+    public HistoryViewModel History { get; }
 
-    public string Status
+    public SettingsViewModel Settings { get; }
+
+    public RelayCommand RunDrillCommand { get; }
+
+    public RelayCommand StopDrillCommand { get; }
+
+    public RelayCommand ShowSettingsCommand { get; }
+
+    public AppSection Section
     {
-        get => _status;
-        private set => Set(ref _status, value);
-    }
-
-    public string Footer
-    {
-        get => _footer;
-        private set => Set(ref _footer, value);
-    }
-
-    public double Progress
-    {
-        get => _progress;
-        private set => Set(ref _progress, value);
-    }
-
-    public Visibility ProgressVisibility => _running ? Visibility.Visible : Visibility.Collapsed;
-
-    private void Load()
-    {
-        var settings = _settings.Settings;
-        var latest = _history.Latest();
-
-        Destinations.Clear();
-        foreach (var destination in settings.Destinations)
+        get => _section;
+        set
         {
-            var row = new DestinationRow(destination.Id, destination.Name, destination.Path);
-            var last = latest?.Destinations.FirstOrDefault(d => d.DestinationId == destination.Id);
-            if (last is not null) row.Apply(last);
-            Destinations.Add(row);
+            if (!Set(ref _section, value)) return;
+            Raise(nameof(IsDashboard), nameof(IsHistory), nameof(IsSettings), nameof(SectionTitle));
+            if (value == AppSection.History) _ = History.ReloadAsync();
         }
-
-        Status = settings.Destinations.Count == 0
-            ? $"No destination yet. Until the settings screen lands, add destinations in {Paths.SettingsFile}."
-            : latest is null
-                ? "No drill has run yet."
-                : $"Last drill {latest.StartedUtc.ToLocalTime():g}, took {Humanize.Duration(latest.Duration)}.";
-
-        Footer = $"Protecting {Humanize.Plural(settings.Sources.Count, "folder")}: {string.Join(", ", settings.Sources.Select(s => s.Name))}. " +
-                 "Nothing leaves this PC, and a drill only ever reads from a destination.";
     }
 
-    private async Task RunAsync()
+    public bool IsDashboard
     {
-        if (_running) return;
-        SetRunning(true);
-        try
+        get => Section == AppSection.Dashboard;
+        set { if (value) Section = AppSection.Dashboard; }
+    }
+
+    public bool IsHistory
+    {
+        get => Section == AppSection.History;
+        set { if (value) Section = AppSection.History; }
+    }
+
+    public bool IsSettings
+    {
+        get => Section == AppSection.Settings;
+        set { if (value) Section = AppSection.Settings; }
+    }
+
+    public string SectionTitle => Section switch
+    {
+        AppSection.Dashboard => "Your backups",
+        AppSection.History => "Drill history",
+        _ => "Settings",
+    };
+
+    public bool IsRunning
+    {
+        get => _isRunning;
+        private set => Set(ref _isRunning, value);
+    }
+
+    public double ProgressValue
+    {
+        get => _progressValue;
+        private set => Set(ref _progressValue, value);
+    }
+
+    public bool IsProgressIndeterminate
+    {
+        get => _isProgressIndeterminate;
+        private set => Set(ref _isProgressIndeterminate, value);
+    }
+
+    public string ProgressText
+    {
+        get => _progressText;
+        private set => Set(ref _progressText, value);
+    }
+
+    public string NextDrillText
+    {
+        get => _nextDrillText;
+        private set => Set(ref _nextDrillText, value);
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        private set => Set(ref _statusMessage, value);
+    }
+
+    public bool StatusIsError
+    {
+        get => _statusIsError;
+        private set => Set(ref _statusIsError, value);
+    }
+
+    /// <summary>The notification-area tooltip: how the backups stand, in one line.</summary>
+    public string TrayTooltip
+    {
+        get => _trayTooltip;
+        private set => Set(ref _trayTooltip, value);
+    }
+
+    public void StartTicking()
+    {
+        Refresh();
+        _ticker.Start();
+    }
+
+    public void StopTicking() => _ticker.Stop();
+
+    public void Refresh()
+    {
+        if (_disposed) return;
+
+        var drills = _services.Drills;
+        var settings = _services.Settings.Settings;
+        var latest = drills.Latest;
+        var now = DateTimeOffset.UtcNow;
+
+        IsRunning = drills.IsRunning;
+        if (drills.IsRunning)
         {
-            var settings = _settings.Settings;
-            var plan = new DrillPlan
+            var progress = drills.Progress;
+            IsProgressIndeterminate = progress is null || progress.FilesTotal == 0;
+            ProgressValue = progress is { FilesTotal: > 0 } ? (double)progress.FilesDone / progress.FilesTotal : 0;
+            ProgressText = progress switch
             {
-                Sources = settings.Sources.Select(s => s.ToSource()).ToList(),
-                Destinations = settings.Destinations.Select(d => d.ToDestination()).ToList(),
-                ScratchDirectory = Paths.ScratchDirectory,
-                Sampling = new SampleOptions { SampleSize = settings.SampleSize, ByteCap = settings.ByteCapMb * 1024L * 1024 },
+                null => "Starting the drill…",
+                { FilesTotal: > 0 } => $"{progress.Stage}: {progress.FilesDone:N0} of {progress.FilesTotal:N0} files",
+                _ => progress.Stage + "…",
             };
-
-            var runner = new DrillRunner(reachabilityHistory: id => _history.Reachability(id));
-            var progress = new Progress<DrillProgress>(p =>
-            {
-                Status = p.FilesTotal > 0 ? $"{p.Stage}: {p.FilesDone} of {p.FilesTotal} files, {Humanize.Bytes(p.BytesRead)} read" : p.Stage;
-                Progress = p.FilesTotal > 0 ? (double)p.FilesDone / p.FilesTotal : 0;
-            });
-
-            var report = await runner.RunAsync(plan, progress);
-            await _history.AppendAsync(report);
-
-            foreach (var result in report.Destinations)
-            {
-                Destinations.FirstOrDefault(r => r.Id == result.DestinationId)?.Apply(result);
-            }
-
-            Status = $"Drill finished at {report.FinishedUtc.ToLocalTime():t}, took {Humanize.Duration(report.Duration)}.";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        else
         {
-            Status = "The drill failed: " + ex.Message;
+            IsProgressIndeterminate = false;
+            ProgressValue = 0;
+            ProgressText = string.Empty;
         }
-        finally
+
+        NextDrillText = DescribeNextDrill(settings, latest, now);
+
+        if (!drills.IsRunning && drills.LastError is { } error)
         {
-            SetRunning(false);
-            Progress = 0;
+            StatusMessage = error;
+            StatusIsError = true;
         }
+        else
+        {
+            StatusMessage = latest is null
+                ? "Nothing leaves this PC, and a drill only ever reads from your backups."
+                : $"Last drill {latest.StartedUtc.ToLocalTime():dddd d MMMM, HH:mm}, took {Humanize.Duration(latest.Duration)}. Nothing leaves this PC.";
+            StatusIsError = false;
+        }
+
+        TrayTooltip = DescribeForTray(latest);
+        Dashboard.Refresh();
+        RunDrillCommand.RaiseCanExecuteChanged();
+        StopDrillCommand.RaiseCanExecuteChanged();
     }
 
-    private void SetRunning(bool running)
+    private string DescribeNextDrill(AppSettings settings, DrillReport? latest, DateTimeOffset now)
     {
-        _running = running;
-        RunDrill.RaiseCanExecuteChanged();
-        OnPropertyChanged(nameof(ProgressVisibility));
+        if (settings.Sources.Count == 0) return "Choose the folders to protect in Settings.";
+        if (settings.Destinations.Count == 0) return "Add the place your backup goes in Settings.";
+        if (settings.Frequency == DrillFrequency.Off) return "Scheduled drills are off. Run one whenever you like.";
+
+        var due = _services.Scheduler.NextDrillAt ?? DrillSchedule.NextDue(settings.Frequency, latest?.FinishedUtc, now);
+        if (due is null) return "Scheduled drills are off.";
+        if (due.Value > now) return "Next drill " + Humanize.Until(due.Value - now) + ".";
+
+        var reason = _services.Scheduler.LastDeferReason;
+        return reason == DeferReason.None
+            ? "The next drill is due now."
+            : "The next drill is due, " + DeferralPolicy.Describe(reason) + ".";
+    }
+
+    private string DescribeForTray(DrillReport? latest)
+    {
+        if (_services.Drills.IsRunning) return "Boatdrill: a drill is running";
+        if (latest is null) return "Boatdrill: no drill has run yet";
+
+        var problems = latest.Destinations.Where(d => NotificationPolicy.IsProblem(d.Score.Verdict)).ToList();
+        return problems.Count switch
+        {
+            0 => "Boatdrill: your backups would restore",
+            1 => $"Boatdrill: {problems[0].DestinationName} {VerdictStyle.Text(problems[0].Score.Verdict)}",
+            _ => $"Boatdrill: {problems.Count} backups need attention",
+        };
+    }
+
+    private void OnBackgroundChange(object? sender, EventArgs e) => QueueRefresh();
+
+    private void OnSettingsChanged(object? sender, AppSettings settings) => QueueRefresh();
+
+    private void OnDrillCompleted(object? sender, DrillReport report)
+    {
+        _dispatcher.InvokeAsync(async () =>
+        {
+            try
+            {
+                await History.ReloadAsync();
+                Refresh();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Could not show the finished drill.", ex);
+            }
+        });
+    }
+
+    /// <summary>Many background events become one refresh: progress arrives every 200 ms during a drill.</summary>
+    private void QueueRefresh()
+    {
+        if (_disposed || Interlocked.Exchange(ref _refreshQueued, 1) == 1) return;
+
+        _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            Interlocked.Exchange(ref _refreshQueued, 0);
+            Refresh();
+        }));
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        _ticker.Stop();
+        _services.Drills.StateChanged -= OnBackgroundChange;
+        _services.Drills.Completed -= OnDrillCompleted;
+        _services.Scheduler.ScheduleChanged -= OnBackgroundChange;
+        _services.Settings.Changed -= OnSettingsChanged;
+        Settings.Dispose();
     }
 }

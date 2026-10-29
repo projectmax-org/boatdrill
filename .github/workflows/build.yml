@@ -10,6 +10,7 @@ jobs:
   core:
     name: Core tests on Linux
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -21,12 +22,13 @@ jobs:
       - name: Test
         run: dotnet test tests/Boatdrill.Core.Tests -c Release --nologo
 
-      - name: Compile the Windows app and the CLI
+      - name: Compile everything, the Windows app included
         run: dotnet build Boatdrill.slnx -c Release --nologo
 
   windows:
     name: App on Windows
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +41,22 @@ jobs:
         shell: pwsh
         run: .\build.ps1
 
+      # Loads every view against sample data and renders it to PNG in both themes. Fails on a XAML or
+      # resource error, or on a binding to a property that does not exist. The images are kept below.
+      - name: Capture the views
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD 'artifacts\screens'
+          $app = Start-Process -FilePath 'dist\Boatdrill.exe' -ArgumentList '--capture', $out -PassThru
+          $null = $app.Handle
+          if (-not $app.WaitForExit(180000)) { $app.Kill(); throw 'The view capture did not finish within three minutes.' }
+          Get-ChildItem $out | Format-Table Name, Length -AutoSize
+          if ($app.ExitCode -ne 0) {
+            Get-Content (Join-Path $out 'capture-error.txt') -ErrorAction SilentlyContinue
+            Select-String -Path (Join-Path $out 'binding-messages.txt') -Pattern 'path error' -ErrorAction SilentlyContinue
+            throw "The view capture failed with exit code $($app.ExitCode)."
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: boatdrill-${{ github.sha }}
@@ -46,3 +64,10 @@ jobs:
             dist/Boatdrill.exe
             dist/boatdrill-cli.exe
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: boatdrill-screens-${{ github.sha }}
+          path: artifacts/screens
+          if-no-files-found: warn

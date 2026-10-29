@@ -6,5 +6,6 @@
 
 - [ ] `dotnet test tests/Boatdrill.Core.Tests` passes
 - [ ] Used the change in the running app or the command-line runner
+- [ ] For a view change: screenshots from `.\build.ps1 -Capture`, light and dark
 - [ ] Idle behaviour unchanged (no new timers, polling or background threads)
 - [ ] Still never writes into a destination

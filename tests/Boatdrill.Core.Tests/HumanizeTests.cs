@@ -31,4 +31,14 @@ public sealed class HumanizeTests
         Assert.Equal("3 months", Humanize.Age(TimeSpan.FromDays(92)));
         Assert.Equal("2 years", Humanize.Age(TimeSpan.FromDays(740)));
     }
+
+    [Fact]
+    public void UntilAndAgo()
+    {
+        Assert.Equal("in less than a minute", Humanize.Until(TimeSpan.FromSeconds(10)));
+        Assert.Equal("in 5 minutes", Humanize.Until(TimeSpan.FromMinutes(5)));
+        Assert.Equal("in 7 days", Humanize.Until(TimeSpan.FromDays(7)));
+        Assert.Equal("just now", Humanize.Ago(TimeSpan.FromSeconds(10)));
+        Assert.Equal("2 days ago", Humanize.Ago(TimeSpan.FromDays(2)));
+    }
 }

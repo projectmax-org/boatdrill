@@ -217,6 +217,43 @@ public sealed class DrillRunnerTests
     }
 
     [Fact]
+    public async Task Findings_AreCappedButCountsAreNot()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(tree, DrillRunner.MaxFindingsPerDestination + 20, DateTimeOffset.UtcNow.AddDays(-2));
+        tree.Write("docs/x-kept.txt", "kept", DateTimeOffset.UtcNow.AddDays(-2));
+        backup.Write("docs/x-kept.txt", "kept", DateTimeOffset.UtcNow.AddDays(-2));
+
+        var report = await new DrillRunner().RunAsync(Plan(scratch, Source.FromPath(tree.Root), Destination.MirrorFolder(backup.Root)));
+
+        var result = Assert.Single(report.Destinations);
+        Assert.Equal(DrillRunner.MaxFindingsPerDestination + 20, result.Missing);
+        Assert.Equal(DrillRunner.MaxFindingsPerDestination, result.Findings.Count);
+        Assert.Equal(1, result.Verified);
+    }
+
+    [Fact]
+    public async Task Findings_ListTheWorstFirst()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        var when = DateTimeOffset.UtcNow.AddDays(-2);
+        WriteDocuments(tree, 6, when);
+        tree.MirrorTo(backup.Root, skip: ["docs/0.txt"]);
+        var damaged = backup.At(Path.Combine("docs", "5.txt"));
+        File.WriteAllText(damaged, "document X");
+        File.SetLastWriteTimeUtc(damaged, when.UtcDateTime);
+
+        var report = await new DrillRunner().RunAsync(Plan(scratch, Source.FromPath(tree.Root), Destination.MirrorFolder(backup.Root)));
+
+        var findings = Assert.Single(report.Destinations).Findings;
+        Assert.Equal([FileOutcome.Corrupt, FileOutcome.Missing], findings.Select(f => f.Outcome));
+    }
+
+    [Fact]
     public void Reachability_BlendsHistoryWithNow()
     {
         Assert.Equal(1.0, DrillRunner.Reachability(null, true));

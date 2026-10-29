@@ -11,6 +11,8 @@
 .EXAMPLE
     .\build.ps1
     .\build.ps1 -Run
+    .\build.ps1 -Capture
+    .\build.ps1 -Icon
     .\build.ps1 -FrameworkDependent
 #>
 [CmdletBinding()]
@@ -27,6 +29,12 @@ param(
     # Smaller output, but the target machine must already have the .NET Desktop Runtime.
     [switch]$FrameworkDependent,
 
+    # Regenerate src\Boatdrill\Assets\app.ico and logo-512.png from tools\IconGen first.
+    [switch]$Icon,
+
+    # Afterwards, render every view with sample data to artifacts\screens (what CI does on each push).
+    [switch]$Capture,
+
     # Launch the published app when the build succeeds.
     [switch]$Run
 )
@@ -35,6 +43,12 @@ $ErrorActionPreference = 'Stop'
 $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $Output) { $Output = Join-Path $root 'dist' }
 $selfContained = if ($FrameworkDependent) { 'false' } else { 'true' }
+
+if ($Icon) {
+    Write-Host 'Drawing the icon...'
+    dotnet run --project (Join-Path $root 'tools/IconGen') -c Release
+    if ($LASTEXITCODE -ne 0) { throw 'IconGen failed.' }
+}
 
 Write-Host 'Testing Boatdrill.Core...'
 dotnet test (Join-Path $root 'tests/Boatdrill.Core.Tests') -c $Configuration --nologo
@@ -48,5 +62,12 @@ foreach ($project in 'src/Boatdrill/Boatdrill.csproj', 'src/Boatdrill.Cli/Boatdr
 }
 
 Get-ChildItem $Output -Filter *.exe | ForEach-Object { Write-Host ('  {0}  {1:N1} MB' -f $_.Name, ($_.Length / 1MB)) }
+
+if ($Capture) {
+    $screens = Join-Path $root 'artifacts/screens'
+    Write-Host "Capturing the views to $screens..."
+    $app = Start-Process -FilePath (Join-Path $Output 'Boatdrill.exe') -ArgumentList '--capture', $screens -PassThru -Wait
+    if ($app.ExitCode -ne 0) { throw "The view capture failed with exit code $($app.ExitCode); see $screens." }
+}
 
 if ($Run) { Start-Process (Join-Path $Output 'Boatdrill.exe') }

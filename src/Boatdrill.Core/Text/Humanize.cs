@@ -43,5 +43,11 @@ public static class Humanize
         return Plural((int)Math.Round(span.TotalDays / 365.25), "year");
     }
 
+    /// <summary>"in less than a minute", "in 5 minutes", "in 3 days": how long until something happens.</summary>
+    public static string Until(TimeSpan span) => span <= TimeSpan.FromMinutes(1) ? "in less than a minute" : "in " + Age(span);
+
+    /// <summary>"just now", "5 minutes ago", "3 days ago".</summary>
+    public static string Ago(TimeSpan span) => span < TimeSpan.FromMinutes(1) ? "just now" : Age(span) + " ago";
+
     public static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count:N0} {noun}s";
 }

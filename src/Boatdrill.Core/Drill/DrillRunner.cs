@@ -13,6 +13,9 @@ namespace Boatdrill.Core.Drill;
 /// </summary>
 public sealed class DrillRunner
 {
+    /// <summary>Files listed in a result, worst first. The counts always cover every sampled file.</summary>
+    public const int MaxFindingsPerDestination = 500;
+
     /// <summary>FAT keeps write times to two seconds; a copy that close in time is the same version.</summary>
     private static readonly TimeSpan WriteTimeTolerance = TimeSpan.FromSeconds(2);
 
@@ -111,6 +114,7 @@ public sealed class DrillRunner
         }
 
         var findings = new List<FileFinding>();
+        var notCopied = new List<DateTimeOffset>();
         var bindings = new List<BoundSource>();
         int sampled = 0, verified = 0, outdated = 0, corrupt = 0, missing = 0, placeholder = 0, errors = 0;
         long bytesRead = 0, population = 0, populationBytes = 0;
@@ -149,6 +153,7 @@ public sealed class DrillRunner
                     default: errors++; break;
                 }
 
+                if (finding.Outcome is FileOutcome.Missing or FileOutcome.Outdated or FileOutcome.Placeholder) notCopied.Add(file.LastWriteUtc);
                 if (finding.Outcome != FileOutcome.Verified) findings.Add(finding);
                 done++;
                 progress?.Report(new DrillProgress("Reading back from " + destination.Name, destination.Name, done, total, bytesRead));
@@ -158,10 +163,7 @@ public sealed class DrillRunner
         // Freshness looks only at changes newer than anything verified: an old file that was never copied is a
         // coverage hole, not a lag. The oldest such change says how long the backup has been falling behind.
         var floor = newestVerified ?? DateTimeOffset.MinValue;
-        var behindSince = findings
-            .Where(f => f.Outcome is FileOutcome.Missing or FileOutcome.Outdated or FileOutcome.Placeholder && f.SourceWriteUtc > floor)
-            .Select(f => (DateTimeOffset?)f.SourceWriteUtc)
-            .Min();
+        var behindSince = notCopied.Where(t => t > floor).Select(t => (DateTimeOffset?)t).Min();
         TimeSpan? lag = behindSince is { } since ? (now - since < TimeSpan.Zero ? TimeSpan.Zero : now - since) : null;
 
         double? bytesPerSecond = readTime > TimeSpan.Zero && bytesRead > 0 ? bytesRead / readTime.TotalSeconds : null;
@@ -194,7 +196,18 @@ public sealed class DrillRunner
             Lag = lag,
             Score = score,
             Sentence = string.Empty,
-            Findings = findings,
+            Findings = findings
+                .OrderBy(f => f.Outcome switch
+                {
+                    FileOutcome.Corrupt => 0,
+                    FileOutcome.Error => 1,
+                    FileOutcome.Missing => 2,
+                    FileOutcome.Outdated => 3,
+                    _ => 4,
+                })
+                .ThenBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxFindingsPerDestination)
+                .ToList(),
         };
         return result with { Sentence = Verdicts.Sentence(result, now) };
     }

@@ -1,0 +1,160 @@
+using Boatdrill.Core.Drill;
+using Boatdrill.Core.History;
+using Boatdrill.Core.Settings;
+using Boatdrill.Platform;
+
+namespace Boatdrill.Drilling;
+
+/// <summary>
+/// Runs drills, one at a time, and keeps the latest result. Everything a drill needs is read from a
+/// snapshot of the settings taken as it starts, so editing settings meanwhile is safe. Events are raised
+/// on whatever thread the drill is on; the view models move them to the UI thread.
+/// </summary>
+public sealed class DrillService : IDisposable
+{
+    private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(200);
+
+    private readonly SettingsStore _settings;
+    private readonly HistoryStore _history;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private CancellationTokenSource? _cancel;
+    private bool _disposed;
+
+    public DrillService(SettingsStore settings, HistoryStore history)
+    {
+        _settings = settings;
+        _history = history;
+
+        try
+        {
+            Latest = history.Latest();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("Could not read the drill history.", ex);
+        }
+    }
+
+    public DrillReport? Latest { get; private set; }
+
+    public bool IsRunning { get; private set; }
+
+    public DrillTrigger? RunningTrigger { get; private set; }
+
+    public DrillProgress? Progress { get; private set; }
+
+    /// <summary>Why the last drill did not finish, in words for the status line. Cleared when a drill starts.</summary>
+    public string? LastError { get; private set; }
+
+    /// <summary>Running state or progress changed. Raised at most every 200 ms while a drill reads files.</summary>
+    public event EventHandler? StateChanged;
+
+    /// <summary>A drill finished and is in the history.</summary>
+    public event EventHandler<DrillReport>? Completed;
+
+    /// <summary>Runs a drill now. Returns null when one is already running, when there is nothing to drill, or when it fails.</summary>
+    public async Task<DrillReport?> RunAsync(DrillTrigger trigger)
+    {
+        if (_disposed || !await _gate.WaitAsync(0).ConfigureAwait(false)) return null;
+
+        var settings = _settings.Snapshot();
+        if (!settings.IsReadyToDrill)
+        {
+            LastError = "Choose a folder to protect and add the place its backup goes, then run a drill.";
+            _gate.Release();
+            StateChanged?.Invoke(this, EventArgs.Empty);
+            return null;
+        }
+
+        var cancel = new CancellationTokenSource();
+        _cancel = cancel;
+        IsRunning = true;
+        RunningTrigger = trigger;
+        Progress = null;
+        LastError = null;
+        StateChanged?.Invoke(this, EventArgs.Empty);
+
+        // A scheduled drill runs at background priority; one the user asked for runs at full speed.
+        var background = trigger == DrillTrigger.Scheduled && BackgroundMode.Enter();
+        DrillReport? report = null;
+        try
+        {
+            var plan = new DrillPlan
+            {
+                Sources = settings.Sources.Select(s => s.ToSource()).ToList(),
+                Destinations = settings.Destinations.Select(d => d.ToDestination()).ToList(),
+                ScratchDirectory = Paths.ScratchDirectory,
+                Sampling = settings.ToSampleOptions(),
+                Trigger = trigger,
+            };
+
+            Log.Info($"{trigger} drill starting: {plan.Sources.Count} sources, {plan.Destinations.Count} destinations.");
+            var runner = new DrillRunner(reachabilityHistory: id => _history.Reachability(id));
+            report = await Task.Run(() => runner.RunAsync(plan, new ProgressSink(this), cancel.Token), cancel.Token).ConfigureAwait(false);
+            await _history.AppendAsync(report, CancellationToken.None).ConfigureAwait(false);
+            Latest = report;
+            Log.Info($"Drill {report.Id} finished in {report.Duration.TotalSeconds:0}s; worst verdict {report.Worst}.");
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Info("Drill stopped before it finished.");
+            LastError = "The drill was stopped before it finished.";
+            report = null;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Drill failed.", ex);
+            LastError = "The drill could not finish: " + ex.Message;
+            report = null;
+        }
+        finally
+        {
+            if (background) BackgroundMode.Leave();
+            _cancel = null;
+            cancel.Dispose();
+            IsRunning = false;
+            RunningTrigger = null;
+            Progress = null;
+            _gate.Release();
+        }
+
+        StateChanged?.Invoke(this, EventArgs.Empty);
+        if (report is not null) Completed?.Invoke(this, report);
+        return report;
+    }
+
+    /// <summary>Stops the running drill, if any. Nothing it read is kept.</summary>
+    public void Cancel()
+    {
+        try
+        {
+            _cancel?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The drill finished between the check and the cancel.
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Cancel();
+    }
+
+    /// <summary>Records progress synchronously on the drill's thread and announces it, at most every 200 ms.</summary>
+    private sealed class ProgressSink(DrillService owner) : IProgress<DrillProgress>
+    {
+        private long _lastAnnounced;
+
+        public void Report(DrillProgress value)
+        {
+            owner.Progress = value;
+            var now = Environment.TickCount64;
+            if (now - _lastAnnounced < ProgressInterval.TotalMilliseconds && value.FilesDone != value.FilesTotal) return;
+            _lastAnnounced = now;
+            owner.StateChanged?.Invoke(owner, EventArgs.Empty);
+        }
+    }
+}

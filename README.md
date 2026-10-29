@@ -113,10 +113,11 @@ do not; 2 means bad arguments.
 ## Building
 
 ```powershell
-.\build.ps1           # tests, then dist\Boatdrill.exe and dist\boatdrill-cli.exe, self-contained
-.\build.ps1 -Run      # and launch the app
-.\build.ps1 -Capture  # and render every view with sample data to artifacts\screens
-.\build.ps1 -Icon     # redraw the icon first (tools/IconGen)
+.\build.ps1             # tests, then dist\Boatdrill.exe and dist\boatdrill-cli.exe, self-contained
+.\build.ps1 -Run        # and launch the app
+.\build.ps1 -Capture    # and render every view with sample data to artifacts\screens
+.\build.ps1 -Icon       # redraw the icon first (tools/IconGen)
+.\build.ps1 -Installer  # and build the installer with Inno Setup (docs/RELEASING.md)
 dotnet run --project src/Boatdrill
 ```
 

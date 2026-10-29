@@ -47,10 +47,15 @@ jobs:
         continue-on-error: true
         run: choco install restic rclone 7zip --no-progress -y
 
-      # Tests again on Windows, then publishes the single-file executables.
-      - name: Test and publish
+      - name: Install Inno Setup
         shell: pwsh
-        run: .\build.ps1
+        run: choco install innosetup --no-progress -y
+
+      # Tests again on Windows, publishes the single-file executables, and builds the installer from them,
+      # so a change that breaks installer\Boatdrill.iss fails here rather than on release day.
+      - name: Test, publish and build the installer
+        shell: pwsh
+        run: .\build.ps1 -Installer
 
       # Loads every view against sample data and renders it to PNG in both themes. Fails on a XAML or
       # resource error, or on a binding to a property that does not exist. The images are kept below.
@@ -74,6 +79,7 @@ jobs:
           path: |
             dist/Boatdrill.exe
             dist/boatdrill-cli.exe
+            artifacts/installer/*.exe
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4

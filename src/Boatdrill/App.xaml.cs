@@ -29,6 +29,10 @@ public partial class App : Application
             return;
         }
 
+        // --quit: ask the running copy to exit, and wait for it, as the installer does before it replaces or
+        // removes the app. Exit code 0 once none is running.
+        var quit = e.Args.Any(a => a.Equals("--quit", StringComparison.OrdinalIgnoreCase));
+
         // A second launch brings the running copy forward instead of starting a rival tray icon.
         try
         {
@@ -37,7 +41,15 @@ public partial class App : Application
         catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException)
         {
             Log.Warn("Another Boatdrill is running with different rights; this launch ends here.", ex);
-            Shutdown();
+            Shutdown(quit ? 1 : 0);
+            return;
+        }
+
+        if (quit)
+        {
+            var gone = _instance.IsFirstInstance || _instance.AskFirstInstanceToQuit(TimeSpan.FromSeconds(30));
+            _instance.Dispose();
+            Shutdown(gone ? 0 : 1);
             return;
         }
 
@@ -85,6 +97,11 @@ public partial class App : Application
         _services.Drills.Completed += OnDrillCompleted;
 
         _instance.ActivationRequested += (_, _) => Dispatcher.BeginInvoke(new Action(ShowWindow));
+        _instance.QuitRequested += (_, _) =>
+        {
+            Log.Info("Asked to exit by another launch (--quit).");
+            Dispatcher.BeginInvoke(new Action(ExitApplication));
+        };
         _instance.StartListening();
 
         // Sign-in launches (the Run key passes --background) go straight to the notification area,

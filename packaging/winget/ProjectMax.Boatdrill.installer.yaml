@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+
+PackageIdentifier: ProjectMax.Boatdrill
+PackageVersion: {{Version}}
+InstallerType: inno
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+UpgradeBehavior: install
+# Inno Setup's uninstall entry: the AppId in installer/Boatdrill.iss, with _is1.
+ProductCode: '{BC869AFA-7D6B-4722-9A96-BFE82969B3C5}_is1'
+ReleaseDate: {{ReleaseDate}}
+MinimumOSVersion: 10.0.0.0
+Installers:
+- Architecture: x64
+  Scope: user
+  InstallerUrl: {{InstallerUrl}}
+  InstallerSha256: {{InstallerSha256}}
+  InstallerSwitches:
+    Custom: /CURRENTUSER
+- Architecture: x64
+  Scope: machine
+  InstallerUrl: {{InstallerUrl}}
+  InstallerSha256: {{InstallerSha256}}
+  InstallerSwitches:
+    Custom: /ALLUSERS
+  ElevationRequirement: elevatesSelf
+ManifestType: installer
+ManifestVersion: 1.6.0

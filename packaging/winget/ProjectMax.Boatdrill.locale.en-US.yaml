@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+
+PackageIdentifier: ProjectMax.Boatdrill
+PackageVersion: {{Version}}
+PackageLocale: en-US
+Publisher: Project Max
+PublisherUrl: https://github.com/projectmax-org
+PublisherSupportUrl: https://github.com/{{Repository}}/issues
+PackageName: Boatdrill
+PackageUrl: https://github.com/{{Repository}}
+License: MIT
+LicenseUrl: https://github.com/{{Repository}}/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Project Max
+ShortDescription: Rehearses restoring from your backups and says, in plain words, whether they would work.
+Description: |-
+  Boatdrill checks that your backups would really bring your files back. On a schedule it restores a
+  random sample of files from each backup into a scratch folder and compares every byte with the
+  original, then says in plain words whether the backup would restore, how far behind it is, and how
+  long a full restore would take. It reads folders of copies on drives and NAS shares, Windows File
+  History, restic repositories, rclone remotes, and zip and 7z archives, and never writes to a backup.
+Moniker: boatdrill
+Tags:
+- backup
+- restore
+- verification
+- file-history
+- restic
+- rclone
+ReleaseNotesUrl: {{ReleaseNotesUrl}}
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

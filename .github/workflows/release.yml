@@ -1,0 +1,135 @@
+name: Release
+
+# Pushing a tag such as v1.0.0 tests and builds that version, and drafts a GitHub release with the
+# installer, the two programs, their SHA-256 checksums and a build provenance attestation. The winget
+# manifests for it are kept as a workflow artifact. Nothing is published until a maintainer reads the
+# draft and publishes it. See docs/RELEASING.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    name: Build and draft the release
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The version lives in one place, Directory.Build.props; the tag has to name it.
+      - name: Check the tag against the version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Select-Xml -Path Directory.Build.props -XPath '//Version' | Select-Object -First 1).Node.InnerText
+          if ("v$version" -ne '${{ github.ref_name }}') {
+            throw "The tag ${{ github.ref_name }} does not match <Version>$version</Version> in Directory.Build.props."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install restic, rclone and 7-Zip for the tests
+        shell: pwsh
+        continue-on-error: true
+        run: choco install restic rclone 7zip --no-progress -y
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      # Signing is optional until a certificate is chosen (docs/RELEASING.md). With the repository variable
+      # SIGN_COMMAND set, the programs, Setup and its uninstaller are signed with it; the secrets below are
+      # passed to it for the signing services that read them from the environment.
+      - name: Test, publish, sign and build the installer
+        shell: pwsh
+        env:
+          SIGN_COMMAND: ${{ vars.SIGN_COMMAND }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGN_SECRET: ${{ secrets.SIGN_SECRET }}
+        run: |
+          if ($env:SIGN_COMMAND) { .\build.ps1 -Installer -SignCommand $env:SIGN_COMMAND }
+          else { .\build.ps1 -Installer }
+
+      - name: Gather the files and their checksums
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $release = New-Item -ItemType Directory -Force artifacts/release
+          Copy-Item "artifacts/installer/Boatdrill-Setup-$version.exe" $release
+          Copy-Item dist/Boatdrill.exe (Join-Path $release "Boatdrill-$version-portable-x64.exe")
+          Copy-Item dist/boatdrill-cli.exe (Join-Path $release "boatdrill-cli-$version-x64.exe")
+
+          # sha256sum's format, so `sha256sum -c SHA256SUMS.txt` checks them; Get-FileHash shows the same values.
+          Get-ChildItem $release -Filter *.exe | Sort-Object Name | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+          } | Set-Content (Join-Path $release 'SHA256SUMS.txt') -Encoding ascii
+          Get-Content (Join-Path $release 'SHA256SUMS.txt')
+
+          .\packaging\New-WingetManifest.ps1 -Version $version -Installer "artifacts/installer/Boatdrill-Setup-$version.exe" `
+            -OutputDirectory artifacts/winget -Repository '${{ github.repository }}'
+
+      # Who built the files and from which commit, verifiable with `gh attestation verify <file> --repo <owner/repo>`.
+      - name: Attest the files' provenance
+        id: attest
+        uses: actions/attest-build-provenance@v2
+        continue-on-error: true
+        with:
+          subject-path: artifacts/release/*.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winget-manifests-${{ steps.version.outputs.version }}
+          path: artifacts/winget
+          if-no-files-found: error
+
+      - name: Draft the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ vars.SIGN_COMMAND != '' }}
+          ATTESTED: ${{ steps.attest.outcome == 'success' }}
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $tag = '${{ github.ref_name }}'
+          $sums = (Get-Content artifacts/release/SHA256SUMS.txt -Raw).TrimEnd()
+          $signing = if ($env:SIGNED -eq 'true') { 'The programs, the installer and its uninstaller are code-signed.' }
+                     else { 'These files are not code-signed yet, so Windows SmartScreen may warn the first time they run. Check them against the checksums below.' }
+          $provenance = if ($env:ATTESTED -eq 'true') { "Each file also has a build provenance attestation: ``gh attestation verify <file> --repo ${{ github.repository }}``." }
+                        else { '' }
+          @"
+          ## Boatdrill $version
+
+          - **Boatdrill-Setup-$version.exe**: the installer. It installs for you alone, with no administrator needed; ``winget install ProjectMax.Boatdrill`` does the same once the package is in winget.
+          - **Boatdrill-$version-portable-x64.exe**: the app as one file, to run without installing.
+          - **boatdrill-cli-$version-x64.exe**: the command-line runner, for scripts.
+
+          $signing
+
+          ### SHA-256
+
+          ``````
+          $sums
+          ``````
+
+          $provenance
+          "@ | Set-Content artifacts/release-notes.md -Encoding utf8
+
+          $files = Get-ChildItem artifacts/release | ForEach-Object { $_.FullName }
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # Run again for the same tag: replace the files on the existing draft.
+            gh release upload $tag @files --clobber
+          } else {
+            gh release create $tag @files --draft --verify-tag --title "Boatdrill $version" --notes-file artifacts/release-notes.md
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Drafting the release failed.' }

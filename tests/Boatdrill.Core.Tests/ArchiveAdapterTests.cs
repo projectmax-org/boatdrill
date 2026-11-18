@@ -70,7 +70,7 @@ public sealed class ArchiveAdapterTests
             ScratchDirectory = scratch.Root,
             Sampling = Everything,
         });
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root));
+        TempTree.AssertEmpty(scratch.Root);
         return Assert.Single(report.Destinations);
     }
 
@@ -183,7 +183,7 @@ public sealed class ArchiveAdapterTests
             BatchBytes = 500,
         });
         Assert.Equal((7L, 6L, 1L), (rehearsal.Files, rehearsal.Verified, rehearsal.Missing));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root));
+        TempTree.AssertEmpty(scratch.Root);
     }
 
     [Fact]
@@ -209,6 +209,18 @@ public sealed class ArchiveAdapterTests
         var names = new ArchiveAdapter.ZipNameEncoding(949);
         Assert.Equal("회의록.txt", names.GetString(Encoding.UTF8.GetBytes("회의록.txt")));
         Assert.Equal("목록.txt", names.GetString(Encoding.GetEncoding(949).GetBytes("목록.txt")));
+    }
+
+    [Fact]
+    public void ZipNames_DefaultToTheSystemsOemCodePage_NotUtf8()
+    {
+        // Asked of the process, Windows answers 65001 inside Boatdrill.exe, whose manifest makes its code page UTF-8;
+        // the zips themselves were written by programs that use the system's (949 on Korean Windows).
+        var codePage = ArchiveAdapter.OemCodePage();
+
+        Assert.NotEqual(65001, codePage);
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        Assert.Equal(codePage, Encoding.GetEncoding(codePage).CodePage);
     }
 
     [SevenZipFact]

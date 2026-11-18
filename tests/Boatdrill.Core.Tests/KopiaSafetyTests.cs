@@ -50,7 +50,7 @@ public sealed class KopiaSafetyTests
 
         Assert.Equal(11, Assert.Single(report.Destinations).Verified);
         Assert.Equal(before, repository.Fingerprint());
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root));
+        TempTree.AssertEmpty(scratch.Root);
     }
 
     [KopiaFact]

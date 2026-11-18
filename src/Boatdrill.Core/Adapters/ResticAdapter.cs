@@ -15,10 +15,11 @@ namespace Boatdrill.Core.Adapters;
 /// A restic repository, read through the restic command-line tool.
 /// <para>
 /// For each source the newest snapshot that covers it is listed once with <c>ls</c>, so finding a copy costs
-/// nothing; then the sampled files are restored with <c>restore --include</c> in a few batches, which is a real
-/// restore test, timed. A file the batches cannot ask for (restic reads a name with brackets as a pattern) is
-/// fetched on its own with <c>dump</c>. Every command runs with <c>--no-lock</c>, so nothing is written into the
-/// repository, and the password travels in restic's environment, never on its command line.
+/// nothing; then the sampled files are restored with <c>restore --include</c> in a few batches, starting at the
+/// source's own folder, which is a real restore test, timed. A file the batches cannot ask for (restic reads a
+/// name with brackets as a pattern) is fetched on its own with <c>dump</c>. Every command runs with
+/// <c>--no-lock</c>, so nothing is written into the repository, and the password travels in restic's
+/// environment, never on its command line.
 /// </para>
 /// </summary>
 public sealed partial class ResticAdapter : IDestinationAdapter
@@ -116,7 +117,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             return Task.FromResult(CopyLookup.Missing(tree, Language.Pick($"not in {Describe(snapshot)}", $"{Describe(snapshot)}에 없습니다")));
         }
 
-        var staged = StagedPath(state.Stage, node.Path);
+        var staged = StagedPath(state, node.Path);
         var fetch = state.RestoredBytes > 0 && File.Exists(staged)
             ? TimeSpan.FromTicks((long)(state.RestoreTime.Ticks * ((double)node.Size / state.RestoredBytes)))
             : TimeSpan.Zero;
@@ -125,7 +126,10 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
     public async Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct)
     {
-        if (copy.State != CopyState.Found || copy.Path is null) return new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("no copy to read", "읽을 사본이 없습니다"));
+        if (copy.State != CopyState.Found || copy.Path is null || copy.Identity is not { } tree)
+        {
+            return new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("no copy to read", "읽을 사본이 없습니다"));
+        }
 
         var state = (State)binding.State!;
         if (File.Exists(copy.Path))
@@ -146,7 +150,6 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             }
         }
 
-        var tree = TreeFromStaged(state.Stage, copy.Path);
         if (state.RestoreErrors.TryGetValue(tree, out var failed))
         {
             return new ReadBack(false, 0, copy.FetchTime, null, failed.Detail) { Damaged = failed.Damaged };
@@ -177,21 +180,34 @@ public sealed partial class ResticAdapter : IDestinationAdapter
     /// <summary>Restores the files that are in the snapshot into the stage folder, timing it.</summary>
     private static async Task RestoreAsync(Destination destination, IEnumerable<string> relativePaths, State state, CancellationToken ct)
     {
-        var wanted = relativePaths
+        var found = relativePaths
             .Select(p => state.Index.GetValueOrDefault(TreePath(Path.Combine(state.SourceRoot, p))))
             .OfType<Node>()
-            .Where(n => n.Path.IndexOfAny(PatternCharacters) < 0)
             .DistinctBy(n => n.Path, PathComparer)
             .ToList();
+        if (found.Count > 0 && state.Skip is null)
+        {
+            state.Skip = await RestoresFoldersAloneAsync(destination, ct).ConfigureAwait(false) ? TreePath(state.SourceRoot).TrimEnd('/').Length : 0;
+        }
+
+        var skip = state.Skip ?? 0;
+        var wanted = found.Where(n => n.Path[skip..].IndexOfAny(PatternCharacters) < 0).ToList();
 
         var watch = Stopwatch.StartNew();
-        foreach (var batch in Batches(wanted))
+        // Every node's path starts with the source's folder, spelled as the snapshot spells it; restic matches
+        // names exactly, so a snapshot that spells it two ways (on Windows) is restored a spelling at a time.
+        foreach (var group in wanted.GroupBy(n => n.Path[..skip], StringComparer.Ordinal))
+        foreach (var batch in Batches(group, skip))
         {
-            List<string> arguments = ["restore", state.Snapshot!.Id, "--target", state.Stage];
+            // The restore starts at the source's own folder (snapshot:folder), so the folders above it are never made
+            // in the stage. Those would carry what restic records of them on Windows: C:\Users comes back read-only
+            // and with C:\Users's permissions, which leave a user without administrator rights unable to delete it.
+            var snapshot = group.Key.Length > 0 ? $"{state.Snapshot!.Id}:{group.Key}" : state.Snapshot!.Id;
+            List<string> arguments = ["restore", snapshot, "--target", state.Stage];
             foreach (var node in batch)
             {
                 arguments.Add("--include");
-                arguments.Add(node.Path);
+                arguments.Add(node.Path[skip..]);
             }
 
             var result = await RunAsync(destination, arguments, RestoreLimit, ct).ConfigureAwait(false);
@@ -204,13 +220,15 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             var named = new Dictionary<string, string>(PathComparer);
             foreach (Match match in RestoreError().Matches(result.Error))
             {
-                var (path, why) = (match.Groups["path"].Value, match.Groups["error"].Value.Trim());
+                // restic names the file from where the restore started, and on Windows with backslashes: \docs\a.txt,
+                // where its listing said /C/Users/max/Documents/docs/a.txt.
+                var (path, why) = (group.Key + TreeSeparators(match.Groups["path"].Value), match.Groups["error"].Value.Trim());
                 if (!named.TryGetValue(path, out var known) || (!IsContentError(known) && IsContentError(why))) named[path] = why;
             }
 
             foreach (var node in batch)
             {
-                var staged = StagedPath(state.Stage, node.Path);
+                var staged = StagedPath(state, node.Path);
                 if (named.TryGetValue(node.Path, out var why) && IsContentError(why))
                 {
                     Scratch.TryDeleteFile(staged);
@@ -228,6 +246,24 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         state.RestoreTime = watch.Elapsed;
         state.RestoredBytes = wanted.Sum(n => n.Size);
     }
+
+    /// <summary>
+    /// Whether this restic restores a folder of a snapshot on its own (<c>snapshot:folder</c>, from restic 0.16). An
+    /// older one restores the folders above the source too. A version it does not print plainly is taken to be new.
+    /// </summary>
+    private static async Task<bool> RestoresFoldersAloneAsync(Destination destination, CancellationToken ct)
+    {
+        var result = await RunAsync(destination, ["version"], ListLimit, ct).ConfigureAwait(false);
+        return result.ExitCode != 0 || ParseVersion(result.Output) is not { } version || version >= new Version(0, 16);
+    }
+
+    /// <summary>"restic 0.16.4 compiled with go1.22.2 on linux/amd64" is 0.16.</summary>
+    internal static Version? ParseVersion(string output) =>
+        VersionLine().Match(output) is { Success: true } match &&
+        int.TryParse(match.Groups["major"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var major) &&
+        int.TryParse(match.Groups["minor"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var minor)
+            ? new Version(major, minor)
+            : null;
 
     // ---------------- restic ----------------
 
@@ -294,6 +330,12 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
     private sealed record State(Snapshot? Snapshot, Dictionary<string, Node> Index, string Stage, string SourceRoot)
     {
+        /// <summary>
+        /// How much of a node's path the restore leaves out, settled by the first restore: the source's folder with
+        /// a restic that restores it alone, else nothing, and the stage holds the whole path.
+        /// </summary>
+        public int? Skip { get; set; }
+
         public TimeSpan RestoreTime { get; set; }
 
         public long RestoredBytes { get; set; }
@@ -420,19 +462,20 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         return fullPath.Length > 1 ? fullPath.TrimEnd('/') : fullPath;
     }
 
-    private static string StagedPath(string stage, string tree) =>
-        Path.Combine(stage, tree.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+    private static string TreeSeparators(string path) => OperatingSystem.IsWindows() ? path.Replace('\\', '/') : path;
 
-    private static string TreeFromStaged(string stage, string staged) =>
-        "/" + Path.GetRelativePath(stage, staged).Replace(Path.DirectorySeparatorChar, '/');
+    /// <summary>Where a restore puts a node: its path below where the restore started, inside the stage folder.</summary>
+    private static string StagedPath(State state, string tree) =>
+        Path.Combine(state.Stage, tree[(state.Skip ?? 0)..].TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
 
-    private static IEnumerable<List<Node>> Batches(IEnumerable<Node> nodes)
+    private static IEnumerable<List<Node>> Batches(IEnumerable<Node> nodes, int skip)
     {
         var batch = new List<Node>();
         var length = 0;
         foreach (var node in nodes)
         {
-            if (batch.Count > 0 && length + node.Path.Length + IncludeOverhead > BatchCharacters)
+            var include = node.Path.Length - skip + IncludeOverhead;
+            if (batch.Count > 0 && length + include > BatchCharacters)
             {
                 yield return batch;
                 batch = [];
@@ -440,7 +483,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             }
 
             batch.Add(node);
-            length += node.Path.Length + IncludeOverhead;
+            length += include;
         }
 
         if (batch.Count > 0) yield return batch;
@@ -448,5 +491,8 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
     [GeneratedRegex(@"^ignoring error for (?<path>.+?): (?<error>.+)$", RegexOptions.Multiline)]
     private static partial Regex RestoreError();
+
+    [GeneratedRegex(@"^restic (?<major>\d+)\.(?<minor>\d+)", RegexOptions.Multiline)]
+    private static partial Regex VersionLine();
 
 }

@@ -80,19 +80,26 @@ jobs:
         shell: pwsh
         run: .\build.ps1 -Installer
 
-      # Loads every view against sample data and renders it to PNG in both themes. Fails on a XAML or
-      # resource error, or on a binding to a property that does not exist. The images are kept below.
+      # Loads every view against sample data and renders it to PNG in both themes, in English and in Korean.
+      # Fails on a XAML or resource error, or on a binding to a property that does not exist. The images are
+      # kept below. This is the first place the single-file Boatdrill.exe starts, so a crash is reported too.
       - name: Capture the views
         shell: pwsh
         run: |
           $out = Join-Path $PWD 'artifacts\screens'
+          $started = Get-Date
           $app = Start-Process -FilePath 'dist\Boatdrill.exe' -ArgumentList '--capture', $out -PassThru
           $null = $app.Handle
           if (-not $app.WaitForExit(180000)) { $app.Kill(); throw 'The view capture did not finish within three minutes.' }
-          Get-ChildItem $out | Format-Table Name, Length -AutoSize
+          Write-Host ('The capture took {0:N0} s and exited with {1}.' -f ((Get-Date) - $started).TotalSeconds, $app.ExitCode)
+          # Missing if the app stopped before it began; Get-ChildItem would stop the step before the exit code is read.
+          if (Test-Path $out) { Get-ChildItem $out -Recurse -File | ForEach-Object { '{0,10:N0}  {1}' -f $_.Length, $_.FullName.Substring($out.Length + 1) } }
           if ($app.ExitCode -ne 0) {
             Get-Content (Join-Path $out 'capture-error.txt') -ErrorAction SilentlyContinue
             Select-String -Path (Join-Path $out 'binding-messages.txt') -Pattern 'path error' -ErrorAction SilentlyContinue
+            # A crash outside the capture's own try/catch (App.xaml, a dispatcher callback) leaves its exception only in the Application log.
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = '.NET Runtime', 'Application Error'; StartTime = $started } -ErrorAction SilentlyContinue |
+              Select-Object -First 4 | Format-List TimeCreated, ProviderName, Message
             throw "The view capture failed with exit code $($app.ExitCode)."
           }
 

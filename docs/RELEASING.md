@@ -86,8 +86,11 @@ notes say the files are unsigned, and Windows SmartScreen may warn when they fir
 When a signing service is chosen, set the repository variable `SIGN_COMMAND` (Settings, Secrets and
 variables, Actions, Variables) to a command line that signs one file, with `$f` where the quoted file
 name goes. That is the format Inno Setup's Sign Tools take, and the workflow uses the same command for
-the two programs, Setup, its uninstaller and its temporary copies. For example, with a certificate that
-the runner can reach through the Windows certificate store:
+the two programs, Setup, its uninstaller and its temporary copies. Inno Setup runs it itself, without
+cmd.exe and from its own folder, so start it with a program on the PATH or a full path, give any other
+file by its full path, and leave out %VARIABLES%, pipes and redirection; a signing service that needs a
+secret reads it from the environment. For example, with a certificate that the runner can reach through
+the Windows certificate store:
 
 ```text
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /sha1 <certificate thumbprint> $f

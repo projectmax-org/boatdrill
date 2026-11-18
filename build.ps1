@@ -54,6 +54,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $Output) { $Output = Join-Path $root 'dist' }
+# Absolute: dotnet publish reads a relative -Output from the current folder, ISCC from installer\.
+$Output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Output)
 $selfContained = if ($FrameworkDependent) { 'false' } else { 'true' }
 
 if ($Icon) {
@@ -113,7 +115,9 @@ if ($Installer) {
     $version = (Select-Xml -Path (Join-Path $root 'Directory.Build.props') -XPath '//Version' | Select-Object -First 1).Node.InnerText
     $arguments = @("/DAppVersion=$version", "/DDistDir=$Output", "/DOutputDir=$(Join-Path $root 'artifacts\installer')")
     # Setup, its uninstaller and its temporary copies are signed by Inno Setup itself, with the same command.
-    if ($SignCommand) { $arguments += "/Sboatdrill=$SignCommand", '/DSignTool=boatdrill' }
+    # ISCC splits its own command line at every quotation mark (there is no \" there), so it gets $q instead,
+    # which its Sign Tool turns back into a quotation mark.
+    if ($SignCommand) { $arguments += ('/Sboatdrill=' + $SignCommand.Replace('"', '$q')), '/DSignTool=boatdrill' }
 
     Write-Host "Building the installer for Boatdrill $version with $iscc..."
     & $iscc @arguments (Join-Path $root 'installer\Boatdrill.iss')
@@ -123,7 +127,8 @@ if ($Installer) {
 if ($Capture) {
     $screens = Join-Path $root 'artifacts/screens'
     Write-Host "Capturing the views to $screens..."
-    $app = Start-Process -FilePath (Join-Path $Output 'Boatdrill.exe') -ArgumentList '--capture', $screens -PassThru -Wait
+    # Start-Process joins its arguments with spaces and quotes none of them, so a folder with a space needs its own.
+    $app = Start-Process -FilePath (Join-Path $Output 'Boatdrill.exe') -ArgumentList '--capture', "`"$screens`"" -PassThru -Wait
     if ($app.ExitCode -ne 0) { throw "The view capture failed with exit code $($app.ExitCode); see $screens." }
 }
 

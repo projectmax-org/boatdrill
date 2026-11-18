@@ -41,6 +41,19 @@ jobs:
         continue-on-error: true
         run: choco install restic rclone 7zip --no-progress -y
 
+      # The Kopia tests too, as on every push; without kopia they are skipped.
+      - name: Install kopia for the tests
+        shell: pwsh
+        env:
+          KOPIA_VERSION: 0.23.1
+          KOPIA_SHA256: f0369d9657dbe47a1b8b6ff4e308c5958a4813b405d4e32ae9d81b3f2b3d8251
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'kopia.zip'
+          Invoke-WebRequest "https://github.com/kopia/kopia/releases/download/v$env:KOPIA_VERSION/kopia-$env:KOPIA_VERSION-windows-x64.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:KOPIA_SHA256) { throw 'The kopia download does not match its published SHA-256.' }
+          Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
+          "BOATDRILL_KOPIA=$env:RUNNER_TEMP\kopia-$env:KOPIA_VERSION-windows-x64\kopia.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y

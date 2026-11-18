@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace Boatdrill.Core.Tests;
 
@@ -38,19 +36,8 @@ internal sealed class KopiaRepository : IDisposable
         File.WriteAllBytes(pack.FullName, bytes);
     }
 
-    /// <summary>Every folder and file in the repository with its size, write time and hash, to show a drill left it alone.</summary>
-    public string Fingerprint()
-    {
-        var text = new StringBuilder();
-        foreach (var entry in new DirectoryInfo(Location).EnumerateFileSystemInfos("*", SearchOption.AllDirectories).OrderBy(e => e.FullName, StringComparer.Ordinal))
-        {
-            text.Append(Path.GetRelativePath(Location, entry.FullName)).Append(' ').Append(entry.LastWriteTimeUtc.Ticks);
-            if (entry is FileInfo file) text.Append(' ').Append(file.Length).Append(' ').Append(Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(file.FullName))));
-            text.AppendLine();
-        }
-
-        return text.ToString();
-    }
+    /// <summary>Every folder and file in the repository with its size, write time and hash, once it holds still.</summary>
+    public string Fingerprint() => TreeFingerprint.Settled(Location);
 
     private void Run(params string[] arguments)
     {

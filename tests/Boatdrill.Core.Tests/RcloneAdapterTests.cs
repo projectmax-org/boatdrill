@@ -132,7 +132,7 @@ public sealed class RcloneAdapterTests
 
         Assert.Equal(6, result.Verified);
         Assert.Equal(before, Fingerprint());
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root));
+        TempTree.AssertEmpty(scratch.Root);
     }
 
     [RcloneFact]

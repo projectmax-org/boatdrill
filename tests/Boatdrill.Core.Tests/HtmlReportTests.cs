@@ -27,9 +27,13 @@ public sealed class HtmlReportTests
     {
         using var source = new TempTree();
         using var mirror = new TempTree();
+        // Windows allows no < or > in a file name, so there the hostile name tries & and ' instead.
+        var (hostile, escaped) = OperatingSystem.IsWindows()
+            ? ("docs/Tom & Jerry's.txt", "Tom &amp; Jerry&#39;s.txt")
+            : ("docs/<script>alert(1)</script>.txt", "&lt;script&gt;alert(1)&lt;/script&gt;.txt");
         for (var i = 0; i < 4; i++) source.Write($"docs/{i}.txt", $"document {i}", DateTimeOffset.UtcNow.AddDays(-5));
-        source.Write("docs/<script>alert(1)</script>.txt", "a hostile name", DateTimeOffset.UtcNow.AddDays(-5));
-        source.MirrorTo(mirror.Root, skip: ["docs/<script>alert(1)</script>.txt"]);
+        source.Write(hostile, "a hostile name", DateTimeOffset.UtcNow.AddDays(-5));
+        source.MirrorTo(mirror.Root, skip: [hostile]);
         var report = await DrillAsync(source, mirror, "<script>");
 
         var html = HtmlReport.Render(report, version: "1.2.3");
@@ -37,7 +41,7 @@ public sealed class HtmlReportTests
         Assert.StartsWith("<!doctype html>", html);
         Assert.EndsWith("</html>\n", html);
         Assert.DoesNotContain("<script", html, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("&lt;script&gt;alert(1)&lt;/script&gt;.txt", html);
+        Assert.Contains(escaped, html);
         Assert.Contains("Docs &amp; &lt;Notes&gt;", html);
         Assert.Contains("<h1><span class=\"dot bad-fill\" aria-hidden=\"true\"></span>USB stick could not be reached</h1>", html);
         Assert.Contains("Drive &lt;E:&gt;", html);

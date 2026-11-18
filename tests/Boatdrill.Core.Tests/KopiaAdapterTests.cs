@@ -191,7 +191,7 @@ public sealed class KopiaAdapterTests
         Assert.Equal(6, summary.Files);
         Assert.Equal(1, summary.NoCopyFiles);
         Assert.Equal(1, summary.OlderFiles);
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root));
+        TempTree.AssertEmpty(scratch.Root);
     }
 
     [KopiaFact]
@@ -207,7 +207,7 @@ public sealed class KopiaAdapterTests
             new RehearsalPlan(Source.FromPath(source.Root, "Docs"), repository.Destination(), scratch.Root) { Folder = "docs" });
 
         Assert.Equal(6, result.Verified);
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root));
+        TempTree.AssertEmpty(scratch.Root);
     }
 
     [KopiaFact]
@@ -420,8 +420,9 @@ public sealed class KopiaAdapterTests
         Assert.Equal((null, false), KopiaAdapter.StorageOf(folder.Write("s3.config", """{"storage":{"type":"s3","config":{"bucket":"b"}}}""")));
         Assert.Equal((null, false), KopiaAdapter.StorageOf(folder.Write("broken.config", "{")));
 
-        var missing = await adapter.ProbeAsync(Destination.Kopia(folder.At("gone/repository.config"), "x"), CancellationToken.None);
-        Assert.Equal($"{folder.At("gone/repository.config")} was not found", missing.Detail);
+        var gone = folder.At(Path.Combine("gone", "repository.config"));
+        var missing = await adapter.ProbeAsync(Destination.Kopia(gone, "x"), CancellationToken.None);
+        Assert.Equal($"{gone} was not found", missing.Detail);
     }
 
     [Fact]

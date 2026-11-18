@@ -32,7 +32,7 @@ public sealed class RehearsalTests
         Assert.Equal(result.Bytes, result.BytesRestored);
         Assert.Empty(result.Findings);
         Assert.StartsWith("All 30 files in Docs came back from Drive intact. Restoring ", result.Sentence);
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root));
+        TempTree.AssertEmpty(scratch.Root);
     }
 
     [Fact]
@@ -109,6 +109,6 @@ public sealed class RehearsalTests
         Assert.Equal(13, result.Verified);
         Assert.Equal(1, result.Missing);
         Assert.Equal("docs/new.txt", Assert.Single(result.Findings).RelativePath.Replace('\\', '/'));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(scratch.Root));
+        TempTree.AssertEmpty(scratch.Root);
     }
 }

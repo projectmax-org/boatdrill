@@ -456,8 +456,27 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
 
     private ZipArchive OpenZip(string path) => ZipFile.Open(path, ZipArchiveMode.Read, _zipNames);
 
-    /// <summary>The code page Windows' own zip and 7-Zip write names in: the system's OEM code page, whatever the culture.</summary>
-    private static int OemCodePage() => OperatingSystem.IsWindows() ? (int)GetOEMCP() : CultureInfo.CurrentCulture.TextInfo.OEMCodePage;
+    /// <summary>
+    /// The code page Windows' own zip and 7-Zip write names in: the OEM code page of the system's locale, whatever the
+    /// culture. Asked of the locale, not of GetOEMCP(), which answers for this process: Boatdrill.exe's manifest sets
+    /// its code page to UTF-8, and that makes GetOEMCP() say 65001 there.
+    /// </summary>
+    internal static int OemCodePage()
+    {
+        if (!OperatingSystem.IsWindows()) return CultureInfo.CurrentCulture.TextInfo.OEMCodePage;
+
+        // A locale with no code page of its own (Hindi, say) answers 1, "the OEM code page", which is no answer.
+        return GetLocaleInfoEx(SystemDefaultLocale, DefaultOemCodePage | ReturnNumber, out var codePage, 2) == 2 && codePage > 3
+            ? (int)codePage
+            : (int)GetOEMCP();
+    }
+
+    private const string SystemDefaultLocale = "!x-sys-default-locale";
+    private const uint DefaultOemCodePage = 0x0000000B; // LOCALE_IDEFAULTCODEPAGE
+    private const uint ReturnNumber = 0x20000000; // LOCALE_RETURN_NUMBER: the answer as a number, two characters' worth
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetLocaleInfoEx(string localeName, uint type, out uint value, int characters);
 
     [DllImport("kernel32.dll")]
     private static extern uint GetOEMCP();

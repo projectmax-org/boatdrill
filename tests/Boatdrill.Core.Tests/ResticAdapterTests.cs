@@ -115,6 +115,34 @@ public sealed class ResticAdapterTests
     }
 
     [ResticFact]
+    public async Task TheSample_IsRestoredFromTheSourcesOwnFolder_WithoutTheFoldersAboveIt()
+    {
+        // On Windows those folders would come back as restic recorded them: C:\Users read-only and with C:\Users's
+        // permissions, which leave a user without administrator rights unable to delete the stage.
+        using var tree = new TempTree();
+        using var scratch = new TempTree();
+        using var repository = new ResticRepository();
+        WriteDocuments(tree, 3, LastWeek);
+        repository.Backup(tree.Root);
+
+        var sample = new Sampler(Everything).Take(Source.FromPath(tree.At("docs")));
+        var binding = await new ResticAdapter().BindAsync(repository.Destination(), sample, scratch.Root, BindPurpose.Read, [], CancellationToken.None);
+
+        Assert.Null(binding.Problem);
+        var stage = Assert.Single(Directory.GetDirectories(scratch.Root));
+        Assert.Equal(["0.txt", "1.txt", "2.txt"], Directory.EnumerateFileSystemEntries(stage, "*", SearchOption.AllDirectories).Select(p => Path.GetRelativePath(stage, p)).Order());
+    }
+
+    [Fact]
+    public void ResticsVersion_IsReadFromItsVersionLine()
+    {
+        Assert.Equal(new Version(0, 16), ResticAdapter.ParseVersion("restic 0.16.4 compiled with go1.22.2 on linux/amd64\n"));
+        Assert.Equal(new Version(0, 19), ResticAdapter.ParseVersion("restic 0.19.1-dev (compiled manually) compiled with go1.25.1 on windows/amd64"));
+        Assert.Equal(new Version(0, 15), ResticAdapter.ParseVersion("restic 0.15.2 compiled with go1.20.3 on windows/amd64"));
+        Assert.Null(ResticAdapter.ParseVersion("restic version unknown"));
+    }
+
+    [ResticFact]
     public async Task NoSnapshotHoldsTheSource_SaysSo()
     {
         using var source = new TempTree();

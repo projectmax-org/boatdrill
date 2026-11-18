@@ -44,6 +44,15 @@ internal sealed class TempTree : IDisposable
 
     private static string Normalise(string path) => path.Replace('\\', '/');
 
+    /// <summary>Fails naming everything left in a folder, with its attributes, where Assert.Empty shows a few characters of the first.</summary>
+    public static void AssertEmpty(string folder)
+    {
+        var left = Directory.EnumerateFileSystemEntries(folder, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+            .Select(p => $"{p} ({File.GetAttributes(p)})")
+            .ToList();
+        if (left.Count > 0) Assert.Fail($"Left in {folder}:\n{string.Join('\n', left)}");
+    }
+
     public void Dispose()
     {
         try

@@ -1,4 +1,4 @@
-﻿; Boatdrill's Windows installer, for Inno Setup 6.3 or later (CI builds it with the current Inno Setup 7).
+﻿; Boatdrill's Windows installer, for Inno Setup 6.3 or later (CI builds it with the Inno Setup 6 that windows-latest brings).
 ;
 ;   ISCC installer\Boatdrill.iss                          after .\build.ps1, which publishes to dist\
 ;   ISCC /DAppVersion=1.0.0 /DDistDir=C:\out installer\Boatdrill.iss

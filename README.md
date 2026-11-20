@@ -24,24 +24,28 @@ back into a scratch folder on this PC, compares SHA-256 hashes with the original
 OneDrive or Dropbox folder), a Windows File History drive, whose newest version of each file is the one
 read, a [restic](https://restic.net) repository, local or remote, which a drill restores its sample from
 with restic itself, a [Kopia](https://kopia.io) repository, in a folder or wherever KopiaUI's connection
-reaches, read through a read-only connection of Boatdrill's own, an [rclone](https://rclone.org) remote
-(Google Drive, S3, B2 and the rest), read with rclone, or a folder of zip or 7z archives, whose newest
-archive holding a folder is its backup. A password is kept encrypted with DPAPI for your Windows account.
+reaches other than through a Kopia server, read through a read-only connection of Boatdrill's own, an
+[rclone](https://rclone.org) remote (Google Drive, S3, B2 and the rest), read with rclone, or a folder of zip
+or 7z archives, whose newest archive holding a folder is its backup. A password is kept encrypted with DPAPI
+for your Windows account. Password-protected zip and 7z archives cannot be read yet: their files count as
+having no copy, so such a backup scores 0, "would not restore", and its sentence says the archive is
+password-protected.
 
 **Says what it found.** One score and one sentence per destination, such as *"Backup drive would restore.
 397 of 400 sampled files read back correctly and 3 are older than the original. The oldest change not yet
 copied here is from 26 October 2026 (1 day ago). A full restore of 212.3 GB would take about 38 min at
-the speed measured."* The score has four parts that are always shown: coverage, freshness, integrity
-and reachability. [docs/SCORING.md](docs/SCORING.md) has the arithmetic.
+the speed measured."* The score has four parts, shown beside it: coverage, freshness, integrity and
+reachability. [docs/SCORING.md](docs/SCORING.md) has the arithmetic.
 
 **Drills on a schedule, when you are away.** Daily, weekly or monthly, counted from the last drill. A
 due drill waits until the keyboard and mouse have been idle for five minutes, waits for mains power on a
-laptop, and never runs during a game or a presentation. It runs at Windows' background priority, and a
-drill that has waited a day (or three days for power) goes ahead at the next chance.
+laptop, and never runs during a game or a presentation; while it waits, it looks again every ten minutes.
+It runs at Windows' background priority, and a drill that has waited a day (or three days for power) goes
+ahead at the next chance.
 
 **Speaks up only when it matters.** A Windows notification when a drill finds a backup that would not
-restore, could not be reached or checked, or needs attention, and once when drills cannot finish at all.
-Silence when everything would restore.
+restore, could not be reached or checked, or needs attention, or does not find one of your folders, and
+once when drills cannot finish at all. Silence when everything would restore.
 
 **Works out where your copies are.** Whether the drive holds the folder's contents directly, a folder
 named after it, or a full-path mirror (`D:\Backup\C\Users\...`), the drill tries each layout against the
@@ -62,7 +66,8 @@ protected folder; the stamps missing from a backup's copy of it say how long tha
 
 **Shows what exists only on this PC.** On request, every file in your folders is looked up in every backup
 by name and date, and the ones no backup holds a current copy of are listed, by folder and by size: what
-you would lose with this PC today.
+you would lose with this PC today. A backup that could not be reached, or an rclone remote whose files
+could not be listed, is named as not looked in rather than taken to hold nothing.
 
 **Rehearses a full restore.** A drill reads a sample; a rehearsal restores every file of one folder, or of a
 folder inside it, from one backup into Boatdrill's own folder, a batch at a time, checks each against the
@@ -75,22 +80,26 @@ sentence, its four parts and the files that need a look: no scripts, light or da
 Settings. Every sentence is written whole in both languages rather than assembled from translated pieces,
 so the Korean reads as Korean: 백업 드라이브 (E:)에서 복원할 수 있습니다.
 
-**Stays honest about a sample.** Every coverage figure carries its margin of error, the sample size and the
-byte cap are settings, and recently changed files are drawn more often because they are the ones a backup
-is most likely to be missing.
+**Stays honest about a sample.** The app shows coverage with its margin of error when that is half a
+percent or more, the sample size and the byte cap are settings, and recently changed files are drawn more
+often because they are the ones a backup is most likely to be missing. [docs/SCORING.md](docs/SCORING.md)
+says what that weighting does to the margin, which assumes a sample drawn evenly.
 
 ## What it never does
 
-- It never writes into a destination. The one place a drill or a rehearsal writes is its scratch folder on
-  this PC, which is emptied when it ends. A restic repository is read with `--no-lock`, so not even a lock
-  file is left in it; a Kopia repository through a connection made read-only, with no cache, no log in the
-  repository and no notifications, and kopia is never pointed at a folder that holds no repository; an
-  rclone remote is only listed and downloaded from; an archive is only opened for reading. The opt-in
-  canary file goes into your *source* folders only.
+- It never writes into a destination. The one place a drill or a rehearsal restores files to is its scratch
+  folder on this PC, which is emptied when it ends. A restic repository is read with `--no-lock`, so not
+  even a lock file is left in it; a Kopia repository through a connection made read-only, with no cache, no
+  log in the repository and no notifications, and kopia is never pointed at a folder that holds no
+  repository; an rclone remote is only listed and downloaded from; an archive is only opened for reading.
+  The opt-in canary file goes into your *source* folders only. [SECURITY.md](SECURITY.md) lists everything
+  Boatdrill writes.
 - It never phones home. There is no network code in the app at all.
 - It never pulls a cloud placeholder down from OneDrive or Dropbox to check it: an online-only copy in a
   backup is reported as exactly that, and an online-only file in your own folders is left out, and counted.
-- It never polls. Between drills there is one timer, armed for the moment the next drill is due.
+- It never watches the PC between drills. It looks at what the PC is doing when a drill falls due, and
+  every ten minutes while that drill waits. With the window closed, a timer waits for the next drill, and
+  one thread wakes once a second, only to see whether Boatdrill is closing.
 
 ---
 
@@ -109,8 +118,10 @@ needs restic, kopia (KopiaUI brings it along), rclone or [7-Zip](https://7-zip.o
 archives need nothing extra.
 
 The files are not code-signed yet, so the first time one runs, Windows SmartScreen may say "Windows
-protected your PC" and name an unknown publisher; *More info*, then *Run anyway*, starts it. Each release
-lists its files' SHA-256 checksums, and the release workflow attests where each file was built;
+protected your PC" and name an unknown publisher; *More info*, then *Run anyway*, starts it. Smart App
+Control is stricter: where it is on, Windows blocks apps that are not signed, with no way to run them
+anyway, so Boatdrill will not start there until a release is signed. Each release lists its files'
+SHA-256 checksums, and the release workflow attests where each file was built;
 [docs/RELEASING.md](docs/RELEASING.md) shows how to check both and how a release is made.
 
 ## Using the app
@@ -160,11 +171,19 @@ and `--archives` for a folder of zip or 7z archives, or one archive (`--restic-t
 reachability part of the score meaningful over time; `--ledger <file>` keeps the hash ledger;
 `--canaries` keeps canary files; `--html <file>` also writes the drill as a one-page report. `rehearse`
 restores every file of one source, or of `--folder` inside it, from one destination, and `report` turns the
-latest drill in a history file into the report. `drill` exits 0 when every destination would restore
-(fully or mostly) and 1 when at least one would not; `only-here` exits 0 when every file has a current
-copy and 1 when some do not; `rehearse` exits 0 when every file came back intact; 2 means bad arguments,
-a `--source` folder that does not exist and a refused scratch folder among them.
-The runner always speaks English, so scripts can rely on its words.
+latest drill in a history file into the report. The runner always speaks English, so scripts can rely on
+its words, and on its exit codes:
+
+- `drill` exits 0 when every destination would restore, fully or mostly, and 1 when one would not, needs
+  attention, could not be reached or checked, or had nothing to check, or when a `--source` folder went
+  missing while it ran;
+- `only-here` exits 0 when every file has a current copy in a backup, and 1 when some do not, when no
+  backup could be looked in, or when a folder could not be compared with any backup;
+- `rehearse` exits 0 when every file came back intact, and 1 otherwise, including when nothing was restored
+  (a `--folder` outside the source or not there, say);
+- `report` exits 0 when it wrote the report;
+- any of them exits 2 for bad arguments, a `--source` folder that does not exist, a refused scratch folder
+  or, for `report`, a history with no drill in it.
 
 `drill`, `only-here` and `rehearse` work in a scratch folder: `%TEMP%\boatdrill` on Windows, and on Linux
 and macOS `~/.cache/boatdrill` (`boatdrill` in `$XDG_CACHE_HOME` when that is set), made so that only you can
@@ -228,7 +247,8 @@ cloud only, unreadable), re-checks copies from the **ledger** and reads each bac
 in CI before the app is built and captured on Windows.
 
 The app follows Driftwall's patterns, and some of its code: the notification-area icon is written against
-Shell_NotifyIcon directly, the theme swaps one palette dictionary, and nothing runs between scheduled events.
+Shell_NotifyIcon directly, the theme swaps one palette dictionary, and the schedule is one timer, armed for
+the next thing due.
 
 ## Roadmap
 

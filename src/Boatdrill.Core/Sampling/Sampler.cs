@@ -6,8 +6,9 @@ namespace Boatdrill.Core.Sampling;
 /// Weighted reservoir sampling (Efraimidis and Spirakis): every file gets the key u^(1/w) for a uniform
 /// u and a weight w that favours recently changed files, because those are the ones a backup is most
 /// likely to be missing. The files with the largest keys are the sample. A small reservoir per top-level
-/// folder guarantees every folder is represented. Memory is bounded by the sample size, not by the number
-/// of files, so a terabyte of photos costs the same as a folder of documents.
+/// folder adds a couple of its files, so no folder is left out by the luck of the draw, though the byte cap
+/// can still trim them. Memory is bounded by the sample size, not by the number of files, so a terabyte of
+/// photos costs the same as a folder of documents.
 /// </para>
 /// </summary>
 public sealed class Sampler(SampleOptions? options = null, TimeProvider? clock = null)

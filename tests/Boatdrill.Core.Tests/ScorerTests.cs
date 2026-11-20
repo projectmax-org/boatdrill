@@ -61,6 +61,26 @@ public sealed class ScorerTests
     }
 
     [Fact]
+    public void TheNumbersInScoringMd_AreTheScorersOwn()
+    {
+        // docs/SCORING.md quotes these: a change to the weights or the cap changes the page too.
+        Assert.Equal(95, Scorer.Score(Inputs(lag: TimeSpan.FromDays(7))).Total);
+        Assert.Equal(91, Scorer.Score(Inputs(lag: TimeSpan.FromDays(14))).Total);
+        Assert.Equal(80, Scorer.Score(Inputs(lag: TimeSpan.FromDays(30))).Total);
+        Assert.Equal(90, Scorer.Score(Inputs(verified: 180, missing: 20)).Total);
+        Assert.Equal(50, Scorer.Score(Inputs(verified: 100, missing: 100)).Total);
+
+        // The README's backup drive: all 400 found, 3 of them older than the original, a day behind.
+        var drive = Scorer.Score(Inputs(sampled: 400, verified: 397, outdated: 3, lag: TimeSpan.FromDays(1)));
+        Assert.Equal((99, Verdict.WouldRestore), (drive.Total, drive.Verdict));
+
+        // All 200 of Documents found and none of the desktop's 10: 95, but a whole folder would be lost.
+        ScoreInputs Folders(int withoutCopies) => new(210, 200, 0, 0, 10, 0, 0, 10_000, null, true, 1.0, SourcesWithoutCopies: withoutCopies);
+        Assert.Equal(95, Scorer.Score(Folders(0)).Total);
+        Assert.Equal((69, Verdict.NeedsAttention), (Scorer.Score(Folders(1)).Total, Scorer.Score(Folders(1)).Verdict));
+    }
+
+    [Fact]
     public void MarginShrinksWithTheSampleAndVanishesForACensus()
     {
         Assert.True(Scorer.Margin(0.95, 50, 10_000) > Scorer.Margin(0.95, 400, 10_000));

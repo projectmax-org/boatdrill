@@ -9,10 +9,11 @@ namespace Boatdrill.Drilling;
 /// <summary>
 /// Starts scheduled drills.
 /// <para>
-/// One <see cref="Timer"/>, armed once for the moment the next drill is due. Nothing polls: between
-/// drills the app does no work at all. When the timer fires, <see cref="DeferralPolicy"/> looks at what
-/// the PC is doing; a drill that has to wait is looked at again ten minutes later. After a drill, or a
-/// change of settings, or the PC waking from sleep, the timer is armed afresh from the wall clock.
+/// One <see cref="Timer"/>, armed for the moment the next drill is due (a wait longer than a week, a week
+/// at a time). Nothing here watches the PC in between. When the timer fires, <see cref="DeferralPolicy"/>
+/// looks at what the PC is doing; a drill that has to wait is looked at again every ten minutes until it
+/// runs. After a drill, or a change of settings, or the PC waking from sleep, the timer is armed afresh
+/// from the wall clock.
 /// </para>
 /// </summary>
 public sealed class DrillScheduler : IDisposable

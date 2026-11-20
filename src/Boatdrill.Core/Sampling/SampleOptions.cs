@@ -17,7 +17,10 @@ public sealed record SampleOptions
     /// </summary>
     public TimeSpan ChurnWindow { get; init; } = TimeSpan.FromHours(2);
 
-    /// <summary>At least this many files from every top-level folder of the source, so no folder goes silently unchecked.</summary>
+    /// <summary>
+    /// Up to this many files from every top-level folder of the source, besides the sample, so no folder goes unchecked by
+    /// the luck of the draw. The byte cap can still trim them.
+    /// </summary>
     public int PerFolderFloor { get; init; } = 2;
 
     /// <summary>Fixed seed for repeatable samples (tests). Null draws a fresh sample every drill.</summary>

@@ -15,7 +15,8 @@ public enum DeferReason
 public sealed record SystemState(bool FullScreen, bool OnBattery, TimeSpan IdleFor);
 
 /// <summary>
-/// Decides whether a due drill runs now or waits. Checked once when the timer fires, never polled.
+/// Decides whether a due drill runs now or waits. Checked when the timer fires, and again every ten minutes
+/// (<see cref="RetryAfter"/>) while the drill waits.
 /// A game or presentation always wins. Waiting for mains power or for the user to step away stops
 /// after a while, so a laptop that is never idle and never plugged in still gets its drill.
 /// </summary>

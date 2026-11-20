@@ -4,8 +4,9 @@ using Boatdrill.Core.Scheduling;
 namespace Boatdrill.Platform;
 
 /// <summary>
-/// What the PC is doing, read in an instant at the moment a scheduled drill falls due. Nothing here is
-/// polled: an app that watched for games every second would be exactly what Boatdrill promises not to be.
+/// What the PC is doing, read in an instant when a scheduled drill falls due, and every ten minutes while it
+/// waits. Nothing here watches in between: an app that watched for games every second would be exactly what
+/// Boatdrill promises not to be.
 /// </summary>
 public static class SystemConditions
 {

@@ -136,13 +136,22 @@ public sealed class DestinationSetting
 
     public DestinationKind Kind { get; set; } = DestinationKind.MirrorFolder;
 
-    /// <summary>The folder, the File History drive, or the restic repository's location (a folder or a URL).</summary>
+    /// <summary>
+    /// The folder, the File History drive, or the restic repository's location (a folder or a URL). A password written
+    /// into a URL shows as *** once the settings are saved; <see cref="ProtectedLocation"/> keeps the URL as typed.
+    /// </summary>
     public string Folder { get; set; } = string.Empty;
 
     public MirrorLayout Layout { get; set; } = MirrorLayout.Auto;
 
     /// <summary>A repository password as stored: the app keeps it encrypted for the Windows user ("dpapi:…").</summary>
     public string? Secret { get; set; }
+
+    /// <summary>
+    /// A location with a password written into it, such as rest:https://max:secret@nas:8000/, as typed and stored
+    /// encrypted as <see cref="Secret"/> is; null for any other location.
+    /// </summary>
+    public string? ProtectedLocation { get; set; }
 
     /// <summary>Where the repository's command-line tool is, when it is not on the PATH.</summary>
     public string? ToolPath { get; set; }
@@ -187,11 +196,34 @@ public sealed class DestinationSetting
         ToolPath = destination.ToolPath,
     };
 
-    /// <param name="unprotect">Turns the stored secret back into the password; the app passes DPAPI here.</param>
-    public Destination ToDestination(Func<string?, string?>? unprotect = null) => new(Id, Name, Kind, Folder)
+    /// <param name="unprotect">Turns the stored secrets back into the password and the location as typed; the app passes DPAPI here.</param>
+    public Destination ToDestination(Func<string?, string?>? unprotect = null) => new(Id, Name, Kind, Location(unprotect))
     {
         Layout = Layout,
         Secret = unprotect is null ? Secret : unprotect(Secret),
         ToolPath = ToolPath,
     };
+
+    /// <summary>
+    /// Where the tool is to look: the location as typed, password and all, while it is the one <see cref="Folder"/>
+    /// shows, so that a hand edit of the folder is not overruled. Never the encrypted text itself.
+    /// </summary>
+    private string Location(Func<string?, string?>? unprotect) =>
+        unprotect?.Invoke(ProtectedLocation) is { } typed && Destination.Redact(typed) == Folder ? typed : Folder;
+
+    /// <summary>
+    /// Moves a password written into <see cref="Folder"/> out of it, into <see cref="ProtectedLocation"/> encrypted,
+    /// and leaves *** in its place. A name an earlier version took from the end of the URL, which could be the
+    /// password and the host, is taken again. When <paramref name="protect"/> cannot encrypt, nothing changes.
+    /// </summary>
+    /// <param name="protect">Encrypts a secret for the settings file, or returns null when it cannot.</param>
+    internal void ProtectLocation(Func<string, string?> protect)
+    {
+        var masked = Destination.Redact(Folder);
+        if (masked == Folder || protect(Folder) is not { } stored) return;
+
+        if (Name == Destination.Tail(Folder)) Name = Destination.DefaultName(Kind, Folder);
+        ProtectedLocation = stored;
+        Folder = masked;
+    }
 }

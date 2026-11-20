@@ -17,7 +17,8 @@ public sealed class AppServices : IDisposable
     /// <param name="withTray">False for the view capture, which runs without a notification-area icon.</param>
     public AppServices(bool withTray = true)
     {
-        Settings = new SettingsStore(Paths.SettingsFile, DefaultSettings);
+        // A password written into a repository's URL is kept encrypted as the repository's own password is.
+        Settings = new SettingsStore(Paths.SettingsFile, DefaultSettings, Dpapi.TryProtect);
         History = new HistoryStore(Paths.HistoryFile);
         Drills = new DrillService(Settings, History);
         Scans = new ScanService(Settings, Drills);

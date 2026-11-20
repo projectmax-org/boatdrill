@@ -129,15 +129,22 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
     {
         if ((kind == DestinationKind.Restic && IsRepositoryUrl(location)) || kind == DestinationKind.Rclone)
         {
-            var tail = location.TrimEnd('/', '\\');
-            var cut = tail.LastIndexOfAny(['/', '\\', ':']);
-            return cut >= 0 && cut < tail.Length - 1 ? tail[(cut + 1)..] : tail;
+            // Without the user name and password: rest:https://max:secret@nas/ is "nas", where its end alone would be "secret@nas".
+            return Tail(UserInfo().Replace(location, string.Empty));
         }
 
         // A connection's file is named "repository.config" whatever it connects to.
         if (kind == DestinationKind.Kopia && IsKopiaConfig(location)) return "Kopia";
 
         return Source.DisplayName(location);
+    }
+
+    /// <summary>What follows a location's last slash or colon. Earlier versions named a URL by this alone, so "secret@nas" could be a name.</summary>
+    internal static string Tail(string location)
+    {
+        var tail = location.TrimEnd('/', '\\');
+        var cut = tail.LastIndexOfAny(['/', '\\', ':']);
+        return cut >= 0 && cut < tail.Length - 1 ? tail[(cut + 1)..] : tail;
     }
 
     /// <summary>A folder is made absolute; a repository URL such as sftp:host:/srv/restic is kept as it is.</summary>
@@ -153,7 +160,7 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
     /// <summary>The location to show and to keep in history: a password written into a repository URL is masked.</summary>
     public string DisplayLocation => Redact(RootPath);
 
-    /// <summary>rest:https://max:secret@nas:8000/ becomes rest:https://max:***@nas:8000/.</summary>
+    /// <summary>rest:https://max:secret@nas:8000/ becomes rest:https://max:***@nas:8000/. Masking again changes nothing.</summary>
     public static string Redact(string location) => UrlPassword().Replace(location, "***");
 
     /// <summary>Where a backup is, in words: "File History on F:\", "restic repository at …", "Archives in …".</summary>
@@ -189,8 +196,15 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
     /// <summary>A Kopia connection's configuration file, such as KopiaUI's repository.config, rather than a repository folder.</summary>
     public static bool IsKopiaConfig(string path) => Path.GetExtension(path).Equals(".config", StringComparison.OrdinalIgnoreCase);
 
-    [GeneratedRegex(@"(?<=://[^/@:\s]+:)[^/@\s]+(?=@)")]
+    // Read as Go reads a URL, and so restic: the user name runs to the first colon and the password from there to the
+    // last @ before the host, so either may hold an @, and the user name may be empty. A line break ends it, for a URL
+    // found in a tool's message.
+    [GeneratedRegex(@"(?<=://[^/?#:\s]*:)[^/?#\r\n]+(?=@[^/?#@\s]*(?:[/?#\s]|$))")]
     private static partial Regex UrlPassword();
+
+    /// <summary>A URL's user name and password, with the @ that ends them.</summary>
+    [GeneratedRegex(@"(?<=://)[^/?#\r\n]*@(?=[^/?#@\s]*(?:[/?#\s]|$))")]
+    private static partial Regex UserInfo();
 
     /// <summary>Never shows the secret, whatever else prints a destination.</summary>
     public override string ToString() => $"{Kind} {Name} at {DisplayLocation}";

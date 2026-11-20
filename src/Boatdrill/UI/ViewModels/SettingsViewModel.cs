@@ -65,13 +65,17 @@ public sealed class DestinationRowViewModel : ViewModelBase
         _layout = _layouts.FirstOrDefault(l => l.Value == destination.Layout) ?? _layouts[0];
     }
 
-    /// <summary>A repository with no password, or a password this Windows account cannot decrypt (settings from elsewhere).</summary>
-    public static bool IsPasswordMissing(DestinationSetting destination) => destination.Kind switch
-    {
-        DestinationKind.Restic or DestinationKind.Kopia => Dpapi.Unprotect(destination.Secret) is null,
-        DestinationKind.Rclone => destination.Secret is not null && Dpapi.Unprotect(destination.Secret) is null,
-        _ => false,
-    };
+    /// <summary>
+    /// A repository with no password, or a password this Windows account cannot decrypt (settings from elsewhere),
+    /// whether its own or one written into its URL.
+    /// </summary>
+    public static bool IsPasswordMissing(DestinationSetting destination) =>
+        (destination.ProtectedLocation is { } location && Dpapi.Unprotect(location) is null) || destination.Kind switch
+        {
+            DestinationKind.Restic or DestinationKind.Kopia => Dpapi.Unprotect(destination.Secret) is null,
+            DestinationKind.Rclone => destination.Secret is not null && Dpapi.Unprotect(destination.Secret) is null,
+            _ => false,
+        };
 
     public string Id { get; }
 
@@ -602,6 +606,9 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             {
                 known.Secret = destination.Secret;
                 known.ToolPath = destination.ToolPath;
+                // As typed, so a password in its URL is encrypted again on saving, for this Windows account.
+                known.Folder = destination.Folder;
+                known.ProtectedLocation = destination.ProtectedLocation;
             }
             else
             {
@@ -621,7 +628,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         IsTestingTool = true;
         try
         {
-            var target = destination.ToDestination(_ => password.Length == 0 ? null : password);
+            // Saving may have moved a password in the URL out of it, encrypted, so both secrets are decrypted again here.
+            var target = destination.ToDestination(Dpapi.Unprotect);
             IDestinationAdapter adapter = kind switch
             {
                 DestinationKind.Rclone => new RcloneAdapter(),

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Boatdrill.Core.Settings;
 
@@ -5,6 +6,14 @@ namespace Boatdrill.Core.Tests;
 
 public sealed class SettingsStoreTests
 {
+    /// <summary>Stands in for DPAPI: what it stores can be turned back, but never reads as the text it was given.</summary>
+    internal static string? Protect(string secret) => "test:" + Convert.ToBase64String(Encoding.UTF8.GetBytes(secret));
+
+    /// <summary>As DPAPI's, a value stored without the prefix is taken as it is.</summary>
+    internal static string? Unprotect(string? stored) => stored is not null && stored.StartsWith("test:", StringComparison.Ordinal)
+        ? Encoding.UTF8.GetString(Convert.FromBase64String(stored["test:".Length..]))
+        : stored;
+
     [Fact]
     public void MissingFile_GetsTheDefaultsWrittenOut()
     {
@@ -137,5 +146,79 @@ public sealed class SettingsStoreTests
         Assert.Equal(DestinationKind.MirrorFolder, destination.Kind);
         Assert.Equal(512L * 1024 * 1024, new AppSettings().ToSampleOptions().ByteCap);
         Assert.Equal("{}", JsonSerializer.Serialize(new { }));
+    }
+
+    [Theory]
+    [InlineData("rest:https://max:hunter2@nas:8000/restic", "hunter2")]
+    [InlineData("rest:https://max:p@ss:w$rd@nas/", "p@ss:w$rd")]
+    [InlineData("rest:https://max:p%40ss@nas:8000/", "p%40ss")]
+    public void APasswordInARepositoryUrl_IsSavedEncrypted_AndComesBackAsTyped(string url, string password)
+    {
+        using var data = new TempTree();
+        var path = data.At("settings.json");
+        var store = new SettingsStore(path, () => new AppSettings(), Protect);
+
+        store.Update(s => s.Destinations.Add(DestinationSetting.ForRestic(url, "stored password")));
+
+        Assert.DoesNotContain(password, File.ReadAllText(path));
+        var saved = Assert.Single(new SettingsStore(path, () => throw new InvalidOperationException("defaults must not be used"), Protect).Settings.Destinations);
+        Assert.Equal(Destination.Redact(url), saved.Folder);
+        var destination = saved.ToDestination(Unprotect);
+        Assert.Equal(url, destination.RootPath);
+        Assert.Equal("stored password", destination.Secret);
+        Assert.Equal(Destination.IdFor(DestinationKind.Restic, url), destination.Id);
+        Assert.DoesNotContain(password, destination.Name);
+        Assert.DoesNotContain(password, destination.DisplayLocation);
+
+        // A drill reads a copy of the settings; without a way to decrypt, the location is the one shown, never the stored text.
+        Assert.Equal(url, Assert.Single(store.Snapshot().Destinations).ToDestination(Unprotect).RootPath);
+        Assert.Equal(Destination.Redact(url), saved.ToDestination().RootPath);
+    }
+
+    [Fact]
+    public void AUrlSavedWithItsPassword_KeepsWorking_AndIsEncryptedAtTheNextSave()
+    {
+        using var data = new TempTree();
+        const string url = "rest:https://max:hunter2@nas/";
+        var id = Destination.IdFor(DestinationKind.Restic, url);
+        // As an earlier version saved it, named by the end of the URL.
+        var path = data.Write("settings.json", $$"""
+            {
+              "destinations": [ { "id": "{{id}}", "name": "hunter2@nas", "kind": "Restic", "folder": "{{url}}", "secret": "stored password" } ]
+            }
+            """);
+
+        var store = new SettingsStore(path, () => throw new InvalidOperationException("defaults must not be used"), Protect);
+
+        var loaded = Assert.Single(store.Settings.Destinations);
+        Assert.Equal(url, loaded.ToDestination(Unprotect).RootPath);
+        Assert.Equal(id, loaded.Id);
+        Assert.Equal("nas", loaded.Name);
+
+        store.Save();
+
+        Assert.DoesNotContain("hunter2", File.ReadAllText(path));
+        var saved = Assert.Single(new SettingsStore(path, () => new AppSettings(), Protect).Settings.Destinations);
+        Assert.Equal(url, saved.ToDestination(Unprotect).RootPath);
+        Assert.Equal(id, saved.Id);
+
+        // A hand edit of the folder is not overruled by the URL kept for it.
+        saved.Folder = "rest:https://max:***@nas2/";
+        Assert.Equal("rest:https://max:***@nas2/", saved.ToDestination(Unprotect).RootPath);
+    }
+
+    [Fact]
+    public void AUrlThatCannotBeEncrypted_IsSavedAsItWas_AndStillWorks()
+    {
+        using var data = new TempTree();
+        const string url = "rest:https://max:hunter2@nas:8000/restic";
+        var store = new SettingsStore(data.At("settings.json"), () => new AppSettings(), _ => null);
+
+        store.Update(s => s.Destinations.Add(DestinationSetting.ForRestic(url, "stored password")));
+
+        var saved = Assert.Single(store.Settings.Destinations);
+        Assert.Equal(url, saved.Folder);
+        Assert.Null(saved.ProtectedLocation);
+        Assert.Equal(url, saved.ToDestination(Unprotect).RootPath);
     }
 }

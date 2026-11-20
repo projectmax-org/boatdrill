@@ -4,9 +4,9 @@ using System.Text;
 namespace Boatdrill.Platform;
 
 /// <summary>
-/// Repository passwords at rest, encrypted with DPAPI for the signed-in Windows user: settings.json can be
-/// copied or read by anyone without giving a password away, and only this user on this PC can decrypt it.
-/// Stored as "dpapi:" and base64.
+/// Repository passwords at rest, and repository URLs with a password in them, encrypted with DPAPI for the signed-in
+/// Windows user: settings.json can be copied or read by anyone without giving a password away, and only this user
+/// on this PC can decrypt it. Stored as "dpapi:" and base64.
 /// </summary>
 public static class Dpapi
 {
@@ -20,6 +20,19 @@ public static class Dpapi
         var protectedBytes = Transform(Encoding.UTF8.GetBytes(secret), protect: true)
             ?? throw new InvalidOperationException("Windows could not encrypt the password: error " + Marshal.GetLastWin32Error());
         return Prefix + Convert.ToBase64String(protectedBytes);
+    }
+
+    /// <summary>As <see cref="Protect"/>, but null when Windows cannot encrypt now: settings are still saved, and tried again at the next save.</summary>
+    public static string? TryProtect(string secret)
+    {
+        try
+        {
+            return Protect(secret);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

@@ -11,11 +11,19 @@ public sealed class SettingsStore
 {
     private readonly Lock _gate = new();
     private readonly Func<AppSettings> _defaults;
+    private readonly Func<string, string?>? _protect;
 
-    public SettingsStore(string filePath, Func<AppSettings> defaults)
+    /// <param name="protect">
+    /// Encrypts a secret for the file, or returns null when it cannot; the app passes DPAPI here. With it, a password
+    /// written into a destination's URL stays out of the file from the next save on, in settings an earlier version
+    /// wrote too: the URL is saved with *** in its place, and in full only encrypted. Without it, or while it fails,
+    /// the URL is saved as it is.
+    /// </param>
+    public SettingsStore(string filePath, Func<AppSettings> defaults, Func<string, string?>? protect = null)
     {
         FilePath = filePath;
         _defaults = defaults;
+        _protect = protect;
         Settings = Load();
     }
 
@@ -32,7 +40,7 @@ public sealed class SettingsStore
         lock (_gate)
         {
             mutate(Settings);
-            Normalise(Settings);
+            Normalise(Settings, _protect);
             Write(Settings);
         }
 
@@ -52,6 +60,8 @@ public sealed class SettingsStore
     {
         lock (_gate)
         {
+            // Tries again to encrypt what could not be encrypted before.
+            Normalise(Settings, _protect);
             Write(Settings);
         }
     }
@@ -65,7 +75,8 @@ public sealed class SettingsStore
                 var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), BoatdrillJson.Options);
                 if (loaded is not null)
                 {
-                    Normalise(loaded);
+                    // A password left in a URL by an earlier version is moved out here, and off the disk at the next save.
+                    Normalise(loaded, _protect);
                     return loaded;
                 }
             }
@@ -83,7 +94,7 @@ public sealed class SettingsStore
         }
 
         var defaults = _defaults();
-        Normalise(defaults);
+        Normalise(defaults, _protect);
         Write(defaults);
         return defaults;
     }
@@ -98,8 +109,11 @@ public sealed class SettingsStore
         File.Move(temporary, FilePath, overwrite: true);
     }
 
-    /// <summary>Fills in what a hand-edited file may lack and keeps numbers in a sensible range.</summary>
-    internal static void Normalise(AppSettings settings)
+    /// <summary>
+    /// Fills in what a hand-edited file may lack and keeps numbers in a sensible range. With <paramref name="protect"/>,
+    /// a password written into a destination's URL is moved out of it, encrypted (<see cref="DestinationSetting.ProtectLocation"/>).
+    /// </summary>
+    internal static void Normalise(AppSettings settings, Func<string, string?>? protect = null)
     {
         settings.Sources = (settings.Sources ?? [])
             .Where(s => s is not null && !string.IsNullOrWhiteSpace(s.Folder))
@@ -117,8 +131,10 @@ public sealed class SettingsStore
             .Where(d => d is not null && !string.IsNullOrWhiteSpace(d.Folder))
             .Select(d =>
             {
+                // The id is taken from the location as typed, before any password is masked: the same id as the form gives it.
                 if (string.IsNullOrWhiteSpace(d.Id)) d.Id = Destination.IdFor(d.Kind, d.Folder);
                 if (string.IsNullOrWhiteSpace(d.Name)) d.Name = Destination.DefaultName(d.Kind, d.Folder);
+                if (protect is not null) d.ProtectLocation(protect);
                 return d;
             })
             .DistinctBy(d => d.Id)

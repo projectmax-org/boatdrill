@@ -267,7 +267,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
     // ---------------- restic ----------------
 
-    private static Task<ToolRunner.Result> RunAsync(Destination destination, IEnumerable<string> arguments, TimeSpan limit, CancellationToken ct,
+    private static async Task<ToolRunner.Result> RunAsync(Destination destination, IEnumerable<string> arguments, TimeSpan limit, CancellationToken ct,
         Stream? output = null, Action<string>? line = null)
     {
         var environment = new Dictionary<string, string?>
@@ -280,7 +280,13 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             ["RESTIC_PASSWORD_COMMAND"] = null,
         };
 
-        return ToolRunner.RunAsync(destination.ToolPath ?? "restic", ["--no-lock", "--quiet", .. arguments], environment, limit, ct, output, line);
+        var result = await ToolRunner.RunAsync(destination.ToolPath ?? "restic", ["--no-lock", "--quiet", .. arguments], environment, limit, ct, output, line)
+            .ConfigureAwait(false);
+
+        // restic masks the password in a repository URL when it names the repository, as Go does in its HTTP errors. A
+        // message that quotes the URL some other way, such as one saying it cannot be parsed, is masked here, before
+        // its words reach a report.
+        return result with { Error = Destination.Redact(result.Error) };
     }
 
     private static string Said => Language.Pick("restic said: ", "restic 메시지: ");

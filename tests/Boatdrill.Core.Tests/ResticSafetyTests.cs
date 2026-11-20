@@ -1,5 +1,8 @@
+using System.Text.Json;
 using Boatdrill.Core.Drill;
+using Boatdrill.Core.Reporting;
 using Boatdrill.Core.Scoring;
+using Boatdrill.Core.Settings;
 using Boatdrill.Core.Verification;
 using static Boatdrill.Core.Tests.ResticAdapterTests;
 
@@ -105,5 +108,62 @@ public sealed class ResticSafetyTests
 
         Assert.False(result.Reachable);
         Assert.Equal("no password is saved for it", result.ProbeDetail);
+    }
+
+    [Fact]
+    public async Task APasswordInTheRepositoryUrl_ReachesResticAsTyped_AndNothingElse()
+    {
+        using var source = new TempTree();
+        using var data = new TempTree();
+        using var tool = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(source, 3, LastWeek);
+        const string url = "rest:https://max:hunter2@nas/";
+
+        // Saved and read back as the app does, the password encrypted apart from the URL.
+        var store = new SettingsStore(data.At("settings.json"), () => new AppSettings(), SettingsStoreTests.Protect);
+        store.Update(s => s.Destinations.Add(DestinationSetting.ForRestic(url, "repository password", toolPath: QuotesTheRepository(tool))));
+        Assert.DoesNotContain("hunter2", File.ReadAllText(store.FilePath));
+
+        var report = await new DrillRunner().RunAsync(new DrillPlan
+        {
+            Sources = [Source.FromPath(source.Root, "Docs")],
+            Destinations = [.. store.Snapshot().Destinations.Select(d => d.ToDestination(SettingsStoreTests.Unprotect))],
+            ScratchDirectory = scratch.Root,
+            Sampling = Everything,
+        });
+
+        Assert.Equal(url, File.ReadAllText(tool.At("repository.txt")).Trim());
+        var result = Assert.Single(report.Destinations);
+        Assert.Equal("restic said: Get \"rest:https://max:***@nas/config\": dial tcp: lookup nas: no such host", result.ProbeDetail);
+        Assert.Equal("nas", result.DestinationName);
+        Assert.DoesNotContain("hunter2", JsonSerializer.Serialize(report, BoatdrillJson.Options));
+        Assert.DoesNotContain("hunter2", HtmlReport.Render(report));
+    }
+
+    /// <summary>
+    /// A restic that notes the repository it was given, then fails quoting it in full, as a message about the URL
+    /// itself might.
+    /// </summary>
+    private static string QuotesTheRepository(TempTree folder)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return folder.Write("restic.cmd", string.Join("\r\n",
+                "@echo off",
+                ">>\"%~dp0repository.txt\" echo %RESTIC_REPOSITORY%",
+                ">&2 echo Fatal: Get \"%RESTIC_REPOSITORY%config\": dial tcp: lookup nas: no such host",
+                "exit /b 1",
+                string.Empty));
+        }
+
+        var script = folder.Write("restic", string.Join("\n",
+            "#!/bin/sh",
+            "printf '%s\\n' \"$RESTIC_REPOSITORY\" >> \"$(dirname \"$0\")/repository.txt\"",
+            "printf 'Fatal: Get \"%sconfig\": dial tcp: lookup nas: no such host\\n' \"$RESTIC_REPOSITORY\" >&2",
+            "exit 1",
+            string.Empty));
+        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return script;
     }
 }

@@ -349,6 +349,40 @@ public sealed class ResticAdapterTests
         Assert.DoesNotContain("hunter2", destination.ToString());
         Assert.DoesNotContain("repository-password", destination.ToString());
         Assert.Equal("rest:https://max:***@nas:8000/restic", destination.DisplayLocation);
+
+        // restic is still given the URL as it was typed.
+        Assert.Equal("rest:https://max:hunter2@nas:8000/restic", destination.RootPath);
+    }
+
+    [Theory]
+    [InlineData("rest:https://:hunter2@nas/", "rest:https://:***@nas/")]
+    [InlineData("rest:https://max:p@ss:w$rd@nas:8000/", "rest:https://max:***@nas:8000/")]
+    [InlineData("rest:https://max@home:p%40ss@nas/", "rest:https://max@home:***@nas/")]
+    [InlineData("rest:https://max:hunter2@[::1]:8000/", "rest:https://max:***@[::1]:8000/")]
+    [InlineData("rest:https://max:***@nas:8000/", "rest:https://max:***@nas:8000/")]
+    [InlineData("rest:https://max@nas:8000/restic", "rest:https://max@nas:8000/restic")]
+    [InlineData("rest:https://nas:8000/", "rest:https://nas:8000/")]
+    [InlineData("sftp://max@nas:2222//srv/restic", "sftp://max@nas:2222//srv/restic")]
+    [InlineData("Fatal: Get \"https://max:hunter2@nas:8000/restic/config\": dial tcp: lookup nas: no such host",
+        "Fatal: Get \"https://max:***@nas:8000/restic/config\": dial tcp: lookup nas: no such host")]
+    [InlineData("parse \"https://max:hunter 2@nas\": net/url: invalid userinfo", "parse \"https://max:***@nas\": net/url: invalid userinfo")]
+    public void APasswordInAUrl_IsMasked_HoweverItIsWritten(string text, string masked)
+    {
+        // As restic reads a URL: an empty user name, an @ or a colon in the password, an @ in the user name. Masked
+        // twice it stays the same; a URL with no password, or a message without one, is left as it is.
+        Assert.Equal(masked, Destination.Redact(text));
+    }
+
+    [Theory]
+    [InlineData("rest:https://max:hunter2@nas/", "nas")]
+    [InlineData("rest:https://max:hunter2@nas", "nas")]
+    [InlineData("rest:https://:hunter2@nas/", "nas")]
+    [InlineData("rest:https://max:p@ss@nas:8000/restic/", "restic")]
+    [InlineData("sftp:max@nas:/srv/restic", "restic")]
+    public void ARepositoryUrl_IsNamed_WithoutItsPassword(string url, string name)
+    {
+        // Named by the end of the URL alone, the first three were once "hunter2@nas".
+        Assert.Equal(name, Destination.Restic(url, "repository-password").Name);
     }
 
     [Fact]

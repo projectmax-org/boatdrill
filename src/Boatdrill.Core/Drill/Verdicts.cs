@@ -27,6 +27,7 @@ public static class Verdicts
             return r.Score.Verdict switch
             {
                 Verdict.Unreachable => $"{name}에 연결할 수 없습니다: {r.ProbeDetail}.",
+                Verdict.CouldNotCheck => $"{Korean.Object(name)} 확인하지 못했습니다: {r.Failure}.",
                 Verdict.NothingToCheck => $"{name}에는 연결되지만 표본으로 고른 파일이 없어 아직 확인할 것이 없습니다.",
                 Verdict.WouldRestore => $"{name}에서 복원할 수 있습니다.",
                 Verdict.WouldMostlyRestore => $"{name}에서 대부분 복원할 수 있습니다.",
@@ -38,6 +39,7 @@ public static class Verdicts
         return r.Score.Verdict switch
         {
             Verdict.Unreachable => $"{name} could not be reached: {r.ProbeDetail}.",
+            Verdict.CouldNotCheck => $"{name} could not be checked: {r.Failure}.",
             Verdict.NothingToCheck => $"{name} is reachable, but no files were sampled, so there is nothing to verify yet.",
             Verdict.WouldRestore => $"{name} would restore.",
             Verdict.WouldMostlyRestore => $"{name} would mostly restore.",
@@ -66,6 +68,10 @@ public static class Verdicts
                     DestinationKind.Rclone => "Check the remote in Settings, then run a drill.",
                     _ => "Plug it in or check the share, then run a drill.",
                 };
+            case Verdict.CouldNotCheck:
+                return Language.Pick(
+                    "Whether it would restore is not known; the next drill will check it again.",
+                    "복원할 수 있는지는 아직 알 수 없습니다. 다음 복원 훈련 때 다시 확인합니다.");
             case Verdict.NothingToCheck:
                 return string.Empty;
         }
@@ -259,6 +265,7 @@ public static class Verdicts
             Verdict.NeedsAttention => $"{name}에 확인할 문제가 있습니다",
             Verdict.WouldNotRestore => $"{name}에서는 복원할 수 없습니다",
             Verdict.Unreachable => $"{name}에 연결할 수 없습니다",
+            Verdict.CouldNotCheck => $"{Korean.Object(name)} 확인하지 못했습니다",
             _ => $"{name}에서 확인할 것이 없습니다",
         };
     }
@@ -272,6 +279,7 @@ public static class Verdicts
             Verdict.NeedsAttention => "확인 필요",
             Verdict.WouldNotRestore => "복원 불가",
             Verdict.Unreachable => "연결 안 됨",
+            Verdict.CouldNotCheck => "확인 못 함",
             _ => "확인할 것 없음",
         }
         : verdict switch
@@ -281,6 +289,7 @@ public static class Verdicts
             Verdict.NeedsAttention => "needs attention",
             Verdict.WouldNotRestore => "would not restore",
             Verdict.Unreachable => "could not be reached",
+            Verdict.CouldNotCheck => "could not be checked",
             _ => "nothing to check",
         };
 
@@ -312,7 +321,7 @@ public static class Verdicts
     {
         Verdict.WouldRestore => "good",
         Verdict.WouldMostlyRestore => "fair",
-        Verdict.NeedsAttention or Verdict.WouldNotRestore or Verdict.Unreachable => "bad",
+        Verdict.NeedsAttention or Verdict.WouldNotRestore or Verdict.Unreachable or Verdict.CouldNotCheck => "bad",
         _ => "none",
     };
 

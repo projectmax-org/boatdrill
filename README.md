@@ -40,7 +40,8 @@ laptop, and never runs during a game or a presentation. It runs at Windows' back
 drill that has waited a day (or three days for power) goes ahead at the next chance.
 
 **Speaks up only when it matters.** A Windows notification when a drill finds a backup that would not
-restore, could not be reached, or needs attention. Silence when everything would restore.
+restore, could not be reached or checked, or needs attention, and once when drills cannot finish at all.
+Silence when everything would restore.
 
 **Works out where your copies are.** Whether the drive holds the folder's contents directly, a folder
 named after it, or a full-path mirror (`D:\Backup\C\Users\...`), the drill tries each layout against the

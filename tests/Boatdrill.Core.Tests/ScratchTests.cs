@@ -1,4 +1,6 @@
+using Boatdrill.Core.Adapters;
 using Boatdrill.Core.Drill;
+using Boatdrill.Core.Sampling;
 
 namespace Boatdrill.Core.Tests;
 
@@ -90,5 +92,92 @@ public sealed class ScratchTests
         Scratch.Sweep(tree.Root, DateTimeOffset.UtcNow.AddDays(1));
         Assert.False(Directory.Exists(tree.At("boatdrill-left")));
         Assert.True(File.Exists(tree.At("not-ours/b.txt")));
+    }
+
+    [Fact]
+    public void AFolderStillInUse_IsLeftAlone_HoweverOld_AndGoesWhenItsOwnerIsDone()
+    {
+        // Two opens in one process stand for two Boatdrills: Windows shares a file by handle, and the advisory lock .NET
+        // takes on Linux and macOS for an open shared with no one (flock) belongs to the open file, not to the process.
+        using var tree = new TempTree();
+        var rehearsal = Scratch.Create(tree.Root, "boatdrill-rehearsal-long");
+        try
+        {
+            var batch = Path.Combine(rehearsal.FullName, "restic-x", "C", "a.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(batch)!);
+            File.WriteAllText(batch, "restored, not compared yet");
+            // Left by a run that ended without deleting its folder: the lock file is there, and no one holds it.
+            tree.Write("boatdrill-ended/" + Scratch.LockFile, string.Empty);
+            tree.Write("boatdrill-ended/C/b.txt", "restored");
+
+            // A day on, both are old enough to be swept, and one is still being worked in.
+            Scratch.Sweep(tree.Root, DateTimeOffset.UtcNow.AddDays(1));
+
+            Assert.Equal("restored, not compared yet", File.ReadAllText(batch));
+            Assert.False(Directory.Exists(tree.At("boatdrill-ended")));
+        }
+        finally
+        {
+            rehearsal.Dispose();
+        }
+
+        Assert.False(Directory.Exists(rehearsal.FullName));
+    }
+
+    [Fact]
+    public async Task ARehearsalThatOutlastsTheAgeLimit_KeepsItsFolder_ThoughADrillSweepsMeanwhile()
+    {
+        using var source = new TempTree();
+        using var mirror = new TempTree();
+        using var scratch = new TempTree();
+        for (var i = 0; i < 4; i++) source.Write($"docs/{i}.txt", $"document {i}", DateTimeOffset.UtcNow.AddDays(-3));
+        source.MirrorTo(mirror.Root);
+
+        var result = await new RehearsalRunner([new SweptMeanwhile(scratch.Root)]).RunAsync(
+            new RehearsalPlan(Source.FromPath(source.Root, "Docs"), Destination.MirrorFolder(mirror.Root, "Drive"), scratch.Root));
+
+        Assert.True(result.AllIntact, result.Sentence);
+        TempTree.AssertEmpty(scratch.Root);
+    }
+
+    /// <summary>
+    /// A folder of copies restored a batch at a time into the scratch folder ahead of reading, as restic restores, while
+    /// a drill that starts a day later sweeps the scratch directory before each file is read.
+    /// </summary>
+    private sealed class SweptMeanwhile(string scratchDirectory) : IDestinationAdapter
+    {
+        private readonly MirrorFolderAdapter _inner = new();
+        private string _stage = string.Empty;
+
+        public DestinationKind Kind => DestinationKind.MirrorFolder;
+
+        public Task<DestinationProbe> ProbeAsync(Destination destination, CancellationToken ct) => _inner.ProbeAsync(destination, ct);
+
+        public Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratch, BindPurpose purpose,
+            IReadOnlyCollection<string> alsoRead, CancellationToken ct)
+        {
+            _stage = Path.Combine(scratch, "stage");
+            return _inner.BindAsync(destination, sample, scratch, purpose, alsoRead, ct);
+        }
+
+        public Task PrefetchAsync(SourceBinding binding, IReadOnlyCollection<string> relativePaths, CancellationToken ct)
+        {
+            foreach (var path in relativePaths)
+            {
+                var staged = Path.Combine(_stage, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+                File.Copy(Path.Combine(binding.BasePath, path), staged);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<CopyLookup> LocateAsync(SourceBinding binding, string relativePath, CancellationToken ct) => _inner.LocateAsync(binding, relativePath, ct);
+
+        public Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct)
+        {
+            Scratch.Sweep(scratchDirectory, DateTimeOffset.UtcNow.AddDays(1));
+            return CopyReader.ReadAsync(Path.Combine(_stage, Path.GetRelativePath(binding.BasePath, copy.Path!)), scratchPath, TimeSpan.Zero, ct);
+        }
     }
 }

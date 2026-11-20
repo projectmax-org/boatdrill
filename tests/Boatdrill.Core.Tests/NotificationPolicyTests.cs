@@ -74,6 +74,21 @@ public sealed class NotificationPolicyTests
     }
 
     [Fact]
+    public void ADrillThatCouldNotFinish_SaysWhy_AndThatNothingWasChecked()
+    {
+        var notice = NotificationPolicy.ForFailedDrill("There is not enough space on the disk. ");
+
+        Assert.Equal("The drill could not finish", notice.Title);
+        Assert.Equal("There is not enough space on the disk. Your backups were not checked this time.", notice.Text);
+        using (new InKorean())
+        {
+            var korean = NotificationPolicy.ForFailedDrill("There is not enough space on the disk.");
+            Assert.Equal("복원 훈련을 끝내지 못했습니다", korean.Title);
+            Assert.Equal("There is not enough space on the disk. 이번에는 백업을 확인하지 못했습니다.", korean.Text);
+        }
+    }
+
+    [Fact]
     public void Shorten_CutsAtASentenceOrAWord()
     {
         var sentences = string.Join(" ", Enumerable.Repeat("This sentence is exactly forty-four chars.", 10));

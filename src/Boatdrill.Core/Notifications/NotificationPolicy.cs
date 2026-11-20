@@ -16,7 +16,7 @@ public static class NotificationPolicy
     public const int MaxText = 250;
 
     public static bool IsProblem(Verdict verdict) =>
-        verdict is Verdict.NeedsAttention or Verdict.WouldNotRestore or Verdict.Unreachable;
+        verdict is Verdict.NeedsAttention or Verdict.WouldNotRestore or Verdict.Unreachable or Verdict.CouldNotCheck;
 
     public static Notice? For(DrillReport report)
     {
@@ -48,11 +48,20 @@ public static class NotificationPolicy
         return new Notice(Language.Pick($"{problems.Count} backups need attention", $"확인이 필요한 백업이 {problems.Count}개 있습니다"), Shorten(text, MaxText));
     }
 
+    /// <summary>
+    /// A drill that could not finish at all, so that no backup's verdict came of it: said once, as the drill is tried
+    /// again, since the backups' last verdicts are otherwise all the user sees.
+    /// </summary>
+    public static Notice ForFailedDrill(string reason) => new(
+        Language.Pick("The drill could not finish", "복원 훈련을 끝내지 못했습니다"),
+        Shorten(reason.Trim().TrimEnd('.') + Language.Pick(". Your backups were not checked this time.", ". 이번에는 백업을 확인하지 못했습니다."), MaxText));
+
     private static string Headline(DestinationResult d) => Verdicts.Phrase(d.DestinationName, d.Score.Verdict);
 
     /// <summary>What the title does not already say: the verdict's sentences after the first.</summary>
     private static string Details(DestinationResult d, DateTimeOffset finished)
     {
+        if (d.Score.Verdict == Verdict.CouldNotCheck) return $"{d.Failure}. {Verdicts.Body(d, finished)}";
         if (d.Score.Verdict != Verdict.Unreachable) return Verdicts.Body(d, finished);
 
         if (Language.IsKorean)

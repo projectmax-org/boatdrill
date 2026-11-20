@@ -24,7 +24,9 @@ rotted, caps the total at 69, because a backup with corruption in it must never 
 | 0 to 39 | would not restore |
 
 An unreachable destination scores 0 and reads "unreachable"; a drill that sampled nothing reads "nothing
-to check".
+to check". A destination that an unforeseen error kept the drill from checking, such as a scratch disk that
+filled, has no score and reads "could not be checked", with the error; the other destinations keep their
+results, and it never counts as a pass.
 
 ## What each file can be
 

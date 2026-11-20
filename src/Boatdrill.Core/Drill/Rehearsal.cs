@@ -156,7 +156,7 @@ public sealed class RehearsalRunner
             });
         }
 
-        var scratch = Directory.CreateDirectory(Path.Combine(plan.ScratchDirectory, Scratch.Prefix + "rehearsal-" + Guid.NewGuid().ToString("N")[..8]));
+        var scratch = Scratch.Create(plan.ScratchDirectory, Scratch.Prefix + "rehearsal-" + Guid.NewGuid().ToString("N")[..8]);
         try
         {
             // An even spread of the folder's files, for the adapter to work out where its copies live.
@@ -227,7 +227,7 @@ public sealed class RehearsalRunner
         }
         finally
         {
-            Scratch.TryDelete(scratch.FullName);
+            scratch.Dispose();
         }
     }
 

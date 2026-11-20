@@ -17,6 +17,7 @@ public partial class App : Application
     private MainViewModel? _viewModel;
     private MainWindow? _window;
     private bool _exiting;
+    private bool _toldOfFailure;
     private string _language = string.Empty;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -103,6 +104,7 @@ public partial class App : Application
         _viewModel = new MainViewModel(_services);
         ConfigureTray();
         _services.Drills.Completed += OnDrillCompleted;
+        _services.Drills.Failed += OnDrillFailed;
 
         _instance.ActivationRequested += (_, _) => Dispatcher.BeginInvoke(new Action(ShowWindow));
         _instance.QuitRequested += (_, _) =>
@@ -186,13 +188,32 @@ public partial class App : Application
         {
             if (_services is null) return;
 
-            var watching = _window is { IsVisible: true, IsActive: true } && _window.WindowState != WindowState.Minimized;
-            if (_services.Settings.Settings.NotifyOnProblems && !watching && NotificationPolicy.For(report) is { } notice)
+            _toldOfFailure = false;
+            if (_services.Settings.Settings.NotifyOnProblems && !Watching && NotificationPolicy.For(report) is { } notice)
                 _services.Tray?.ShowBalloon(notice.Title, notice.Text);
 
             if (_window is not { IsVisible: true }) MemoryTrimmer.TrimNow();
         }));
     }
+
+    /// <summary>
+    /// A drill that could not finish says so in a notification, once until a drill finishes: a scheduled drill that
+    /// fails is tried again every hour. The status line says it to a user looking at the window.
+    /// </summary>
+    private void OnDrillFailed(object? sender, string reason)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_services is null || _toldOfFailure || !_services.Settings.Settings.NotifyOnProblems || Watching) return;
+
+            var notice = NotificationPolicy.ForFailedDrill(reason);
+            _services.Tray?.ShowBalloon(notice.Title, notice.Text);
+            _toldOfFailure = true;
+        }));
+    }
+
+    /// <summary>The user is looking at the window, which shows the latest drill already.</summary>
+    private bool Watching => _window is { IsVisible: true, IsActive: true } && _window.WindowState != WindowState.Minimized;
 
     public void ShowSection(AppSection section)
     {

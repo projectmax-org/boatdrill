@@ -29,6 +29,12 @@ public sealed record DestinationResult
 
     public string? ProbeDetail { get; init; }
 
+    /// <summary>
+    /// Why the drill could not check this destination, when an error it did not foresee stopped it. Such a result
+    /// counts nothing and is not reached: nothing the drill read there is kept.
+    /// </summary>
+    public string? Failure { get; init; }
+
     public long? FreeBytes { get; init; }
 
     public IReadOnlyList<BoundSource> Bindings { get; init; } = [];

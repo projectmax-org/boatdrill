@@ -41,14 +41,14 @@ public sealed class OnlyHereScanner
         IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
     {
         Directory.CreateDirectory(scratchDirectory);
-        var work = Directory.CreateDirectory(Path.Combine(scratchDirectory, Scratch.Prefix + "scan-" + Guid.NewGuid().ToString("N")[..8]));
+        var work = Scratch.Create(scratchDirectory, Scratch.Prefix + "scan-" + Guid.NewGuid().ToString("N")[..8]);
         try
         {
             return await ScanInAsync(sources, destinations, work.FullName, progress, ct).ConfigureAwait(false);
         }
         finally
         {
-            Scratch.TryDelete(work.FullName);
+            work.Dispose();
         }
     }
 

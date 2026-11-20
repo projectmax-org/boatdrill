@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Boatdrill.Core.Drill;
+using Boatdrill.Core.Scoring;
 
 namespace Boatdrill.Core.History;
 
@@ -59,12 +60,15 @@ public sealed class HistoryStore(string filePath)
     /// <summary>The most recent readable drill. Looks a few lines back in case the last one is torn.</summary>
     public DrillReport? Latest() => ReadRecent(5).LastOrDefault();
 
-    /// <summary>Share of the last <paramref name="window"/> drills in which the destination was reachable, or null without history.</summary>
+    /// <summary>
+    /// Share of the last <paramref name="window"/> drills in which the destination was reachable, or null without history.
+    /// A drill that an error kept from checking it says nothing of whether it was there, and is left out.
+    /// </summary>
     public double? Reachability(string destinationId, int window = 10)
     {
         var seen = ReadRecent(50)
             .SelectMany(r => r.Destinations)
-            .Where(d => d.DestinationId == destinationId)
+            .Where(d => d.DestinationId == destinationId && d.Score.Verdict != Verdict.CouldNotCheck)
             .TakeLast(window)
             .ToList();
         return seen.Count == 0 ? null : (double)seen.Count(d => d.Reachable) / seen.Count;

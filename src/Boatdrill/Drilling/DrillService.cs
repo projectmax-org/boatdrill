@@ -55,11 +55,17 @@ public sealed class DrillService : IDisposable
     /// <summary>Why the last drill did not finish, in words for the status line. Cleared when a drill starts.</summary>
     public string? LastError { get; private set; }
 
+    /// <summary>The last drill failed with an error, and none has finished since: the latest report is older than it looks.</summary>
+    public bool IsFailing { get; private set; }
+
     /// <summary>Running state or progress changed. Raised at most every 200 ms while a drill reads files.</summary>
     public event EventHandler? StateChanged;
 
     /// <summary>A drill finished and is in the history.</summary>
     public event EventHandler<DrillReport>? Completed;
+
+    /// <summary>A drill failed with an error, not stopped and not refused; the argument says why, without the words around it.</summary>
+    public event EventHandler<string>? Failed;
 
     /// <summary>Runs a drill now. Returns null when one is already running, when there is nothing to drill, or when it fails.</summary>
     public async Task<DrillReport?> RunAsync(DrillTrigger trigger)
@@ -88,6 +94,7 @@ public sealed class DrillService : IDisposable
         // A scheduled drill runs at background priority; one the user asked for runs at full speed.
         var background = trigger == DrillTrigger.Scheduled && BackgroundMode.Enter();
         DrillReport? report = null;
+        string? failure = null;
         try
         {
             var plan = new DrillPlan
@@ -104,13 +111,15 @@ public sealed class DrillService : IDisposable
             report = await Task.Run(async () =>
             {
                 var ledger = settings.RecheckForBitRot ? _ledger.Load() : null;
-                var runner = new DrillRunner(reachabilityHistory: id => _history.Reachability(id), ledger: ledger);
+                var runner = new DrillRunner(reachabilityHistory: id => _history.Reachability(id), ledger: ledger,
+                    failed: (destination, ex) => Log.Error($"Could not check {destination.Name}; the drill goes on without it.", ex));
                 var finished = await runner.RunAsync(plan, new ProgressSink(this), cancel.Token).ConfigureAwait(false);
                 if (ledger is not null) await SaveLedgerAsync(ledger, settings).ConfigureAwait(false);
                 return finished;
             }, cancel.Token).ConfigureAwait(false);
             await _history.AppendAsync(report, CancellationToken.None).ConfigureAwait(false);
             _recent = [.. _recent.TakeLast(RecentCount - 1), report];
+            IsFailing = false;
             Log.Info($"Drill {report.Id} finished in {report.Duration.TotalSeconds:0}s; worst verdict {report.Worst}.");
         }
         catch (OperationCanceledException)
@@ -123,6 +132,8 @@ public sealed class DrillService : IDisposable
         {
             Log.Error("Drill failed.", ex);
             LastError = Language.Pick("The drill could not finish: ", "복원 훈련을 끝내지 못했습니다: ") + ex.Message;
+            IsFailing = true;
+            failure = ex.Message;
             report = null;
         }
         finally
@@ -138,6 +149,7 @@ public sealed class DrillService : IDisposable
 
         StateChanged?.Invoke(this, EventArgs.Empty);
         if (report is not null) Completed?.Invoke(this, report);
+        if (failure is not null) Failed?.Invoke(this, failure);
         return report;
     }
 

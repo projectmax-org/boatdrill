@@ -25,18 +25,21 @@ public sealed class DrillRunner
     private readonly TimeProvider _clock;
     private readonly Func<string, double?>? _reachabilityHistory;
     private readonly HashLedger? _ledger;
+    private readonly Action<Destination, Exception>? _failed;
 
     /// <param name="adapters">One per destination kind; defaults to <see cref="DefaultAdapters"/>.</param>
     /// <param name="clock">Time source, replaceable in tests.</param>
     /// <param name="reachabilityHistory">Share of recent drills in which a destination (by id) was reachable, or null without history.</param>
     /// <param name="ledger">Copies verified before, re-checked and added to as the drill goes; the caller saves it afterwards.</param>
+    /// <param name="failed">Told of each error that kept the drill from checking a destination, for a log: the result says why only in words.</param>
     public DrillRunner(IEnumerable<IDestinationAdapter>? adapters = null, TimeProvider? clock = null, Func<string, double?>? reachabilityHistory = null,
-        HashLedger? ledger = null)
+        HashLedger? ledger = null, Action<Destination, Exception>? failed = null)
     {
         _adapters = (adapters ?? DefaultAdapters()).ToDictionary(a => a.Kind);
         _clock = clock ?? TimeProvider.System;
         _reachabilityHistory = reachabilityHistory;
         _ledger = ledger;
+        _failed = failed;
     }
 
     /// <summary>One adapter per kind of destination Boatdrill can read.</summary>
@@ -48,7 +51,7 @@ public sealed class DrillRunner
         var started = _clock.GetUtcNow();
         var id = started.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..6];
         Scratch.Sweep(plan.ScratchDirectory, started);
-        var scratch = Directory.CreateDirectory(Path.Combine(plan.ScratchDirectory, Scratch.Prefix + id));
+        var scratch = Scratch.Create(plan.ScratchDirectory, Scratch.Prefix + id);
         try
         {
             var sampler = new Sampler(plan.Sampling, _clock);
@@ -69,7 +72,19 @@ public sealed class DrillRunner
             foreach (var destination in plan.Destinations)
             {
                 ct.ThrowIfCancellationRequested();
-                results.Add(await VerifyDestinationAsync(destination, samples, canaries, scratch.FullName, progress, ct).ConfigureAwait(false));
+                try
+                {
+                    results.Add(await VerifyDestinationAsync(destination, samples, canaries, scratch.FullName, progress, ct).ConfigureAwait(false));
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    // A drill that was stopped stops, whatever error the stop left a tool to fail with.
+                    ct.ThrowIfCancellationRequested();
+
+                    // An error no adapter foresaw, such as a full scratch disk, costs this destination its result and no other.
+                    _failed?.Invoke(destination, ex);
+                    results.Add(CouldNotCheck(destination, samples, ex));
+                }
             }
 
             // A new stamp for the backups to copy before the next drill.
@@ -90,14 +105,35 @@ public sealed class DrillRunner
         }
         finally
         {
-            // A file another program held open stays behind; a later drill's sweep removes it.
-            Scratch.TryDelete(scratch.FullName);
+            scratch.Dispose();
         }
     }
 
     private static SourceSummary Summarise(Sample s) => new(
         s.Source.Id, s.Source.Name, s.Source.RootPath, s.Population, s.PopulationBytes,
         s.Files.Count, s.SampledBytes, s.SkippedLargeFiles, s.SkippedChurningFiles, s.NewestWriteUtc, s.Missing, s.SkippedOnlineOnlyFiles);
+
+    /// <summary>
+    /// A destination an error kept the drill from checking: the result says why and counts nothing. It reads as not
+    /// reached, so no score is shown for it, but the history leaves it out of how often the destination is there.
+    /// </summary>
+    private DestinationResult CouldNotCheck(Destination destination, List<Sample> samples, Exception ex)
+    {
+        var result = new DestinationResult
+        {
+            DestinationId = destination.Id,
+            DestinationName = destination.Name,
+            Kind = destination.Kind,
+            RootPath = destination.DisplayLocation,
+            Reachable = false,
+            Failure = ex.Message.Trim().TrimEnd('.'),
+            Population = samples.Sum(s => s.Population),
+            PopulationBytes = samples.Sum(s => s.PopulationBytes),
+            Score = new ReadinessScore(0, 0, 0, 0, 0, 0, Verdict.CouldNotCheck),
+            Sentence = string.Empty,
+        };
+        return result with { Sentence = Verdicts.Sentence(result, _clock.GetUtcNow()) };
+    }
 
     private async Task<DestinationResult> VerifyDestinationAsync(Destination destination, List<Sample> samples,
         IReadOnlyDictionary<string, IReadOnlyList<DateTimeOffset>>? canaries, string scratch, IProgress<DrillProgress>? progress, CancellationToken ct)

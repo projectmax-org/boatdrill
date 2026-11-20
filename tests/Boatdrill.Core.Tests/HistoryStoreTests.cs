@@ -65,6 +65,20 @@ public sealed class HistoryStoreTests
     }
 
     [Fact]
+    public async Task Reachability_LeavesOutADrillThatCouldNotCheckTheDestination()
+    {
+        using var data = new TempTree();
+        var store = new HistoryStore(data.At("history.jsonl"));
+        await store.AppendAsync(Report(1));
+        var failed = Report(2, reachable: false);
+        var notChecked = failed.Destinations[0] with { Failure = "There is not enough space on the disk", Score = failed.Destinations[0].Score with { Verdict = Verdict.CouldNotCheck } };
+        await store.AppendAsync(failed with { Destinations = [notChecked] });
+
+        // An error that kept the drill from checking the drive says nothing of whether the drive was there.
+        Assert.Equal(1.0, store.Reachability("drive"));
+    }
+
+    [Fact]
     public async Task TrimIfLarge_KeepsTheNewestLines()
     {
         using var data = new TempTree();

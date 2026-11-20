@@ -277,6 +277,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string DescribeForTray(DrillReport? latest)
     {
         if (_services.Drills.IsRunning) return Language.Pick("Boatdrill: a drill is running", "Boatdrill: 복원 훈련 중");
+
+        // The latest report is older than the failure: what it says may no longer be so.
+        if (_services.Drills.IsFailing) return Language.Pick("Boatdrill: the last drill could not finish", "Boatdrill: 마지막 복원 훈련을 끝내지 못함");
         if (latest is null) return Language.Pick("Boatdrill: no drill has run yet", "Boatdrill: 아직 복원 훈련 전");
 
         var problems = latest.Destinations.Where(d => NotificationPolicy.IsProblem(d.Score.Verdict)).ToList();

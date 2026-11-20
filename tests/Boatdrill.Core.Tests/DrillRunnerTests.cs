@@ -470,6 +470,110 @@ public sealed class DrillRunnerTests
         Assert.DoesNotContain("no copy", d.Sentence);
     }
 
+    [Fact]
+    public async Task ADestinationThatFails_CostsOnlyItsOwnResult_AndPassesNowhere()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(tree, 5, DateTimeOffset.UtcNow.AddDays(-2));
+        tree.MirrorTo(backup.Root);
+
+        var report = await new DrillRunner([new Adapters.MirrorFolderAdapter(), new Breaks(DestinationKind.Rclone)]).RunAsync(
+            Plan(scratch, Source.FromPath(tree.Root, "Docs"), Destination.Rclone("remote:backup", name: "Cloud"), Destination.MirrorFolder(backup.Root, "Drive")));
+
+        // The drive, checked after the error, has its result as ever.
+        Assert.Equal(["Cloud", "Drive"], report.Destinations.Select(d => d.DestinationName));
+        var drive = report.Destinations[1];
+        Assert.Equal((Verdict.WouldRestore, 5), (drive.Score.Verdict, drive.Verified));
+
+        var cloud = report.Destinations[0];
+        Assert.Equal((Verdict.CouldNotCheck, false, 0), (cloud.Score.Verdict, cloud.Reachable, cloud.Sampled));
+        Assert.Equal("There is not enough space on the disk", cloud.Failure);
+        Assert.Equal("Cloud could not be checked: There is not enough space on the disk. Whether it would restore is not known; the next drill will check it again.", cloud.Sentence);
+
+        // Not a pass as the drill's verdict, in a notification or in the report.
+        Assert.Equal(Verdict.CouldNotCheck, report.Worst);
+        Assert.Equal("Cloud could not be checked", Verdicts.Headline(report.Destinations));
+        var notice = NotificationPolicy.For(report);
+        Assert.NotNull(notice);
+        Assert.Equal("Cloud could not be checked", notice.Title);
+        Assert.Equal("There is not enough space on the disk. Whether it would restore is not known; the next drill will check it again.", notice.Text);
+        var html = HtmlReport.Render(report);
+        Assert.Contains("<h1><span class=\"dot bad-fill\" aria-hidden=\"true\"></span>Cloud could not be checked</h1>", html);
+        Assert.Contains("<div class=\"score bad\"><span class=\"total\">–</span><span class=\"verdict\">could not be checked</span>", html);
+        TempTree.AssertEmpty(scratch.Root);
+
+        // The history keeps why, so the sentence is written again from it, in Korean too.
+        var read = JsonSerializer.Deserialize<DrillReport>(JsonSerializer.Serialize(report, BoatdrillJson.Options), BoatdrillJson.Options)!.Destinations[0];
+        Assert.Equal((Verdict.CouldNotCheck, cloud.Failure), (read.Score.Verdict, read.Failure));
+        using (new InKorean())
+        {
+            Assert.Equal("Cloud를 확인하지 못했습니다: There is not enough space on the disk. 복원할 수 있는지는 아직 알 수 없습니다. 다음 복원 훈련 때 다시 확인합니다.",
+                Verdicts.Sentence(read, report.FinishedUtc));
+            Assert.Equal("Cloud를 확인하지 못했습니다", Verdicts.Headline([read]));
+            Assert.Equal("확인 못 함", Verdicts.Words(read.Score.Verdict));
+        }
+    }
+
+    [Fact]
+    public async Task AProbeThatFails_OrTimesOutOnItsOwn_LeavesThatDestinationUnchecked()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(tree, 3, DateTimeOffset.UtcNow.AddDays(-2));
+        tree.MirrorTo(backup.Root);
+        var failures = new List<string>();
+
+        // A time limit of the adapter's own is not the drill being stopped.
+        var report = await new DrillRunner([new Adapters.MirrorFolderAdapter(), new Breaks(DestinationKind.Kopia, whenProbed: new TaskCanceledException("The request timed out"))],
+            failed: (destination, ex) => failures.Add($"{destination.Name}: {ex.GetType().Name}")).RunAsync(
+            Plan(scratch, Source.FromPath(tree.Root, "Docs"), Destination.MirrorFolder(backup.Root, "Drive"), Destination.Kopia("/srv/kopia", "secret", name: "Repository")));
+
+        Assert.Equal([Verdict.WouldRestore, Verdict.CouldNotCheck], report.Destinations.Select(d => d.Score.Verdict));
+        Assert.StartsWith("Repository could not be checked: The request timed out. ", report.Destinations[1].Sentence);
+        Assert.Equal(["Repository: TaskCanceledException"], failures);
+    }
+
+    [Fact]
+    public async Task AStoppedDrill_Stops_WhateverErrorTheStopLeftAToolToFailWith()
+    {
+        using var tree = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(tree, 3, DateTimeOffset.UtcNow.AddDays(-2));
+        using var stop = new CancellationTokenSource();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new DrillRunner([new Breaks(DestinationKind.Rclone, beforeReadBack: stop.Cancel)]).RunAsync(
+            Plan(scratch, Source.FromPath(tree.Root, "Docs"), Destination.Rclone("remote:backup", name: "Cloud")), ct: stop.Token));
+        TempTree.AssertEmpty(scratch.Root);
+    }
+
+    /// <summary>
+    /// A backup that answers and lists its copies, then fails as no adapter foresaw: when it is probed, or when a copy
+    /// is read back, as when the scratch disk fills while a tool writes the copy into it.
+    /// </summary>
+    private sealed class Breaks(DestinationKind kind, Exception? whenProbed = null, Action? beforeReadBack = null) : Adapters.IDestinationAdapter
+    {
+        public DestinationKind Kind => kind;
+
+        public Task<Adapters.DestinationProbe> ProbeAsync(Destination destination, CancellationToken ct) =>
+            whenProbed is not null ? throw whenProbed : Task.FromResult(new Adapters.DestinationProbe(true, "answered", null));
+
+        public Task<Adapters.SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, Adapters.BindPurpose purpose,
+            IReadOnlyCollection<string> alsoRead, CancellationToken ct) =>
+            Task.FromResult(new Adapters.SourceBinding(destination, sample.Source, MirrorLayout.Auto, "remote:backup", sample.Files.Count, sample.Files.Count));
+
+        public Task<Adapters.CopyLookup> LocateAsync(Adapters.SourceBinding binding, string relativePath, CancellationToken ct) =>
+            Task.FromResult(new Adapters.CopyLookup(Adapters.CopyState.Found, "remote:backup/" + relativePath, 10, null, null));
+
+        public Task<Adapters.ReadBack> ReadBackAsync(Adapters.SourceBinding binding, Adapters.CopyLookup copy, string scratchPath, CancellationToken ct)
+        {
+            beforeReadBack?.Invoke();
+            throw new IOException("There is not enough space on the disk.");
+        }
+    }
+
     private sealed class SynchronousProgress(List<DrillProgress> sink) : IProgress<DrillProgress>
     {
         public void Report(DrillProgress value) => sink.Add(value);

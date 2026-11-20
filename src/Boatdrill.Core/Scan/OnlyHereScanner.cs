@@ -40,7 +40,7 @@ public sealed class OnlyHereScanner
     public async Task<OnlyHereReport> ScanAsync(IReadOnlyList<Source> sources, IReadOnlyList<Destination> destinations, string scratchDirectory,
         IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
     {
-        Directory.CreateDirectory(scratchDirectory);
+        Scratch.MakeFolder(scratchDirectory);
         var work = Scratch.Create(scratchDirectory, Scratch.Prefix + "scan-" + Guid.NewGuid().ToString("N")[..8]);
         try
         {

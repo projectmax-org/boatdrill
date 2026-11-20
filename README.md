@@ -163,8 +163,14 @@ restores every file of one source, or of `--folder` inside it, from one destinat
 latest drill in a history file into the report. `drill` exits 0 when every destination would restore
 (fully or mostly) and 1 when at least one would not; `only-here` exits 0 when every file has a current
 copy and 1 when some do not; `rehearse` exits 0 when every file came back intact; 2 means bad arguments,
-a `--source` folder that does not exist among them.
+a `--source` folder that does not exist and a refused scratch folder among them.
 The runner always speaks English, so scripts can rely on its words.
+
+`drill`, `only-here` and `rehearse` work in a scratch folder: `%TEMP%\boatdrill` on Windows, and on Linux
+and macOS `~/.cache/boatdrill` (`boatdrill` in `$XDG_CACHE_HOME` when that is set), made so that only you can
+open it, since `/tmp` there is shared by every user. `--scratch <folder>` puts a `Boatdrill scratch` folder in
+that folder instead, and touches nothing else in it. On Linux and macOS a scratch folder that is a symbolic
+link, belongs to another user or can be opened by other users is refused.
 
 ## Building
 

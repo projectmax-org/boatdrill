@@ -11,6 +11,9 @@ internal static class Scratch
     /// <summary>The file in each folder that its owner keeps open, shared with no one, while it works there. No adapter writes one by this name.</summary>
     public const string LockFile = "boatdrill.lock";
 
+    /// <summary>rwx------: on Linux and macOS a folder in scratch is its user's alone, as what is read back into it is theirs.</summary>
+    public const UnixFileMode UserOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
     /// <summary>
     /// Only a folder made this long ago is swept, and only once its lock can be had: a folder made a moment ago may not
     /// have its lock file yet.
@@ -36,8 +39,19 @@ internal static class Scratch
     /// </summary>
     public static ScratchFolder Create(string parent, string name)
     {
-        var folder = Directory.CreateDirectory(Path.Combine(parent, name)).FullName;
+        var folder = MakeFolder(Path.Combine(parent, name)).FullName;
         return new ScratchFolder(folder, new FileStream(Path.Combine(folder, LockFile), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+    }
+
+    /// <summary>
+    /// Makes a folder for scratch, with any that are missing above it. On Linux and macOS they are made for the user
+    /// alone: the scratch directory can be one that every user may open, or one that another run of Boatdrill has just
+    /// removed as empty, and this run makes again. On Windows they are made as the folder above allows, as ever.
+    /// </summary>
+    public static DirectoryInfo MakeFolder(string path)
+    {
+        if (OperatingSystem.IsWindows()) return Directory.CreateDirectory(path);
+        return Directory.CreateDirectory(path, UserOnly);
     }
 
     /// <summary>

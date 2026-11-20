@@ -47,6 +47,11 @@ public static class Program
           --html         also write the drill as a one-page HTML report to this file
           --json         print the full report as JSON instead of text
 
+        drill, only-here and rehearse work in a scratch folder: %TEMP%\boatdrill on Windows, and on Linux and
+        macOS ~/.cache/boatdrill (boatdrill in $XDG_CACHE_HOME when that is set), made so that only you can
+        open it. --scratch <folder> puts a "Boatdrill scratch" folder in that folder instead. On Linux and
+        macOS a scratch folder that is a symbolic link, another user's or open to other users is refused.
+
         only-here looks every file in the sources up in every destination, by name and date, and lists the
         ones no backup holds a current copy of.
 
@@ -59,7 +64,8 @@ public static class Program
 
         Exit codes: drill 0 when every destination would restore (fully or mostly), 1 otherwise; only-here 0
         when every file has a current copy, 1 otherwise; rehearse 0 when every file came back intact, 1 otherwise;
-        report 0 when it wrote the report; 2 for bad arguments, a --source folder that does not exist among them.
+        report 0 when it wrote the report; 2 for bad arguments, a --source folder that does not exist and a refused
+        scratch folder among them.
         """;
 
     public static async Task<int> Main(string[] args)
@@ -469,8 +475,9 @@ public static class Program
                     ChurnWindow = TimeSpan.FromHours(churnHours),
                 },
                 // A folder of Boatdrill's own: each run empties what earlier runs left in it, and nothing else of the
-                // folder --scratch names is ever touched.
-                scratch is null ? Path.Combine(Path.GetTempPath(), "boatdrill") : Path.Combine(scratch, "Boatdrill scratch"),
+                // folder --scratch names is ever touched. On Linux and macOS it is the user's alone, or refused here;
+                // report reads nothing back, so it has none.
+                args[0] == "report" ? string.Empty : RunnerScratch.Prepare(scratch),
                 history,
                 ledger,
                 canaries,

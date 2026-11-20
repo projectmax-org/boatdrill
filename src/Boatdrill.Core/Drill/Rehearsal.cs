@@ -144,7 +144,7 @@ public sealed class RehearsalRunner
         if (files.Count == 0) return Finish(result);
 
         Scratch.Sweep(plan.ScratchDirectory, started);
-        Directory.CreateDirectory(plan.ScratchDirectory);
+        Scratch.MakeFolder(plan.ScratchDirectory);
         var needed = Math.Max(Math.Min(plan.BatchBytes, total), files.Max(f => f.Length)) + SpareBytes;
         if (_freeSpace(plan.ScratchDirectory) is { } free && free < needed)
         {

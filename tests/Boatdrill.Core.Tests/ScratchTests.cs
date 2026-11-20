@@ -140,6 +140,128 @@ public sealed class ScratchTests
         TempTree.AssertEmpty(scratch.Root);
     }
 
+    [Fact]
+    public void OnWindows_TheRunnersScratchFolder_IsWhereItWas_AndLeftForTheDrillToMake()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempTree();
+        Assert.Equal(Path.Combine(Path.GetTempPath(), "boatdrill"), RunnerScratch.Prepare(null));
+        Assert.Equal(tree.At("Boatdrill scratch"), RunnerScratch.Prepare(tree.Root));
+        Assert.False(Directory.Exists(tree.At("Boatdrill scratch")));
+    }
+
+    [Fact]
+    public void OnLinuxAndMacOS_TheRunnersScratchFolder_IsInTheUsersCacheFolder()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        Assert.Equal("/home/max/.cache/boatdrill", RunnerScratch.Folder(null, null, "/home/max"));
+        Assert.Equal("/srv/cache/max/boatdrill", RunnerScratch.Folder(null, "/srv/cache/max", "/home/max"));
+        Assert.Equal("/mnt/big/Boatdrill scratch", RunnerScratch.Folder("/mnt/big", "/srv/cache/max", "/home/max"));
+
+        // The XDG base directory specification has an empty $XDG_CACHE_HOME taken as unset, and a relative one ignored.
+        Assert.Equal("/home/max/.cache/boatdrill", RunnerScratch.Folder(null, string.Empty, "/home/max"));
+        Assert.Equal("/home/max/.cache/boatdrill", RunnerScratch.Folder(null, "cache", "/home/max"));
+
+        // Without a home folder, ~/.cache would be wherever the runner was started.
+        Assert.Contains("--scratch", Assert.Throws<ArgumentException>(() => RunnerScratch.Folder(null, null, string.Empty)).Message);
+        Assert.Throws<ArgumentException>(() => RunnerScratch.Folder(null, null, "home/max"));
+    }
+
+    [Fact]
+    public void OnLinuxAndMacOS_ANewScratchFolder_IsMadeForTheUserAlone()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempTree();
+        var folder = tree.At("cache/boatdrill");
+
+        Assert.Equal(folder, RunnerScratch.EnsurePrivate(folder));
+        Assert.Equal(Scratch.UserOnly, new DirectoryInfo(folder).UnixFileMode);
+    }
+
+    [Fact]
+    public void OnLinuxAndMacOS_ARunsOwnFolder_IsTheUsersAlone_WhateverTheFolderAboveIt()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempTree();
+        new DirectoryInfo(tree.Root).UnixFileMode = Scratch.UserOnly | UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                                                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+        using var run = Scratch.Create(tree.Root, Scratch.Prefix + "run");
+
+        Assert.Equal(Scratch.UserOnly, new DirectoryInfo(run.FullName).UnixFileMode);
+    }
+
+    [Fact]
+    public void OnLinuxAndMacOS_AScratchFolderOthersCanOpen_IsRefused_AndLeftAsItWas()
+    {
+        // As the "Boatdrill scratch" folder an earlier version made is.
+        if (OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempTree();
+        var left = tree.Write("Boatdrill scratch/boatdrill-left/a.txt", "restored earlier");
+        var folder = tree.At("Boatdrill scratch");
+        var open = Scratch.UserOnly | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+        new DirectoryInfo(folder).UnixFileMode = open;
+
+        var refused = Assert.Throws<ArgumentException>(() => RunnerScratch.EnsurePrivate(folder));
+
+        Assert.Equal($"Other users can open the scratch folder {folder}, and so read what Boatdrill restores there. " +
+                     "Make it yours alone with chmod 700, delete it, or name another folder with --scratch.", refused.Message);
+        Assert.Equal(open, new DirectoryInfo(folder).UnixFileMode);
+        Assert.Equal("restored earlier", File.ReadAllText(left));
+    }
+
+    [Fact]
+    public void OnLinuxAndMacOS_AScratchFolderThatIsALink_IsRefused_AndWhereItLeadsIsLeftAlone()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempTree();
+        var elsewhere = Directory.CreateDirectory(tree.At("elsewhere"), Scratch.UserOnly).FullName;
+        var link = tree.At("Boatdrill scratch");
+        Directory.CreateSymbolicLink(link, elsewhere);
+        var dangling = tree.At("dangling");
+        Directory.CreateSymbolicLink(dangling, tree.At("nowhere"));
+
+        Assert.Contains("is a symbolic link", Assert.Throws<ArgumentException>(() => RunnerScratch.EnsurePrivate(link)).Message);
+        Assert.Contains("is a symbolic link", Assert.Throws<ArgumentException>(() => RunnerScratch.EnsurePrivate(dangling)).Message);
+
+        Assert.NotNull(new DirectoryInfo(link).LinkTarget);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(elsewhere));
+        Assert.False(Directory.Exists(tree.At("nowhere")));
+    }
+
+    [Fact]
+    public void OnLinuxAndMacOS_AScratchFolderOfTheUsersAlone_IsUsedAsItIs()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempTree();
+        var folder = Directory.CreateDirectory(tree.At("Boatdrill scratch"), Scratch.UserOnly).FullName;
+        var left = tree.Write("Boatdrill scratch/boatdrill-left/a.txt", "restored earlier");
+
+        Assert.Equal(folder, RunnerScratch.EnsurePrivate(folder));
+        Assert.Equal(Scratch.UserOnly, new DirectoryInfo(folder).UnixFileMode);
+        Assert.Equal("restored earlier", File.ReadAllText(left));
+    }
+
+    [Fact]
+    public void OnLinux_AScratchFolderOfAnotherUser_IsRefused()
+    {
+        // /root is root's, and on Linux usually root's alone: the nearest thing to another user's folder a test can count
+        // on. Root itself may change any folder's mode, so run as root this test has nothing to show.
+        const string theirs = "/root";
+        if (OperatingSystem.IsWindows() || Environment.IsPrivilegedProcess || !Directory.Exists(theirs) || new DirectoryInfo(theirs).LinkTarget is not null) return;
+
+        var refused = Assert.Throws<ArgumentException>(() => RunnerScratch.EnsurePrivate(theirs));
+
+        Assert.Equal($"The scratch folder {theirs} belongs to another user, who could read what Boatdrill restores there. " +
+                     "Name a folder of your own with --scratch.", refused.Message);
+    }
+
     /// <summary>
     /// A folder of copies restored a batch at a time into the scratch folder ahead of reading, as restic restores, while
     /// a drill that starts a day later sweeps the scratch directory before each file is read.

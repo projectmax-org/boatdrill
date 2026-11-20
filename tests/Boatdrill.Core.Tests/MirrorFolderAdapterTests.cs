@@ -39,7 +39,12 @@ public sealed class MirrorFolderAdapterTests
 
         Assert.Equal(folder, candidates.Single(c => c.Layout == MirrorLayout.RootFolder).BasePath);
         Assert.DoesNotContain(candidates, c => MirrorFolderAdapter.IsTheSource(c.BasePath, source));
-        Assert.Equal(["", "D/"], Adapters.ArchiveAdapter.Prefixes(Source.FromPath(@"D:\")).Select(p => p.Prefix).Take(OperatingSystem.IsWindows() ? 2 : 0));
+
+        // An archive of a whole drive holds its files at the top, or below a folder named after the drive letter.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal(["", "D/"], Adapters.ArchiveAdapter.Prefixes(Source.FromPath(@"D:\")).Select(p => p.Prefix).Take(2));
+        }
     }
 
     [Fact]

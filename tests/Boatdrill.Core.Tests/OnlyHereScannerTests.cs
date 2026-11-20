@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Boatdrill.Core.Adapters;
 using Boatdrill.Core.Drill;
+using Boatdrill.Core.Sampling;
 using Boatdrill.Core.Scan;
 using Boatdrill.Core.Text;
 
@@ -123,6 +125,125 @@ public sealed class OnlyHereScannerTests
         Assert.Equal("Photos", Assert.Single(report.Sources).SourceName);
         Assert.Equal(0, report.OnlyHereFiles);
         Assert.Equal("All 1 file has a current copy in at least one backup. Docs could not be compared with any backup.", report.Sentence);
+    }
+
+    [Fact]
+    public async Task AProtectedFolderThatIsGone_IsNamed_AndNeverCountedAsCompared()
+    {
+        using var docs = new TempTree();
+        using var elsewhere = new TempTree();
+        using var mirror = new TempTree();
+        using var scratch = new TempTree();
+        docs.Write("x.txt", "x", Old);
+        docs.Write("y.txt", "y", Old);
+        docs.MirrorTo(mirror.Root);
+        var kept = Source.FromPath(docs.Root, "Docs");
+        var gone = Source.FromPath(elsewhere.At("Projects"));
+        var drive = Destination.MirrorFolder(mirror.Root, "Drive");
+
+        // Renamed, moved, or on a drive that is not plugged in: its files may well have no copy, and none was looked up.
+        var report = await new OnlyHereScanner().ScanAsync([kept, gone], [drive], scratch.Root);
+
+        Assert.Equal("Docs", Assert.Single(report.Sources).SourceName);
+        var missing = Assert.Single(report.NotFound);
+        Assert.Equal(("Projects", gone.RootPath, 0L), (missing.SourceName, missing.RootPath, missing.Files));
+        Assert.Empty(report.NotCompared);
+        Assert.Equal(0, report.OnlyHereFiles);
+        Assert.Equal(
+            $"Projects was not found at {gone.RootPath}, so none of its files were looked up. All 2 files that were looked up have a current copy in at least one backup.",
+            report.Sentence);
+        Assert.EndsWith(
+            " All 2 files that were looked up have a current copy in at least one backup. Photos could not be compared with any backup.",
+            OnlyHereScanner.Sentence(report with { NotCompared = ["Photos"] }));
+
+        // A file with no copy is still the first thing said; the folder that was not found comes after it.
+        docs.Write("z.txt", "z", Old);
+        var some = await new OnlyHereScanner().ScanAsync([kept, gone], [drive], scratch.Root);
+        Assert.Equal(
+            $"1 of 3 files (1 bytes) exist only on this PC: 1 has no copy in any backup. Projects was not found at {gone.RootPath}, so none of its files were looked up.",
+            some.Sentence);
+
+        // Alone, it is not a folder with no files in it.
+        var alone = await new OnlyHereScanner().ScanAsync([gone], [drive], scratch.Root);
+        Assert.Empty(alone.Sources);
+        Assert.Single(alone.NotFound);
+        Assert.Equal($"Projects was not found at {gone.RootPath}, so none of its files were looked up.", alone.Sentence);
+
+        var both = report with { NotFound = [missing, missing with { SourceName = "Photos" }], Sources = [] };
+        Assert.Equal("Projects and Photos were not found, so none of their files were looked up.", OnlyHereScanner.Sentence(both));
+
+        // The page's headline for it is the dashboard's, made from the names a scan keeps.
+        Assert.Equal("Projects was not found", Verdicts.MissingHeadline(report.NotFound.Select(s => s.SourceName).ToList()));
+        Assert.Equal("2 protected folders were not found", Verdicts.MissingHeadline(both.NotFound.Select(s => s.SourceName).ToList()));
+
+        using (new InKorean())
+        {
+            Assert.Equal(
+                $"Projects 폴더({gone.RootPath})를 찾을 수 없어 살펴보지 못했습니다. 살펴본 파일 2개 모두 적어도 한 백업에 최신 사본이 있습니다.",
+                OnlyHereScanner.Sentence(report));
+            Assert.Equal(
+                $"파일 3개 중 1개(1바이트)가 이 PC에만 있습니다. 1개는 어느 백업에도 사본이 없습니다. Projects 폴더({gone.RootPath})를 찾을 수 없어 살펴보지 못했습니다.",
+                OnlyHereScanner.Sentence(some));
+            Assert.Equal($"Projects 폴더({gone.RootPath})를 찾을 수 없어 살펴보지 못했습니다.", OnlyHereScanner.Sentence(alone));
+            Assert.Equal("Projects, Photos 폴더를 찾을 수 없어 살펴보지 못했습니다.", OnlyHereScanner.Sentence(both));
+            Assert.Equal("Projects 폴더를 찾을 수 없습니다", Verdicts.MissingHeadline(report.NotFound.Select(s => s.SourceName).ToList()));
+        }
+    }
+
+    [Fact]
+    public async Task AFolderThatGoesWhileItsBackupIsListed_IsNotFound_NotEmpty()
+    {
+        using var docs = new TempTree();
+        using var mirror = new TempTree();
+        using var scratch = new TempTree();
+        docs.Write("x.txt", "x", Old);
+        docs.MirrorTo(mirror.Root);
+
+        var report = await new OnlyHereScanner([new LosesTheSource(docs.Root)]).ScanAsync(
+            [Source.FromPath(docs.Root, "Docs")], [Destination.MirrorFolder(mirror.Root, "Drive")], scratch.Root);
+
+        Assert.Empty(report.Sources);
+        Assert.Equal("Docs", Assert.Single(report.NotFound).SourceName);
+        Assert.Equal($"Docs was not found at {docs.Root}, so none of its files were looked up.", report.Sentence);
+    }
+
+    /// <summary>A folder of copies, during whose listing the protected folder goes away: its drive is unplugged, say.</summary>
+    private sealed class LosesTheSource(string sourceRoot) : IDestinationAdapter
+    {
+        private readonly MirrorFolderAdapter _inner = new();
+
+        public DestinationKind Kind => DestinationKind.MirrorFolder;
+
+        public Task<DestinationProbe> ProbeAsync(Destination destination, CancellationToken ct) => _inner.ProbeAsync(destination, ct);
+
+        public Task<SourceBinding> BindAsync(Destination destination, Sample sample, string scratchDirectory, BindPurpose purpose,
+            IReadOnlyCollection<string> alsoRead, CancellationToken ct)
+        {
+            Directory.Delete(sourceRoot, recursive: true);
+            return _inner.BindAsync(destination, sample, scratchDirectory, purpose, alsoRead, ct);
+        }
+
+        public Task<CopyLookup> LocateAsync(SourceBinding binding, string relativePath, CancellationToken ct) => _inner.LocateAsync(binding, relativePath, ct);
+
+        public Task<ReadBack> ReadBackAsync(SourceBinding binding, CopyLookup copy, string scratchPath, CancellationToken ct) =>
+            _inner.ReadBackAsync(binding, copy, scratchPath, ct);
+    }
+
+    [Fact]
+    public void AScanSavedBeforeMissingFoldersWereNamed_StillLoads_AndReadsAsBefore()
+    {
+        const string old = """{"startedUtc":"2026-10-27T04:55:00+00:00","finishedUtc":"2026-10-27T04:57:00+00:00","checked":["Drive"],"unreachable":[],"notCompared":["Photos"],"sources":[{"sourceId":"a","sourceName":"Docs","rootPath":"/home/max/docs","files":2,"bytes":20,"noCopyFiles":0,"noCopyBytes":0,"olderFiles":0,"olderBytes":0}],"folders":[],"largest":[],"sentence":"unused","onlyHereFiles":0,"onlyHereBytes":0}""";
+
+        var report = JsonSerializer.Deserialize<OnlyHereReport>(old, BoatdrillJson.Options)!;
+
+        Assert.Empty(report.NotFound);
+        Assert.Equal(2, Assert.Single(report.Sources).Files);
+        Assert.Equal("All 2 files have a current copy in at least one backup. Photos could not be compared with any backup.", OnlyHereScanner.Sentence(report));
+
+        // What is written now names the folder, and comes back as it was written.
+        var named = report with { NotFound = [new OnlyHereSource("p", "Projects", "/home/max/projects")] };
+        var read = JsonSerializer.Deserialize<OnlyHereReport>(JsonSerializer.Serialize(named, BoatdrillJson.Options), BoatdrillJson.Options)!;
+        Assert.Equal(("Projects", "/home/max/projects"), (read.NotFound[0].SourceName, read.NotFound[0].RootPath));
     }
 
     [Fact]

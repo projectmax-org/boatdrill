@@ -200,6 +200,9 @@ public sealed class DrillRunnerTests
         Assert.True(result.Score.Total <= Scorer.CorruptionCap, $"scored {result.Score.Total}");
         Assert.Equal(Verdict.NeedsAttention, result.Score.Verdict);
         Assert.Contains("No copy of Desktop was found", result.Sentence);
+
+        // A folder with no copy is a hole in the backup, not a backup that is running late.
+        Assert.Null(result.BehindSince);
     }
 
     [Fact]
@@ -231,6 +234,64 @@ public sealed class DrillRunnerTests
         Assert.Equal(stalled.UtcDateTime, result.BehindSince!.Value.UtcDateTime, TimeSpan.FromSeconds(1));
         Assert.Equal(0, result.Score.Freshness);
         Assert.NotEqual(Verdict.WouldRestore, result.Score.Verdict);
+    }
+
+    [Fact]
+    public async Task AFolderWhoseCopiesAreAllOlderThanTheOriginals_IsBehind_NotUpToDate()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        var now = DateTimeOffset.UtcNow;
+        for (var i = 0; i < 4; i++) tree.Write($"thesis/{i}.txt", $"chapter {i}", now.AddDays(-25));
+        tree.MirrorTo(backup.Root);
+
+        // The backup last ran 25 days ago, and every chapter has been edited since: the first of them ten days ago.
+        var edited = now.AddDays(-10);
+        for (var i = 0; i < 4; i++) tree.Write($"thesis/{i}.txt", $"chapter {i}, revised", edited.AddDays(i));
+
+        var report = await new DrillRunner().RunAsync(Plan(scratch, Source.FromPath(tree.Root, "Thesis"), Destination.MirrorFolder(backup.Root, "USB drive")));
+
+        // Every file has a copy and no copy is the file as it is now. With nothing verified to measure from, the
+        // backup is behind since the oldest of those changes, and does not score as one that is up to date.
+        var result = Assert.Single(report.Destinations);
+        Assert.Equal((0, 4, 0), (result.Verified, result.Outdated, result.Missing));
+        Assert.Equal(edited.UtcDateTime, result.BehindSince!.Value.UtcDateTime, TimeSpan.FromSeconds(1));
+        Assert.Equal(10, result.Lag!.Value.TotalDays, 1);
+        Assert.Equal((93, Verdict.WouldMostlyRestore), (result.Score.Total, result.Score.Verdict));
+        Assert.StartsWith(
+            "USB drive would mostly restore. 0 of 4 sampled files read back correctly and 4 are older than the original. The oldest change not yet copied here is from ",
+            result.Sentence);
+        Assert.Contains("(10 days ago)", result.Sentence);
+    }
+
+    [Fact]
+    public async Task AFolderWithNothingVerified_IsBehind_BesideOneWhoseCopiesAreAllCurrent()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        var now = DateTimeOffset.UtcNow;
+        for (var i = 0; i < 10; i++) tree.Write($"Documents/{i}.txt", $"document {i}", now.AddDays(-3));
+        for (var i = 0; i < 4; i++) tree.Write($"Thesis/{i}.txt", $"chapter {i}", now.AddDays(-25));
+        tree.MirrorTo(backup.Root);
+
+        // Documents is still copied; the Thesis job stopped 25 days ago, and every chapter has changed since.
+        var edited = now.AddDays(-10);
+        for (var i = 0; i < 4; i++) tree.Write($"Thesis/{i}.txt", $"chapter {i}, revised", edited.AddDays(i));
+
+        var report = await new DrillRunner().RunAsync(new DrillPlan
+        {
+            Sources = [Source.FromPath(tree.At("Documents")), Source.FromPath(tree.At("Thesis"))],
+            Destinations = [Destination.MirrorFolder(backup.Root, "NAS")],
+            ScratchDirectory = scratch.Root,
+            Sampling = Everything,
+        });
+
+        var result = Assert.Single(report.Destinations);
+        Assert.Equal((10, 4), (result.Verified, result.Outdated));
+        Assert.Equal(edited.UtcDateTime, result.BehindSince!.Value.UtcDateTime, TimeSpan.FromSeconds(1));
+        Assert.Equal((93, Verdict.WouldMostlyRestore), (result.Score.Total, result.Score.Verdict));
     }
 
     [Fact]
@@ -299,12 +360,60 @@ public sealed class DrillRunnerTests
         Assert.Equal(Verdict.NothingToCheck, Assert.Single(report.Destinations).Score.Verdict);
         Assert.Equal("Nothing could be checked", Verdicts.Headline(report.Destinations));
         Assert.Equal("No file could be read: 3 are too large.", Verdicts.NothingChecked(report.Sources));
-        Assert.Contains("<h1><span class=\"dot none-fill\" aria-hidden=\"true\"></span>Nothing could be checked</h1>", HtmlReport.Render(report));
+        var html = HtmlReport.Render(report);
+        Assert.Contains("<h1><span class=\"dot none-fill\" aria-hidden=\"true\"></span>Nothing could be checked</h1>", html);
+        Assert.DoesNotContain("compared every byte", html);
         Assert.Equal(string.Empty, Verdicts.NothingChecked([report.Sources[0] with { Sampled = 1 }]));
+
+        // Nor is it silent, which would be taken for backups that would restore.
+        var notice = NotificationPolicy.For(report);
+        Assert.Equal(("Nothing could be checked", "No file could be read: 3 are too large."), (notice?.Title, notice?.Text));
         using (new InKorean())
         {
             Assert.Equal("확인할 수 있는 파일이 없었습니다", Verdicts.Headline(report.Destinations));
             Assert.Equal("읽을 수 있는 파일이 없었습니다. 제외한 파일: 너무 큰 파일 3개.", Verdicts.NothingChecked(report.Sources));
+        }
+    }
+
+    [Fact]
+    public async Task WhenNoProtectedFolderWasFound_NothingCallsThemEmpty_OrSaysFilesWereCompared()
+    {
+        using var elsewhere = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        backup.Write("a.txt", "a");
+        var gone = Source.FromPath(elsewhere.At("Pictures"));
+
+        var report = await new DrillRunner().RunAsync(Plan(scratch, gone, Destination.MirrorFolder(backup.Root, "Drive")));
+
+        // On a drive that is not plugged in, say. That the folder was not found is all there is to say of it.
+        Assert.Equal(Verdict.NothingToCheck, Assert.Single(report.Destinations).Score.Verdict);
+        Assert.Equal(string.Empty, Verdicts.NothingChecked(report.Sources));
+        var html = HtmlReport.Render(report);
+        Assert.Contains("<p class=\"lead bad\">Pictures was not found at ", html);
+        Assert.DoesNotContain("no files to check", html);
+        Assert.DoesNotContain("compared every byte", html);
+
+        // Beside it, a folder that is there and empty is named, and so is why none of the others' files could be read.
+        var pictures = report.Sources[0];
+        var documents = new SourceSummary("d", "Documents", "/home/you/Documents", 0, 0, 0, 0, 0, 0, null);
+        var desktop = documents with { SourceId = "k", Name = "Desktop" };
+        var videos = documents with { SourceId = "v", Name = "Videos", Population = 3, SkippedLargeFiles = 3 };
+        Assert.Equal("Documents holds no files to check.", Verdicts.NothingChecked([pictures, documents]));
+        Assert.Equal("Documents and Desktop hold no files to check.", Verdicts.NothingChecked([documents, pictures, desktop]));
+        Assert.Equal("No file could be read: 3 are too large.", Verdicts.NothingChecked([pictures, documents, videos]));
+        Assert.Equal("The protected folders hold no files to check.", Verdicts.NothingChecked([documents, desktop]));
+        using (new InKorean())
+        {
+            Assert.Equal(string.Empty, Verdicts.NothingChecked([pictures]));
+            Assert.Equal("Documents 폴더에는 확인할 파일이 없습니다.", Verdicts.NothingChecked([pictures, documents]));
+            Assert.Equal("Documents, Desktop 폴더에는 확인할 파일이 없습니다.", Verdicts.NothingChecked([documents, pictures, desktop]));
+            Assert.Equal("보호하는 폴더에 확인할 파일이 없습니다.", Verdicts.NothingChecked([documents, desktop]));
+
+            var korean = HtmlReport.Render(report);
+            Assert.Contains(" 걸렸습니다.</p>", korean);
+            Assert.DoesNotContain("비교했습니다", korean);
+            Assert.DoesNotContain("확인할 파일이 없습니다", korean);
         }
     }
 

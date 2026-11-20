@@ -227,39 +227,50 @@ public static class Verdicts
 
     /// <summary>
     /// Why a drill read nothing back, from what its sources held: "No file could be read: 1,204 are online only and 3
-    /// are too large." Empty when files were sampled.
+    /// are too large." Empty when files were sampled, and when none of the folders was found: that is for
+    /// <see cref="MissingSources"/> to say, and a folder that is not there is not one that holds no files.
     /// </summary>
     public static string NothingChecked(IReadOnlyList<SourceSummary> sources)
     {
         if (sources.Sum(s => s.Sampled) > 0) return string.Empty;
 
-        long online = sources.Sum(s => s.SkippedOnlineOnlyFiles), large = sources.Sum(s => s.SkippedLargeFiles), fresh = sources.Sum(s => s.SkippedChurningFiles);
+        // Only the folders that were there held, or did not hold, files to check. Beside one that was not found, the
+        // empty ones are named: "the protected folders" would call the missing one empty too.
+        var found = sources.Where(s => !s.Missing).ToList();
+        var someMissing = found.Count < sources.Count;
+        if (someMissing && found.Count == 0) return string.Empty;
+
+        var names = Language.List(found.Select(s => s.Name).ToList());
+        long online = found.Sum(s => s.SkippedOnlineOnlyFiles), large = found.Sum(s => s.SkippedLargeFiles), fresh = found.Sum(s => s.SkippedChurningFiles);
         var reasons = new List<string>();
         if (Language.IsKorean)
         {
             if (online > 0) reasons.Add($"온라인 전용 파일 {online:N0}개");
             if (large > 0) reasons.Add($"너무 큰 파일 {large:N0}개");
             if (fresh > 0) reasons.Add($"최근 몇 시간 사이에 바뀐 파일 {fresh:N0}개");
-            return reasons.Count == 0
-                ? "보호하는 폴더에 확인할 파일이 없습니다."
-                : $"읽을 수 있는 파일이 없었습니다. 제외한 파일: {string.Join(", ", reasons)}.";
+            return reasons.Count > 0 ? $"읽을 수 있는 파일이 없었습니다. 제외한 파일: {string.Join(", ", reasons)}."
+                : someMissing ? $"{Korean.Folder(names)}에는 확인할 파일이 없습니다."
+                : "보호하는 폴더에 확인할 파일이 없습니다.";
         }
 
         if (online > 0) reasons.Add($"{online:N0} {(online == 1 ? "is" : "are")} online only");
         if (large > 0) reasons.Add($"{large:N0} {(large == 1 ? "is" : "are")} too large");
         if (fresh > 0) reasons.Add($"{fresh:N0} changed in the last few hours");
-        return reasons.Count == 0
-            ? "The protected folders hold no files to check."
-            : $"No file could be read: {Language.List(reasons)}.";
+        return reasons.Count > 0 ? $"No file could be read: {Language.List(reasons)}."
+            : someMissing ? $"{names} {(found.Count == 1 ? "holds" : "hold")} no files to check."
+            : "The protected folders hold no files to check.";
     }
 
     /// <summary>The same as a headline, for a drill whose backups are otherwise fine: "Pictures was not found".</summary>
-    public static string MissingHeadline(IReadOnlyList<SourceSummary> missing) => (missing.Count, Language.IsKorean) switch
+    public static string MissingHeadline(IReadOnlyList<SourceSummary> missing) => MissingHeadline(missing.Select(s => s.Name).ToList());
+
+    /// <summary>The same headline from the folders' names alone, which is how a scan knows the ones it did not find.</summary>
+    public static string MissingHeadline(IReadOnlyList<string> names) => (names.Count, Language.IsKorean) switch
     {
-        (1, true) => $"{Korean.Object(Korean.Folder(missing[0].Name))} 찾을 수 없습니다",
-        (1, false) => $"{missing[0].Name} was not found",
-        (_, true) => $"보호하는 폴더 {missing.Count}개를 찾을 수 없습니다",
-        (_, false) => $"{missing.Count} protected folders were not found",
+        (1, true) => $"{Korean.Object(Korean.Folder(names[0]))} 찾을 수 없습니다",
+        (1, false) => $"{names[0]} was not found",
+        (_, true) => $"보호하는 폴더 {names.Count}개를 찾을 수 없습니다",
+        (_, false) => $"{names.Count} protected folders were not found",
     };
 
     /// <summary>A backup and its verdict, as a headline: "Family NAS needs attention".</summary>

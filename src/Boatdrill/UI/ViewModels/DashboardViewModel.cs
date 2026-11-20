@@ -143,6 +143,8 @@ public sealed class DashboardViewModel : ViewModelBase
                 HeadlineKind = VerdictStyle.Bad;
             }
 
+            // A drill that sampled nothing read nothing back and compared nothing: it says when it ran, and the
+            // sentences added below say why.
             var sampled = latest.Sources.Sum(s => s.Sampled);
             var reached = results.Count(r => r.Reachable);
             var ago = Humanize.Ago(now - latest.FinishedUtc);
@@ -150,8 +152,8 @@ public sealed class DashboardViewModel : ViewModelBase
             {
                 var from = reached == results.Count ? $"백업 {results.Count:N0}개" : $"백업 {results.Count:N0}개 중 {reached:N0}개";
                 var when = Humanize.AgoWhen(now - latest.FinishedUtc);
-                Summary = reached == 0
-                    ? $"{when} 한 마지막 복원 훈련에서는 어떤 백업에도 연결하지 못했습니다."
+                Summary = reached == 0 ? $"{when} 한 마지막 복원 훈련에서는 어떤 백업에도 연결하지 못했습니다."
+                    : sampled == 0 ? $"마지막 복원 훈련은 {when} 했습니다."
                     : $"{when} 한 마지막 복원 훈련에서 표본 파일 {sampled:N0}개를 {from}에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.";
             }
             else
@@ -159,8 +161,8 @@ public sealed class DashboardViewModel : ViewModelBase
                 var from = reached == results.Count
                     ? Humanize.Plural(results.Count, "backup")
                     : $"{reached} of {Humanize.Plural(results.Count, "backup")}";
-                Summary = reached == 0
-                    ? $"The last drill, {ago}, could not reach any backup."
+                Summary = reached == 0 ? $"The last drill, {ago}, could not reach any backup."
+                    : sampled == 0 ? $"The last drill ran {ago}."
                     : $"The last drill, {ago}, read {Humanize.Plural(sampled, "sampled file")} back from {from} and compared every byte with the original.";
             }
 

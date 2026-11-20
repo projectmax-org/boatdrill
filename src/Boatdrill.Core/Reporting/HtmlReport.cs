@@ -72,19 +72,22 @@ public static class HtmlReport
     {
         var scheduled = report.Trigger == DrillTrigger.Scheduled;
         var total = report.Destinations.Count;
+
+        // A drill that sampled nothing read nothing back and compared nothing: the lines under this one say why.
+        var nothingRead = reached > 0 && sampled == 0;
         if (Language.IsKorean)
         {
-            var when = $"{Language.DayDateAndTime(report.StartedUtc)}에 {(scheduled ? "예약대로" : "직접")} 실행한 복원 훈련으로, {Korean.Subject(Humanize.Duration(report.Duration))} 걸렸습니다. ";
+            var when = $"{Language.DayDateAndTime(report.StartedUtc)}에 {(scheduled ? "예약대로" : "직접")} 실행한 복원 훈련으로, {Korean.Subject(Humanize.Duration(report.Duration))} 걸렸습니다.";
             var backups = reached == total ? $"백업 {total:N0}개" : $"백업 {total:N0}개 중 {reached:N0}개";
-            return when + (reached == 0
+            return nothingRead ? when : when + " " + (reached == 0
                 ? "어떤 백업에도 연결하지 못했습니다."
                 : $"표본 파일 {sampled:N0}개를 {backups}에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.");
         }
 
-        return $"Drill on {Language.DayDateAndTime(report.StartedUtc)}, {(scheduled ? "on schedule" : "run by hand")}, took {Humanize.Duration(report.Duration)}. " +
-               (reached == 0
-                   ? "It could not reach any backup."
-                   : $"It read {Humanize.Plural(sampled, "sampled file")} back from {(reached == total ? Humanize.Plural(reached, "backup") : $"{reached} of {Humanize.Plural(total, "backup")}")} and compared every byte with the original.");
+        var ran = $"Drill on {Language.DayDateAndTime(report.StartedUtc)}, {(scheduled ? "on schedule" : "run by hand")}, took {Humanize.Duration(report.Duration)}.";
+        return nothingRead ? ran : ran + " " + (reached == 0
+            ? "It could not reach any backup."
+            : $"It read {Humanize.Plural(sampled, "sampled file")} back from {(reached == total ? Humanize.Plural(reached, "backup") : $"{reached} of {Humanize.Plural(total, "backup")}")} and compared every byte with the original.");
     }
 
     private static void AppendSources(StringBuilder html, DrillReport report)

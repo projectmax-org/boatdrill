@@ -78,6 +78,10 @@ public sealed class ScorerTests
         ScoreInputs Folders(int withoutCopies) => new(210, 200, 0, 0, 10, 0, 0, 10_000, null, true, 1.0, SourcesWithoutCopies: withoutCopies);
         Assert.Equal(95, Scorer.Score(Folders(0)).Total);
         Assert.Equal((69, Verdict.NeedsAttention), (Scorer.Score(Folders(1)).Total, Scorer.Score(Folders(1)).Verdict));
+
+        // Four files, each with a copy older than the original, the oldest change ten days old.
+        var stale = Scorer.Score(Inputs(sampled: 4, verified: 0, outdated: 4, lag: TimeSpan.FromDays(10)));
+        Assert.Equal((93, Verdict.WouldMostlyRestore), (stale.Total, stale.Verdict));
     }
 
     [Fact]

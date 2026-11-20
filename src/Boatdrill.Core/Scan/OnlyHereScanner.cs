@@ -73,6 +73,7 @@ public sealed class OnlyHereScanner
         var lookedIn = new HashSet<string>(StringComparer.Ordinal);
         var notLookedIn = new Dictionary<string, string>(StringComparer.Ordinal);
         var notCompared = new List<string>();
+        var notFound = new List<OnlyHereSource>();
         var folders = new Dictionary<(string Source, string Folder), (int Files, long Bytes)>();
         var largest = new PriorityQueue<OnlyHereFile, long>();
         long checkedFiles = 0, onlyHere = 0;
@@ -85,6 +86,16 @@ public sealed class OnlyHereScanner
             // A drill-sized sample is enough for each adapter to work out where this source's copies live.
             progress?.Report(new ScanProgress(Language.Pick("Finding " + source.Name + " in the backups", $"백업에서 {source.Name} 찾는 중"), checkedFiles, onlyHere));
             var probeSample = new Sampler(clock: _clock).Take(source);
+            var summary = new OnlyHereSource(source.Id, source.Name, Path.GetFullPath(source.RootPath));
+
+            // A folder that is not there has no files to look up, which is not every file in it having a copy: the
+            // report names the folder instead of counting it.
+            if (probeSample.Missing)
+            {
+                notFound.Add(summary);
+                continue;
+            }
+
             var bindings = new List<(IDestinationAdapter Adapter, SourceBinding Binding)>();
             foreach (var (destination, adapter) in reachable)
             {
@@ -108,7 +119,6 @@ public sealed class OnlyHereScanner
                 continue;
             }
 
-            var summary = new OnlyHereSource(source.Id, source.Name, Path.GetFullPath(source.RootPath));
             long files = 0, bytes = 0, noCopy = 0, noCopyBytes = 0, older = 0, olderBytes = 0;
             foreach (var file in SourceFiles.Enumerate(source))
             {
@@ -142,6 +152,14 @@ public sealed class OnlyHereScanner
                 if (++checkedFiles % 500 == 0) progress?.Report(new ScanProgress(Language.Pick("Looking through " + source.Name, source.Name + " 살펴보는 중"), checkedFiles, onlyHere));
             }
 
+            // Gone since it was sampled, as when its drive is unplugged while a backup is being listed: none of its
+            // files were looked up either.
+            if (files == 0 && !Directory.Exists(summary.RootPath))
+            {
+                notFound.Add(summary);
+                continue;
+            }
+
             summaries.Add(summary with
             {
                 Files = files,
@@ -161,6 +179,7 @@ public sealed class OnlyHereScanner
             Checked = reachable.Select(r => r.Destination.Name).Where(name => lookedIn.Contains(name) || !notLookedIn.ContainsKey(name)).ToList(),
             Unreachable = [.. unreachable, .. notLookedIn.Select(n => $"{n.Key}: {n.Value}")],
             NotCompared = notCompared,
+            NotFound = notFound,
             Sources = summaries,
             Folders = folders
                 .OrderByDescending(f => f.Value.Bytes)
@@ -203,12 +222,19 @@ public sealed class OnlyHereScanner
         }
 
         // A folder that no backup could be looked in for is not counted, and must not pass for one whose files have copies.
+        // Neither must a folder that was not there, which is not an empty one either.
         var notCompared = r.NotCompared.Count == 0 ? string.Empty : $" {string.Join(", ", r.NotCompared)} could not be compared with any backup.";
+        var notFound = NotFoundSentence(r);
         var total = r.Sources.Sum(s => s.Files);
-        if (total == 0) return r.NotCompared.Count == 0 ? "There are no files in the folders being protected." : notCompared.TrimStart();
+        if (total == 0) return (notFound + notCompared).TrimStart() is { Length: > 0 } leftOut ? leftOut : "There are no files in the folders being protected.";
         if (r.OnlyHereFiles == 0)
         {
-            return $"All {total:N0} {(total == 1 ? "file has" : "files have")} a current copy in at least one backup." + notCompared;
+            // Beside a folder that was not found, that is said first and "all" is said of the files that were looked up:
+            // it must never read as every file there is.
+            var all = notFound.Length == 0
+                ? $"All {total:N0} {(total == 1 ? "file has" : "files have")} a current copy in at least one backup."
+                : $"{notFound} All {total:N0} {(total == 1 ? "file that was looked up has" : "files that were looked up have")} a current copy in at least one backup.";
+            return all + notCompared;
         }
 
         var noCopy = r.Sources.Sum(s => s.NoCopyFiles);
@@ -219,7 +245,28 @@ public sealed class OnlyHereScanner
 
         var lead = $"{r.OnlyHereFiles:N0} of {total:N0} {(total == 1 ? "file" : "files")} ({Humanize.Bytes(r.OnlyHereBytes)}) exist only on this PC: {string.Join(" and ", parts)}.";
         if (r.Unreachable.Count > 0) lead += $" {Humanize.Plural(r.Unreachable.Count, "backup")} could not be looked in and may hold copies of some of these files.";
-        return lead + notCompared;
+        return lead + notCompared + (notFound.Length == 0 ? string.Empty : " " + notFound);
+    }
+
+    /// <summary>
+    /// The protected folders that were not there, as a sentence; empty when every one was found. One folder comes with
+    /// its path, since that is where the user has to look.
+    /// </summary>
+    private static string NotFoundSentence(OnlyHereReport r)
+    {
+        if (r.NotFound.Count == 0) return string.Empty;
+
+        var names = Language.List(r.NotFound.Select(s => s.SourceName).ToList());
+        if (Language.IsKorean)
+        {
+            // "사진 폴더(C:\Users\you\Pictures)를": the particle goes with the name, not with the path in brackets.
+            var folders = r.NotFound.Count == 1 ? $"{Korean.Folder(names)}({r.NotFound[0].RootPath})" : Korean.Folder(names);
+            return $"{Korean.Object(folders)} 찾을 수 없어 살펴보지 못했습니다.";
+        }
+
+        return r.NotFound.Count == 1
+            ? $"{names} was not found at {r.NotFound[0].RootPath}, so none of its files were looked up."
+            : $"{names} were not found, so none of their files were looked up.";
     }
 
     private static string KoreanSentence(OnlyHereReport r)
@@ -232,9 +279,16 @@ public sealed class OnlyHereScanner
         }
 
         var notCompared = r.NotCompared.Count == 0 ? string.Empty : $" {Korean.Topic(string.Join(", ", r.NotCompared))} 어느 백업과도 비교하지 못했습니다.";
+        var notFound = NotFoundSentence(r);
         var total = r.Sources.Sum(s => s.Files);
-        if (total == 0) return r.NotCompared.Count == 0 ? "보호하는 폴더에 파일이 없습니다." : notCompared.TrimStart();
-        if (r.OnlyHereFiles == 0) return $"파일 {total:N0}개 모두 적어도 한 백업에 최신 사본이 있습니다." + notCompared;
+        if (total == 0) return (notFound + notCompared).TrimStart() is { Length: > 0 } leftOut ? leftOut : "보호하는 폴더에 파일이 없습니다.";
+        if (r.OnlyHereFiles == 0)
+        {
+            var all = notFound.Length == 0
+                ? $"파일 {total:N0}개 모두 적어도 한 백업에 최신 사본이 있습니다."
+                : $"{notFound} 살펴본 파일 {total:N0}개 모두 적어도 한 백업에 최신 사본이 있습니다.";
+            return all + notCompared;
+        }
 
         var noCopy = r.Sources.Sum(s => s.NoCopyFiles);
         var older = r.Sources.Sum(s => s.OlderFiles);
@@ -242,6 +296,6 @@ public sealed class OnlyHereScanner
         if (noCopy > 0) sentences.Add($"{noCopy:N0}개는 어느 백업에도 사본이 없습니다.");
         if (older > 0) sentences.Add($"{older:N0}개는 마지막으로 복사된 뒤에 바뀌었습니다.");
         if (r.Unreachable.Count > 0) sentences.Add($"살펴보지 못한 백업 {r.Unreachable.Count:N0}개에 이 중 일부 파일의 사본이 있을 수 있습니다.");
-        return string.Join(" ", sentences) + notCompared;
+        return string.Join(" ", sentences) + notCompared + (notFound.Length == 0 ? string.Empty : " " + notFound);
     }
 }

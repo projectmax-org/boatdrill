@@ -74,6 +74,36 @@ public sealed class NotificationPolicyTests
     }
 
     [Fact]
+    public void ADrillThatReadNothingBack_IsNotSilent_AndSaysWhy()
+    {
+        // Every file of the protected folders is online only or too large: each scheduled drill reads nothing back,
+        // and silence about that would be taken for backups that would restore.
+        var documents = new SourceSummary("d", "Documents", "/home/you/Documents", 3, 3000, 0, 0, SkippedLargeFiles: 3, 0, null, SkippedOnlineOnlyFiles: 12);
+        var nothing = Result("Drive", Verdict.NothingToCheck, "unused") with { Sampled = 0, Verified = 0 };
+        var report = Report(nothing, nothing with { DestinationId = "nas", DestinationName = "NAS" }) with { Sources = [documents] };
+
+        var notice = NotificationPolicy.For(report);
+
+        Assert.NotNull(notice);
+        Assert.Equal("Nothing could be checked", notice.Title);
+        Assert.Equal("No file could be read: 12 are online only and 3 are too large.", notice.Text);
+
+        var empty = NotificationPolicy.For(report with { Sources = [documents with { Population = 0, PopulationBytes = 0, SkippedLargeFiles = 0, SkippedOnlineOnlyFiles = 0 }] });
+        Assert.Equal("The protected folders hold no files to check.", empty!.Text);
+
+        using (new InKorean())
+        {
+            var korean = NotificationPolicy.For(report);
+            Assert.Equal("확인할 수 있는 파일이 없었습니다", korean!.Title);
+            Assert.Equal("읽을 수 있는 파일이 없었습니다. 제외한 파일: 온라인 전용 파일 12개, 너무 큰 파일 3개.", korean.Text);
+        }
+
+        // A backup that could not be reached is still the thing to say first.
+        var unplugged = NotificationPolicy.For(report with { Destinations = [nothing, Result("SSD", Verdict.Unreachable, "unused", probe: "E:\\ was not found")] });
+        Assert.Equal("SSD could not be reached", unplugged!.Title);
+    }
+
+    [Fact]
     public void ADrillThatCouldNotFinish_SaysWhy_AndThatNothingWasChecked()
     {
         var notice = NotificationPolicy.ForFailedDrill("There is not enough space on the disk. ");

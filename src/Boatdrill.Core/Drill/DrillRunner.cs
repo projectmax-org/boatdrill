@@ -242,10 +242,13 @@ public sealed class DrillRunner
             }
 
             // Freshness looks only at changes newer than anything verified of this source: an old file that was never
-            // copied is a coverage hole, not a lag. A source with nothing verified here has no lag to measure; if none
-            // of its files has a copy at all, the whole folder would be lost with the PC.
+            // copied is a coverage hole, not a lag. A source with copies here, none of which verified, has nothing to
+            // measure from, so it is behind since its oldest change not yet copied: copies that are all older than
+            // the originals must not read as up to date. If none of its files has a copy at all, the whole folder
+            // would be lost with the PC, which caps the score and is not a lag either.
             if (sample.Files.Count > 0 && found == 0) sourcesWithoutCopies++;
-            if (newestVerified is { } floor && notCopied.Where(t => t > floor).Select(t => (DateTimeOffset?)t).Min() is { } sourceBehind &&
+            var floor = newestVerified ?? DateTimeOffset.MinValue;
+            if (found > 0 && notCopied.Where(t => t > floor).Select(t => (DateTimeOffset?)t).Min() is { } sourceBehind &&
                 (behindSince is null || sourceBehind < behindSince))
             {
                 behindSince = sourceBehind;

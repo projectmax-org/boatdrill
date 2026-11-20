@@ -189,8 +189,9 @@ public static class Program
             Print(report);
         }
 
-        // A pass is every file looked up and found: a folder no backup could be looked in for has not been.
-        return report.Checked.Count > 0 && report.OnlyHereFiles == 0 && report.NotCompared.Count == 0 ? 0 : 1;
+        // A pass is every file looked up and found: a folder no backup could be looked in for has not been, nor has one
+        // that was not there (it vanished while the scan ran).
+        return report.Checked.Count > 0 && report.OnlyHereFiles == 0 && report.NotCompared.Count == 0 && report.NotFound.Count == 0 ? 0 : 1;
     }
 
     private static async Task<int> RehearseAsync(Options options)
@@ -317,6 +318,7 @@ public static class Program
     {
         Console.WriteLine(report.Sentence);
         foreach (var unreachable in report.Unreachable) Console.WriteLine($"  Not looked in: {unreachable}");
+        foreach (var s in report.NotFound) Console.WriteLine($"  Not found: {s.SourceName} ({s.RootPath})");
 
         foreach (var s in report.Sources)
         {

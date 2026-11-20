@@ -44,8 +44,8 @@ It runs at Windows' background priority, and a drill that has waited a day (or t
 ahead at the next chance.
 
 **Speaks up only when it matters.** A Windows notification when a drill finds a backup that would not
-restore, could not be reached or checked, or needs attention, or does not find one of your folders, and
-once when drills cannot finish at all. Silence when everything would restore.
+restore, could not be reached or checked, or needs attention, does not find one of your folders, or has no
+file it can read back, and once when drills cannot finish at all. Silence when everything would restore.
 
 **Works out where your copies are.** Whether the drive holds the folder's contents directly, a folder
 named after it, or a full-path mirror (`D:\Backup\C\Users\...`), the drill tries each layout against the
@@ -178,7 +178,8 @@ its words, and on its exit codes:
   attention, could not be reached or checked, or had nothing to check, or when a `--source` folder went
   missing while it ran;
 - `only-here` exits 0 when every file has a current copy in a backup, and 1 when some do not, when no
-  backup could be looked in, or when a folder could not be compared with any backup;
+  backup could be looked in, when a folder could not be compared with any backup, or when a `--source`
+  folder went missing while it ran;
 - `rehearse` exits 0 when every file came back intact, and 1 otherwise, including when nothing was restored
   (a `--folder` outside the source or not there, say);
 - `report` exits 0 when it wrote the report;

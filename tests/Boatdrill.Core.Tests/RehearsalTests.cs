@@ -161,6 +161,32 @@ public sealed class RehearsalTests
     }
 
     [Fact]
+    public async Task AProtectedFolderThatIsGone_IsNotFound_NotAFolderWithNoFiles()
+    {
+        using var elsewhere = new TempTree();
+        using var mirror = new TempTree();
+        using var scratch = new TempTree();
+        mirror.Write("a.txt", "a", Old);
+        var gone = Source.FromPath(elsewhere.At("Pictures"));
+        var drive = Destination.MirrorFolder(mirror.Root, "Drive");
+
+        var whole = await new RehearsalRunner().RunAsync(new RehearsalPlan(gone, drive, scratch.Root));
+        Assert.Equal((0L, false), (whole.Files, whole.AllIntact));
+        Assert.Equal($"Pictures was not found at {gone.RootPath}, so nothing was restored.", whole.Sentence);
+
+        // A folder inside it is not there for the same reason, which is the one to give.
+        var inside = await new RehearsalRunner().RunAsync(new RehearsalPlan(gone, drive, scratch.Root) { Folder = "2026" });
+        Assert.Equal(whole.Sentence, inside.Sentence);
+        TempTree.AssertEmpty(scratch.Root);
+
+        using (new InKorean())
+        {
+            Assert.Equal($"Pictures 폴더({gone.RootPath})를 찾을 수 없어 아무것도 복원하지 않았습니다.",
+                (await new RehearsalRunner().RunAsync(new RehearsalPlan(gone, drive, scratch.Root))).Sentence);
+        }
+    }
+
+    [Fact]
     public async Task ABackupWhoseFilesCannotBeListed_RestoresNothing_AndSaysWhy()
     {
         using var source = new TempTree();

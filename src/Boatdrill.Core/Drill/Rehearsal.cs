@@ -231,18 +231,28 @@ public sealed class RehearsalRunner
         }
     }
 
-    /// <summary>Why the plan's folder cannot be rehearsed, if it cannot: it leads out of the source, or it is not there.</summary>
+    /// <summary>
+    /// Why the plan's folder cannot be rehearsed, if it cannot: the protected folder itself is not there, or the folder
+    /// asked for inside it leads out of it or is not there.
+    /// </summary>
     private static string? FolderProblem(RehearsalPlan plan)
     {
-        if (string.IsNullOrEmpty(plan.Folder)) return null;
-
         var root = Path.GetFullPath(plan.Source.RootPath);
-        var folder = Path.GetFullPath(Path.Combine(root, plan.Folder));
+        var folder = string.IsNullOrEmpty(plan.Folder) ? root : Path.GetFullPath(Path.Combine(root, plan.Folder));
         if (!SourceFiles.IsInside(root, folder))
         {
             return Language.Pick(
                 $"{plan.Folder} is not a folder inside {plan.Source.Name}, so nothing was restored.",
                 $"{Korean.Topic(plan.Folder)} {plan.Source.Name} 안의 폴더가 아니어서 아무것도 복원하지 않았습니다.");
+        }
+
+        // The protected folder itself is not there: renamed, moved, or on a drive that is not connected. That is not a
+        // folder with no files in it, so the rehearsal says where it looked.
+        if (!Directory.Exists(root))
+        {
+            return Language.Pick(
+                $"{plan.Source.Name} was not found at {root}, so nothing was restored.",
+                $"{Korean.Object($"{Korean.Folder(plan.Source.Name)}({root})")} 찾을 수 없어 아무것도 복원하지 않았습니다.");
         }
 
         return Directory.Exists(folder)

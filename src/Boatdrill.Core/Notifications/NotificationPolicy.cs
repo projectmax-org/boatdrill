@@ -8,8 +8,9 @@ namespace Boatdrill.Core.Notifications;
 public sealed record Notice(string Title, string Text);
 
 /// <summary>
-/// What, if anything, a finished drill should say in a notification. Silence when every destination
-/// would restore and every protected folder was found: a notification is for something the user needs to do.
+/// What, if anything, a finished drill should say in a notification. Silence when every destination would restore
+/// what was read back, fully or mostly, and every protected folder was found: a notification is for something the
+/// user needs to do. A drill that read nothing back is not silent, or its silence would pass for that.
 /// </summary>
 public static class NotificationPolicy
 {
@@ -29,10 +30,17 @@ public static class NotificationPolicy
         {
             // Every backup would restore what was checked, but a folder that was not found was not checked at all.
             var missing = report.MissingSources;
-            return missing.Count == 0
-                ? null
-                : new Notice(Verdicts.MissingHeadline(missing), Shorten(
+            if (missing.Count > 0)
+            {
+                return new Notice(Verdicts.MissingHeadline(missing), Shorten(
                     Verdicts.MissingSources(missing) + Language.Pick(" Check the folder in Settings.", " 설정에서 폴더를 확인하세요."), MaxText));
+            }
+
+            // Nor has a drill that read nothing back shown that anything would restore: every file was online only,
+            // too large or just changed, say. Said every time, as a backup that is not there is.
+            return report.Destinations.Any(d => d.Score.Verdict == Verdict.NothingToCheck)
+                ? new Notice(Verdicts.Headline(report.Destinations), Shorten(Verdicts.NothingChecked(report.Sources), MaxText))
+                : null;
         }
 
         if (problems.Count == 1)

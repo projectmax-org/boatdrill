@@ -1,4 +1,5 @@
 using System.Windows.Threading;
+using Boatdrill.Core.Drill;
 using Boatdrill.Core.Scan;
 using Boatdrill.Core.Text;
 
@@ -172,6 +173,14 @@ public sealed class OnlyHereViewModel : ViewModelBase, IDisposable
                 ? $"이 PC에만 있는 파일이 {report.OnlyHereFiles:N0}개 있습니다"
                 : $"{report.OnlyHereFiles:N0} {(report.OnlyHereFiles == 1 ? "file exists" : "files exist")} only on this PC", VerdictStyle.Bad),
         };
+
+        // A folder that was not there was not looked through, so its files may have no copy at all: as on the
+        // dashboard, that outranks everything short of bad news, "every file has a copy" first of all.
+        if (report.NotFound.Count > 0 && HeadlineKind != VerdictStyle.Bad)
+        {
+            Headline = Verdicts.MissingHeadline(report.NotFound.Select(s => s.SourceName).ToList());
+            HeadlineKind = VerdictStyle.Bad;
+        }
 
         // Written again from the report's numbers, so it reads in the language Boatdrill speaks now.
         Sentence = OnlyHereScanner.Sentence(report);

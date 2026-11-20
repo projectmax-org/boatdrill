@@ -47,6 +47,14 @@ public sealed record OnlyHereReport
     /// </summary>
     public IReadOnlyList<string> NotCompared { get; init; } = [];
 
+    /// <summary>
+    /// The sources whose folder was not there: renamed, moved, or on a drive that is not connected. None of their files
+    /// were looked up, so they are not among <see cref="Sources"/>, and a scan with any of these has not found that
+    /// every file has a copy. Empty in a scan saved before 1.0.
+    /// </summary>
+    public IReadOnlyList<OnlyHereSource> NotFound { get; init; } = [];
+
+    /// <summary>The sources whose files were looked up.</summary>
     public required IReadOnlyList<OnlyHereSource> Sources { get; init; }
 
     /// <summary>The folders holding the most bytes that exist only here, largest first.</summary>

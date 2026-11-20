@@ -52,7 +52,10 @@ public sealed class DrillService : IDisposable
 
     public DrillProgress? Progress { get; private set; }
 
-    /// <summary>Why the last drill did not finish, in words for the status line. Cleared when a drill starts.</summary>
+    /// <summary>
+    /// Why the last drill did not finish, or that it finished and could not be saved to the history, in words for the
+    /// status line. Cleared when a drill starts.
+    /// </summary>
     public string? LastError { get; private set; }
 
     /// <summary>The last drill failed with an error, and none has finished since: the latest report is older than it looks.</summary>
@@ -61,7 +64,7 @@ public sealed class DrillService : IDisposable
     /// <summary>Running state or progress changed. Raised at most every 200 ms while a drill reads files.</summary>
     public event EventHandler? StateChanged;
 
-    /// <summary>A drill finished and is in the history.</summary>
+    /// <summary>A drill finished. It is in the history, unless <see cref="LastError"/> says that it could not be saved there.</summary>
     public event EventHandler<DrillReport>? Completed;
 
     /// <summary>A drill failed with an error, not stopped and not refused; the argument says why, without the words around it.</summary>
@@ -117,7 +120,19 @@ public sealed class DrillService : IDisposable
                 if (ledger is not null) await SaveLedgerAsync(ledger, settings).ConfigureAwait(false);
                 return finished;
             }, cancel.Token).ConfigureAwait(false);
-            await _history.AppendAsync(report, CancellationToken.None).ConfigureAwait(false);
+
+            // The backups were checked whether or not that can be written down. A history that cannot be saved costs
+            // the drill its line there, never its result, and must not read as a drill that could not finish.
+            try
+            {
+                await _history.AppendAsync(report, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Drill {report.Id} finished, but the history could not be saved.", ex);
+                LastError = Language.Pick("The drill finished, but the history could not be saved: ", "복원 훈련은 끝났지만 기록을 저장하지 못했습니다: ") + ex.Message;
+            }
+
             _recent = [.. _recent.TakeLast(RecentCount - 1), report];
             IsFailing = false;
             Log.Info($"Drill {report.Id} finished in {report.Duration.TotalSeconds:0}s; worst verdict {report.Worst}.");

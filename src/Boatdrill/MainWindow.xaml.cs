@@ -19,6 +19,9 @@ public partial class MainWindow : Window
     private bool _reallyClosing;
     private bool _closing;
 
+    /// <summary>The size the window opened at, when the screen had no room for the size in the settings.</summary>
+    private Size? _fitted;
+
     public MainWindow(AppServices services, MainViewModel viewModel)
     {
         _services = services;
@@ -29,8 +32,13 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = viewModel;
 
-        Width = Math.Max(MinWidth, services.Settings.Settings.WindowWidth);
-        Height = Math.Max(MinHeight, services.Settings.Settings.WindowHeight);
+        // Never larger than the screen has room for: a 1080p laptop scaled to 150% has 1280 by 672 here, and the
+        // window as it is first sized, 740 high and centred, would open with its title bar above the top of it.
+        var wanted = new Size(Math.Max(MinWidth, services.Settings.Settings.WindowWidth), Math.Max(MinHeight, services.Settings.Settings.WindowHeight));
+        var room = SystemParameters.WorkArea;
+        Width = Math.Min(wanted.Width, Math.Max(MinWidth, room.Width));
+        Height = Math.Min(wanted.Height, Math.Max(MinHeight, room.Height));
+        if (Width < wanted.Width || Height < wanted.Height) _fitted = new Size(Width, Height);
 
         SourceInitialized += OnSourceInitialized;
         IsVisibleChanged += OnIsVisibleChanged;
@@ -187,8 +195,13 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Normal && !_reallyClosing)
         {
             var (width, height) = (Width, Height);
-            if (Math.Abs(width - _services.Settings.Settings.WindowWidth) > 1 || Math.Abs(height - _services.Settings.Settings.WindowHeight) > 1)
+
+            // A size the screen imposed is not one the user chose: it is not kept, so the window is its own size
+            // again on a larger screen.
+            var imposed = _fitted is { } fitted && Math.Abs(width - fitted.Width) <= 1 && Math.Abs(height - fitted.Height) <= 1;
+            if (!imposed && (Math.Abs(width - _services.Settings.Settings.WindowWidth) > 1 || Math.Abs(height - _services.Settings.Settings.WindowHeight) > 1))
             {
+                _fitted = null;
                 _services.Settings.Update(s =>
                 {
                     s.WindowWidth = width;

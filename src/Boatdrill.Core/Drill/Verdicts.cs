@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Boatdrill.Core.Notifications;
 using Boatdrill.Core.Scoring;
@@ -203,6 +204,60 @@ public static class Verdicts
             _ => korean ? $"확인이 필요한 백업이 {problems.Count}개 있습니다" : $"{problems.Count} backups need attention",
         };
     }
+
+    /// <summary>
+    /// When the last drill ran and what it read back, as the line under the dashboard's headline: "The last drill, 2
+    /// days ago, read 400 sampled files back from 4 of 5 backups and compared every byte with the original." A drill
+    /// that read from no backup says whether it could not reach them or could not check them. A backup an error kept
+    /// it from checking may well have been reached, and the fault may be on this PC, a scratch disk that filled,
+    /// say: with one of those the drill could not check any backup, and nobody is sent to look at a cable.
+    /// </summary>
+    /// <param name="results">The drill's results for the backups the line is about: on the dashboard, those still in Settings.</param>
+    public static string LastDrill(DrillReport drill, IReadOnlyList<DestinationResult> results, DateTimeOffset now)
+    {
+        // A drill that sampled nothing read nothing back and compared nothing: it says when it ran, and
+        // NothingChecked says why.
+        var sampled = drill.Sources.Sum(s => s.Sampled);
+        var reached = results.Count(r => r.Reachable);
+        var notChecked = results.Any(r => r.Score.Verdict == Verdict.CouldNotCheck);
+        if (Language.IsKorean)
+        {
+            var from = reached == results.Count ? $"백업 {results.Count:N0}개" : $"백업 {results.Count:N0}개 중 {reached:N0}개";
+            var when = Humanize.AgoWhen(now - drill.FinishedUtc);
+            return reached == 0 && notChecked ? $"{when} 한 마지막 복원 훈련에서는 어떤 백업도 확인하지 못했습니다."
+                : reached == 0 ? $"{when} 한 마지막 복원 훈련에서는 어떤 백업에도 연결하지 못했습니다."
+                : sampled == 0 ? $"마지막 복원 훈련은 {when} 했습니다."
+                : $"{when} 한 마지막 복원 훈련에서 표본 파일 {sampled:N0}개를 {from}에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.";
+        }
+
+        var ago = Humanize.Ago(now - drill.FinishedUtc);
+        var backups = reached == results.Count
+            ? Humanize.Plural(results.Count, "backup")
+            : $"{reached} of {Humanize.Plural(results.Count, "backup")}";
+        return reached == 0 && notChecked ? $"The last drill, {ago}, could not check any backup."
+            : reached == 0 ? $"The last drill, {ago}, could not reach any backup."
+            : sampled == 0 ? $"The last drill ran {ago}."
+            : $"The last drill, {ago}, read {Humanize.Plural(sampled, "sampled file")} back from {backups} and compared every byte with the original.";
+    }
+
+    /// <summary>
+    /// A backup's score in recent drills, oldest first, in words: "Score in the last 3 drills: 97, not reached, not
+    /// checked". A drill that an error kept from checking the backup has no score either, but it did not find the
+    /// backup out of reach, and is not said to have.
+    /// </summary>
+    public static string Trend(IReadOnlyList<DestinationResult> history) =>
+        Language.Pick($"Score in the last {history.Count} drills: ", $"최근 복원 훈련 {history.Count}번의 점수: ") +
+        string.Join(", ", history.Select(r => r.Reachable ? r.Score.Total.ToString(CultureInfo.InvariantCulture)
+            : r.Score.Verdict == Verdict.CouldNotCheck ? Language.Pick("not checked", "확인 못 함")
+            : Language.Pick("not reached", "연결 안 됨")));
+
+    /// <summary>
+    /// How long ago the last drill looked at a backup, as the small line on its card: "Checked 5 minutes ago". A
+    /// backup that was not there was checked, and found missing. One an error kept the drill from checking was only
+    /// tried then, and the line says so.
+    /// </summary>
+    public static string CheckedAgo(DestinationResult r, TimeSpan ago) =>
+        (r.Score.Verdict == Verdict.CouldNotCheck ? Language.Pick("Tried ", "확인 시도: ") : Language.Pick("Checked ", "확인: ")) + Humanize.Ago(ago);
 
     /// <summary>
     /// The protected folders a drill did not find, as a sentence; empty when it found them all. One folder comes

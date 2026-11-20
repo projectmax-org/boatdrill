@@ -75,18 +75,23 @@ public static class HtmlReport
 
         // A drill that sampled nothing read nothing back and compared nothing: the lines under this one say why.
         var nothingRead = reached > 0 && sampled == 0;
+
+        // A backup an error kept the drill from checking may well have been reached, and the fault may be on this PC:
+        // with one of those, a drill that read from no backup could not check any, which is not the same as not
+        // reaching any.
+        var notChecked = report.Destinations.Any(d => d.Score.Verdict == Scoring.Verdict.CouldNotCheck);
         if (Language.IsKorean)
         {
             var when = $"{Language.DayDateAndTime(report.StartedUtc)}에 {(scheduled ? "예약대로" : "직접")} 실행한 복원 훈련으로, {Korean.Subject(Humanize.Duration(report.Duration))} 걸렸습니다.";
             var backups = reached == total ? $"백업 {total:N0}개" : $"백업 {total:N0}개 중 {reached:N0}개";
             return nothingRead ? when : when + " " + (reached == 0
-                ? "어떤 백업에도 연결하지 못했습니다."
+                ? (notChecked ? "어떤 백업도 확인하지 못했습니다." : "어떤 백업에도 연결하지 못했습니다.")
                 : $"표본 파일 {sampled:N0}개를 {backups}에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.");
         }
 
         var ran = $"Drill on {Language.DayDateAndTime(report.StartedUtc)}, {(scheduled ? "on schedule" : "run by hand")}, took {Humanize.Duration(report.Duration)}.";
         return nothingRead ? ran : ran + " " + (reached == 0
-            ? "It could not reach any backup."
+            ? (notChecked ? "It could not check any backup." : "It could not reach any backup.")
             : $"It read {Humanize.Plural(sampled, "sampled file")} back from {(reached == total ? Humanize.Plural(reached, "backup") : $"{reached} of {Humanize.Plural(total, "backup")}")} and compared every byte with the original.");
     }
 
@@ -197,7 +202,7 @@ public static class HtmlReport
         : report.Destinations.Any(d => d.Score.Verdict == Scoring.Verdict.WouldMostlyRestore) ? "fair"
         : "good";
 
-    /// <summary>The score in the last few drills, with a dot on the baseline for each that could not reach the backup.</summary>
+    /// <summary>The score in the last few drills, with a dot on the baseline for each that could not reach the backup or could not check it.</summary>
     private static string Trend(string destinationId, IReadOnlyList<DrillReport> history)
     {
         var results = history.Select(d => d.Destinations.FirstOrDefault(r => r.DestinationId == destinationId)).OfType<DestinationResult>().ToList();
@@ -219,8 +224,7 @@ public static class HtmlReport
             }
         }
 
-        var scores = string.Join(", ", results.Select(r => r.Reachable ? r.Score.Total.ToString(CultureInfo.InvariantCulture) : Language.Pick("not reached", "연결 안 됨")));
-        var words = E(Language.Pick($"Score in the last {results.Count} drills: ", $"최근 복원 훈련 {results.Count}번의 점수: ") + scores);
+        var words = E(Verdicts.Trend(results));
         var svg = new StringBuilder()
             .Append(string.Create(CultureInfo.InvariantCulture, $"<svg class=\"trend\" viewBox=\"0 0 {width} {height}\" width=\"{width}\" height=\"{height}\" "))
             .Append("role=\"img\" aria-label=\"").Append(words).Append("\"><title>").Append(words).Append("</title>")

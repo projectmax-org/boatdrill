@@ -180,8 +180,9 @@ its words, and on its exit codes:
 - `only-here` exits 0 when every file has a current copy in a backup, and 1 when some do not, when no
   backup could be looked in, when a folder could not be compared with any backup, or when a `--source`
   folder went missing while it ran;
-- `rehearse` exits 0 when every file came back intact, and 1 otherwise, including when nothing was restored
-  (a `--folder` outside the source or not there, say);
+- `rehearse` exits 0 when every file that is on this PC came back intact, and 1 otherwise, including when
+  nothing was restored (a `--folder` outside the source or not there, say, or one whose files are all online
+  only); online-only files are left out and counted, as in a drill, and do not make it exit 1;
 - `report` exits 0 when it wrote the report;
 - any of them exits 2 for bad arguments, a `--source` folder that does not exist, a refused scratch folder
   or, for `report`, a history with no drill in it.

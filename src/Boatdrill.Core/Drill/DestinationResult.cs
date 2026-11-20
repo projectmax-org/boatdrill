@@ -25,13 +25,18 @@ public sealed record DestinationResult
     /// <summary>Where the destination is, as shown; a password in a repository URL is masked.</summary>
     public required string RootPath { get; init; }
 
+    /// <summary>
+    /// The drill reached the destination and went on to check it. False for one that was not there, and for one an
+    /// error kept the drill from checking (<see cref="Failure"/>): the verdict tells those two apart.
+    /// </summary>
     public required bool Reachable { get; init; }
 
     public string? ProbeDetail { get; init; }
 
     /// <summary>
     /// Why the drill could not check this destination, when an error it did not foresee stopped it. Such a result
-    /// counts nothing and is not reached: nothing the drill read there is kept.
+    /// counts nothing and has no score: nothing the drill read there is kept. The drill may well have reached the
+    /// destination before the error, so nothing says it could not be reached.
     /// </summary>
     public string? Failure { get; init; }
 

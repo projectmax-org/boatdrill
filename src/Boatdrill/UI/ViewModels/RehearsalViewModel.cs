@@ -206,24 +206,9 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        var what = r.Folder.Length == 0 ? r.SourceName : r.SourceName + "\\" + r.Folder;
-        var notIntact = r.Files - r.Verified;
-        (Headline, HeadlineKind) = (r, Language.IsKorean) switch
-        {
-            ({ Reachable: false }, false) => ($"{r.DestinationName} could not be reached", VerdictStyle.Bad),
-            ({ Reachable: false }, true) => ($"{r.DestinationName}에 연결할 수 없습니다", VerdictStyle.Bad),
-            ({ Refusal: not null }, _) => (Language.Pick("The rehearsal did not start", "리허설을 시작하지 못했습니다"), VerdictStyle.Fair),
-            ({ Files: 0 }, false) => ($"{what} has no files to restore", VerdictStyle.None),
-            ({ Files: 0 }, true) => ($"{what}에는 복원할 파일이 없습니다", VerdictStyle.None),
-            ({ AllIntact: true }, false) => ($"All of {what} came back intact", VerdictStyle.Good),
-            ({ AllIntact: true }, true) => ($"{what} 전체를 온전히 복원했습니다", VerdictStyle.Good),
-            (_, false) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{notIntact:N0} of {r.Files:N0} files in {what} did not come back intact", VerdictStyle.Bad),
-            (_, true) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개를 온전히 복원하지 못했습니다", VerdictStyle.Bad),
-            (_, false) => ($"{notIntact:N0} of {r.Files:N0} files in {what} came back older", VerdictStyle.Fair),
-            (_, true) => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개가 이전 버전으로 복원되었습니다", VerdictStyle.Fair),
-        };
-
-        // Written again from the result's numbers, so it reads in the language Boatdrill speaks now.
+        // Written again from the result's numbers, so they read in the language Boatdrill speaks now. The headline's
+        // colour comes with its words: only a rehearsal that left no file out is shown as good.
+        (Headline, HeadlineKind) = RehearsalRunner.Headline(r);
         Sentence = RehearsalRunner.Sentence(r);
         var ago = Humanize.Ago(now - r.FinishedUtc);
         var took = Humanize.Duration(r.FinishedUtc - r.StartedUtc);

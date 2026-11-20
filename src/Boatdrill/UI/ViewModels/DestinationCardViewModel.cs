@@ -90,7 +90,7 @@ public sealed class DestinationCardViewModel : ViewModelBase
         private set => Set(ref _trendPoints, value);
     }
 
-    /// <summary>A dot on the baseline for each recent drill that could not reach the backup.</summary>
+    /// <summary>A dot on the baseline for each recent drill that could not reach the backup or could not check it.</summary>
     public Geometry TrendMisses
     {
         get => _trendMisses;
@@ -225,7 +225,7 @@ public sealed class DestinationCardViewModel : ViewModelBase
         VerdictKind = VerdictStyle.Kind(score.Verdict);
         // Written again from the result's numbers, so it reads in the language Boatdrill speaks now.
         Sentence = Verdicts.Sentence(result, report.FinishedUtc);
-        CheckedText = Language.Pick("Checked ", "확인: ") + Humanize.Ago(now - report.FinishedUtc);
+        CheckedText = Verdicts.CheckedAgo(result, now - report.FinishedUtc);
 
         Parts = ScoreParts.Describe(result);
 
@@ -244,15 +244,16 @@ public sealed class DestinationCardViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// The score at each recent drill that checked this destination, and a dot for each that could not reach it.
-    /// Rebuilt only when those scores change: a running drill refreshes the cards several times a second.
+    /// The score at each recent drill that checked this destination, and a dot for each that could not reach it or
+    /// could not check it. Rebuilt only when the trend's words change, which tell those two apart as the dots do
+    /// not: a running drill refreshes the cards several times a second.
     /// </summary>
     private void ApplyTrend(IReadOnlyList<DrillReport> recent)
     {
         var history = recent.Select(r => r.Destinations.FirstOrDefault(d => d.DestinationId == Id)).OfType<DestinationResult>().ToList();
-        var key = string.Join(",", history.Select(h => h.Reachable ? h.Score.Total : -1));
-        if (key == _trendKey) return;
-        _trendKey = key;
+        var words = Verdicts.Trend(history);
+        if (words == _trendKey) return;
+        _trendKey = words;
 
         var points = new PointCollection();
         var misses = new GeometryGroup();
@@ -268,9 +269,6 @@ public sealed class DestinationCardViewModel : ViewModelBase
         TrendPoints = points;
         TrendMisses = misses;
         HasTrend = history.Count >= 2;
-        TrendText = history.Count < 2
-            ? string.Empty
-            : Language.Pick($"Score in the last {history.Count} drills: ", $"최근 복원 훈련 {history.Count}번의 점수: ") +
-              string.Join(", ", history.Select(h => h.Reachable ? h.Score.Total.ToString() : Language.Pick("not reached", "연결 안 됨")));
+        TrendText = history.Count < 2 ? string.Empty : words;
     }
 }

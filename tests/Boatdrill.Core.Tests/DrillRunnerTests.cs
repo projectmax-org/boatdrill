@@ -646,6 +646,104 @@ public sealed class DrillRunnerTests
     }
 
     [Fact]
+    public async Task ABackupThatCouldNotBeChecked_IsNeverCountedOrCalledOutOfReach()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(tree, 3, DateTimeOffset.UtcNow.AddDays(-2));
+        tree.MirrorTo(backup.Root);
+
+        // The cloud answers, and then the scratch disk fills as its copies are read back; the USB stick is not plugged in.
+        var report = await new DrillRunner([new Adapters.MirrorFolderAdapter(), new Breaks(DestinationKind.Rclone)]).RunAsync(Plan(scratch, Source.FromPath(tree.Root, "Docs"),
+            Destination.Rclone("remote:backup", name: "Cloud"), Destination.MirrorFolder(backup.At("unplugged"), "USB stick"), Destination.MirrorFolder(backup.Root, "Drive")));
+
+        Assert.Equal([Verdict.CouldNotCheck, Verdict.Unreachable, Verdict.WouldRestore], report.Destinations.Select(d => d.Score.Verdict));
+        var (cloud, usb, drive) = (report.Destinations[0], report.Destinations[1], report.Destinations[2]);
+        var later = report.FinishedUtc.AddMinutes(5);
+
+        // With the cloud as the only backup, the fault is on this PC: nothing may send the user to look at a cable.
+        var onlyCloud = report with { Destinations = [cloud] };
+        var weekBefore = onlyCloud with { Id = "the drill before", StartedUtc = report.StartedUtc.AddDays(-7) };
+        var html = HtmlReport.Render(onlyCloud, [weekBefore]);
+        Assert.Contains(" It could not check any backup.</p>", html);
+        Assert.DoesNotContain("could not reach", html);
+        Assert.Contains("aria-label=\"Score in the last 2 drills: not checked, not checked\"", html);
+        Assert.DoesNotContain("not reached", html);
+        Assert.Equal("The last drill, 5 minutes ago, could not check any backup.", Verdicts.LastDrill(onlyCloud, onlyCloud.Destinations, later));
+
+        // Beside a backup that was out of reach, still no backup was checked, and each backup's own words say why.
+        var neither = report with { Destinations = [usb, cloud] };
+        Assert.Contains(" It could not check any backup.</p>", HtmlReport.Render(neither));
+        Assert.Equal("The last drill, 5 minutes ago, could not check any backup.", Verdicts.LastDrill(neither, neither.Destinations, later));
+
+        // A drill that found none of its backups there says that, as before.
+        var unplugged = report with { Destinations = [usb] };
+        Assert.Contains(" It could not reach any backup.</p>", HtmlReport.Render(unplugged));
+        Assert.Equal("The last drill, 5 minutes ago, could not reach any backup.", Verdicts.LastDrill(unplugged, unplugged.Destinations, later));
+
+        // And one that read from a backup counts the backups it read from, whatever kept it from the others.
+        Assert.Contains(" It read 3 sampled files back from 1 of 3 backups and compared every byte with the original.</p>", HtmlReport.Render(report));
+        Assert.Equal("The last drill, 5 minutes ago, read 3 sampled files back from 1 of 3 backups and compared every byte with the original.",
+            Verdicts.LastDrill(report, report.Destinations, later));
+        Assert.Equal($"Score in the last 3 drills: not checked, not reached, {drive.Score.Total}", Verdicts.Trend(report.Destinations));
+
+        // On its card, a backup the drill could not check was tried then. One that was not there was checked, and found missing.
+        var fiveMinutes = TimeSpan.FromMinutes(5);
+        Assert.Equal(["Tried 5 minutes ago", "Checked 5 minutes ago", "Checked 5 minutes ago"], report.Destinations.Select(d => Verdicts.CheckedAgo(d, fiveMinutes)));
+
+        using (new InKorean())
+        {
+            var korean = HtmlReport.Render(onlyCloud, [weekBefore]);
+            Assert.Contains(" 어떤 백업도 확인하지 못했습니다.</p>", korean);
+            Assert.DoesNotContain("연결하지 못했습니다", korean);
+            Assert.Contains("aria-label=\"최근 복원 훈련 2번의 점수: 확인 못 함, 확인 못 함\"", korean);
+            Assert.DoesNotContain("연결 안 됨", korean);
+            Assert.Equal("5분 전에 한 마지막 복원 훈련에서는 어떤 백업도 확인하지 못했습니다.", Verdicts.LastDrill(onlyCloud, onlyCloud.Destinations, later));
+            Assert.Equal("5분 전에 한 마지막 복원 훈련에서는 어떤 백업도 확인하지 못했습니다.", Verdicts.LastDrill(neither, neither.Destinations, later));
+            Assert.Contains(" 어떤 백업에도 연결하지 못했습니다.</p>", HtmlReport.Render(unplugged));
+            Assert.Equal("5분 전에 한 마지막 복원 훈련에서는 어떤 백업에도 연결하지 못했습니다.", Verdicts.LastDrill(unplugged, unplugged.Destinations, later));
+            Assert.Equal($"최근 복원 훈련 3번의 점수: 확인 못 함, 연결 안 됨, {drive.Score.Total}", Verdicts.Trend(report.Destinations));
+            Assert.Equal(["확인 시도: 5분 전", "확인: 5분 전", "확인: 5분 전"], report.Destinations.Select(d => Verdicts.CheckedAgo(d, fiveMinutes)));
+        }
+    }
+
+    [Fact]
+    public async Task TheLineUnderTheHeadline_SaysWhenTheLastDrillRan_AndWhatItReadBack()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(tree, 3, DateTimeOffset.UtcNow.AddDays(-2));
+        tree.MirrorTo(backup.Root);
+
+        var report = await new DrillRunner().RunAsync(Plan(scratch, Source.FromPath(tree.Root, "Docs"),
+            Destination.MirrorFolder(backup.Root, "Drive"), Destination.MirrorFolder(backup.At("unplugged"), "USB stick")));
+        var drive = report.Destinations[0];
+        var later = report.FinishedUtc.AddMinutes(5);
+
+        Assert.Equal("The last drill, 5 minutes ago, read 3 sampled files back from 1 of 2 backups and compared every byte with the original.",
+            Verdicts.LastDrill(report, report.Destinations, later));
+
+        // The dashboard shows no card for a backup that has since been taken out of Settings, and the line is about its cards.
+        Assert.Equal("The last drill, just now, read 3 sampled files back from 1 backup and compared every byte with the original.",
+            Verdicts.LastDrill(report, [drive], report.FinishedUtc));
+
+        // A drill that sampled nothing compared nothing: it says when it ran, and other sentences say why.
+        var nothingSampled = report with { Sources = [report.Sources[0] with { Sampled = 0 }] };
+        Assert.Equal("The last drill ran 5 minutes ago.", Verdicts.LastDrill(nothingSampled, [drive], later));
+
+        using (new InKorean())
+        {
+            Assert.Equal("5분 전에 한 마지막 복원 훈련에서 표본 파일 3개를 백업 2개 중 1개에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.",
+                Verdicts.LastDrill(report, report.Destinations, later));
+            Assert.Equal("방금 한 마지막 복원 훈련에서 표본 파일 3개를 백업 1개에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.",
+                Verdicts.LastDrill(report, [drive], report.FinishedUtc));
+            Assert.Equal("마지막 복원 훈련은 5분 전에 했습니다.", Verdicts.LastDrill(nothingSampled, [drive], later));
+        }
+    }
+
+    [Fact]
     public async Task AStoppedDrill_Stops_WhateverErrorTheStopLeftAToolToFailWith()
     {
         using var tree = new TempTree();

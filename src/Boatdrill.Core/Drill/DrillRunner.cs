@@ -114,8 +114,9 @@ public sealed class DrillRunner
         s.Files.Count, s.SampledBytes, s.SkippedLargeFiles, s.SkippedChurningFiles, s.NewestWriteUtc, s.Missing, s.SkippedOnlineOnlyFiles);
 
     /// <summary>
-    /// A destination an error kept the drill from checking: the result says why and counts nothing. It reads as not
-    /// reached, so no score is shown for it, but the history leaves it out of how often the destination is there.
+    /// A destination an error kept the drill from checking: the result says why and counts nothing. Like one that was
+    /// not reached it has no score to show, but its verdict tells it apart from one: the drill may well have reached
+    /// it, so nothing calls it unreachable, and the history leaves it out of how often the destination is there.
     /// </summary>
     private DestinationResult CouldNotCheck(Destination destination, List<Sample> samples, Exception ex)
     {

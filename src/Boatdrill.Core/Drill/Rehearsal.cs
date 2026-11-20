@@ -77,7 +77,12 @@ public sealed record RehearsalResult
 
     public required string Sentence { get; init; }
 
-    /// <summary>Every file came back intact. A rehearsal that restored nothing has not shown that.</summary>
+    /// <summary>
+    /// Every file that is on this PC came back intact: what boatdrill-cli rehearse exits 0 for. Online-only files are
+    /// left out and counted in <see cref="OnlineOnly"/>, as a drill leaves them out, so they do not fail a rehearsal;
+    /// its sentence says how many there were, and its headline is then about the files on this PC. A rehearsal that
+    /// restored nothing has not shown that, one of a folder whose files are all online only among them.
+    /// </summary>
     public bool AllIntact => Reachable && Refusal is null && Files > 0 && Verified == Files;
 }
 
@@ -266,6 +271,41 @@ public sealed class RehearsalRunner
     {
         var finished = result with { FinishedUtc = _clock.GetUtcNow() };
         return finished with { Sentence = Sentence(finished) };
+    }
+
+    /// <summary>
+    /// The rehearsal in a few words, for a headline, and the colour family it is shown in: good, fair, bad or none.
+    /// "All of Pictures came back intact", in the good colour, is for a rehearsal that left none of the folder's files
+    /// out. Online-only files are left out, so with any of those the headline is about the files that are on this PC
+    /// and is not shown as good: nobody compared the others, and the backup may hold none of them. Nor is a folder
+    /// whose files are all online only one with no files.
+    /// </summary>
+    public static (string Text, string Tone) Headline(RehearsalResult r)
+    {
+        var what = Label(r);
+        var notIntact = r.Files - r.Verified;
+        return (r, Language.IsKorean) switch
+        {
+            ({ Reachable: false }, false) => ($"{r.DestinationName} could not be reached", "bad"),
+            ({ Reachable: false }, true) => ($"{r.DestinationName}에 연결할 수 없습니다", "bad"),
+            ({ Refusal: not null }, _) => (Language.Pick("The rehearsal did not start", "리허설을 시작하지 못했습니다"), "fair"),
+            ({ Files: 0, OnlineOnly: > 0 }, false) => ($"{what} has no files on this PC to restore", "none"),
+            ({ Files: 0, OnlineOnly: > 0 }, true) => ($"{what}에는 이 PC에 있는 파일 중 복원할 것이 없습니다", "none"),
+            ({ Files: 0 }, false) => ($"{what} has no files to restore", "none"),
+            ({ Files: 0 }, true) => ($"{what}에는 복원할 파일이 없습니다", "none"),
+
+            // One file is said apart, as in the sentence: "1개를 모두" is not said.
+            ({ AllIntact: true, OnlineOnly: > 0, Files: 1 }, false) => ($"The one file in {what} that is on this PC came back intact", "fair"),
+            ({ AllIntact: true, OnlineOnly: > 0, Files: 1 }, true) => ($"{what}의 파일 중 이 PC에 있는 1개를 온전히 복원했습니다", "fair"),
+            ({ AllIntact: true, OnlineOnly: > 0 }, false) => ($"All {r.Files:N0} files in {what} that are on this PC came back intact", "fair"),
+            ({ AllIntact: true, OnlineOnly: > 0 }, true) => ($"{what}의 파일 중 이 PC에 있는 {r.Files:N0}개를 모두 온전히 복원했습니다", "fair"),
+            ({ AllIntact: true }, false) => ($"All of {what} came back intact", "good"),
+            ({ AllIntact: true }, true) => ($"{what} 전체를 온전히 복원했습니다", "good"),
+            (_, false) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{notIntact:N0} of {r.Files:N0} files in {what} did not come back intact", "bad"),
+            (_, true) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개를 온전히 복원하지 못했습니다", "bad"),
+            (_, false) => ($"{notIntact:N0} of {r.Files:N0} files in {what} came back older", "fair"),
+            (_, true) => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개가 이전 버전으로 복원되었습니다", "fair"),
+        };
     }
 
     /// <summary>The rehearsal in one or two sentences, the answer first.</summary>

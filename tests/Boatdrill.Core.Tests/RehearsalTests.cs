@@ -54,10 +54,20 @@ public sealed class RehearsalTests
             Assert.True(result.AllIntact);
             Assert.Equal((4L, 4L, 1L), (result.Files, result.Verified, result.OnlineOnly));
             Assert.EndsWith(" 1 online-only file was not compared: its bytes are not on this PC.", result.Sentence);
+            Assert.Equal(("All 4 files in Docs that are on this PC came back intact", "fair"), RehearsalRunner.Headline(result));
+
+            // With every file online only, nothing is restored, and nothing is shown: not a pass, nor an empty folder.
+            foreach (var file in Directory.GetFiles(source.At("docs"))) File.SetAttributes(file, FileAttributes.Offline);
+            var nothingHere = await RehearseAsync(source, Destination.MirrorFolder(mirror.Root, "Drive"), scratch);
+
+            Assert.False(nothingHere.AllIntact);
+            Assert.Equal((0L, 0L, 5L), (nothingHere.Files, nothingHere.Verified, nothingHere.OnlineOnly));
+            Assert.Equal("Docs has no files on this PC to restore. 5 online-only files were not compared: their bytes are not on this PC.", nothingHere.Sentence);
+            Assert.Equal(("Docs has no files on this PC to restore", "none"), RehearsalRunner.Headline(nothingHere));
         }
         finally
         {
-            File.SetAttributes(away, FileAttributes.Normal);
+            foreach (var file in Directory.GetFiles(source.At("docs"))) File.SetAttributes(file, FileAttributes.Normal);
         }
     }
 
@@ -82,6 +92,85 @@ public sealed class RehearsalTests
         using var korean = new InKorean();
         Assert.Equal("사진에는 이 PC에 있는 파일 중 복원할 것이 없습니다. 온라인 전용 파일 3개는 내용이 이 PC에 없어 비교하지 않았습니다.", RehearsalRunner.Sentence(result));
     }
+
+    [Fact]
+    public void OnlineOnlyFilesLeftOut_DoNotFailARehearsal_ButItsHeadlineIsOnlyAboutTheFilesOnThisPc()
+    {
+        // Documents moved into OneDrive with Files On-Demand: 120 of its files are on this PC, and 880 are online only.
+        var whole = Rehearsed(files: 120, verified: 120);
+        var partly = whole with { OnlineOnly = 880 };
+        var one = Rehearsed(files: 1, verified: 1) with { OnlineOnly = 880 };
+        var none = Rehearsed(files: 0, verified: 0) with { OnlineOnly = 880 };
+
+        // What boatdrill-cli rehearse exits 0 for: every file that is on this PC intact. The online-only files are left
+        // out and counted, as a drill leaves them out; with nothing on this PC to restore, nothing was shown.
+        Assert.True(whole.AllIntact);
+        Assert.True(partly.AllIntact);
+        Assert.True(one.AllIntact);
+        Assert.False(none.AllIntact);
+        Assert.False((partly with { Verified = 119, Missing = 1 }).AllIntact);
+        Assert.EndsWith(" 880 online-only files were not compared: their bytes are not on this PC.", RehearsalRunner.Sentence(partly));
+
+        // "All of Docs", in the good colour, is only for a rehearsal that left none of the folder's files out.
+        Assert.Equal(("All of Docs came back intact", "good"), RehearsalRunner.Headline(whole));
+        Assert.Equal(("All 120 files in Docs that are on this PC came back intact", "fair"), RehearsalRunner.Headline(partly));
+        Assert.Equal(("The one file in Docs that is on this PC came back intact", "fair"), RehearsalRunner.Headline(one));
+
+        // And a folder whose files are all online only is not one with no files.
+        Assert.Equal(("Docs has no files on this PC to restore", "none"), RehearsalRunner.Headline(none));
+
+        using var korean = new InKorean();
+        Assert.Equal(("Docs 전체를 온전히 복원했습니다", "good"), RehearsalRunner.Headline(whole));
+        Assert.Equal(("Docs의 파일 중 이 PC에 있는 120개를 모두 온전히 복원했습니다", "fair"), RehearsalRunner.Headline(partly));
+        Assert.Equal(("Docs의 파일 중 이 PC에 있는 1개를 온전히 복원했습니다", "fair"), RehearsalRunner.Headline(one));
+        Assert.Equal(("Docs에는 이 PC에 있는 파일 중 복원할 것이 없습니다", "none"), RehearsalRunner.Headline(none));
+    }
+
+    [Fact]
+    public void TheHeadline_SaysHowTheRehearsalWent_AndIsColouredToMatch()
+    {
+        var intact = Rehearsed(files: 400, verified: 400);
+        var lost = Rehearsed(files: 400, verified: 397) with { Missing = 2, Outdated = 1 };
+        var older = Rehearsed(files: 400, verified: 399) with { Outdated = 1 };
+        var empty = Rehearsed(files: 0, verified: 0);
+        var refused = empty with { Refusal = "There is no folder 2027 in Docs, so nothing was restored." };
+        var unplugged = empty with { Reachable = false, ProbeDetail = "the drive was not found" };
+
+        Assert.Equal(("All of Docs came back intact", "good"), RehearsalRunner.Headline(intact));
+        Assert.Equal(($"All of Docs{Path.DirectorySeparatorChar}2026 came back intact", "good"), RehearsalRunner.Headline(intact with { Folder = "2026" }));
+        Assert.Equal(("3 of 400 files in Docs did not come back intact", "bad"), RehearsalRunner.Headline(lost));
+        Assert.Equal(("1 of 400 files in Docs came back older", "fair"), RehearsalRunner.Headline(older));
+        Assert.Equal(("Docs has no files to restore", "none"), RehearsalRunner.Headline(empty));
+        Assert.Equal(("The rehearsal did not start", "fair"), RehearsalRunner.Headline(refused));
+        Assert.Equal(("Drive could not be reached", "bad"), RehearsalRunner.Headline(unplugged));
+
+        // Files that did not come back are bad news with online-only files left out too.
+        Assert.Equal(("3 of 400 files in Docs did not come back intact", "bad"), RehearsalRunner.Headline(lost with { OnlineOnly = 5 }));
+
+        using var korean = new InKorean();
+        Assert.Equal(("Docs 전체를 온전히 복원했습니다", "good"), RehearsalRunner.Headline(intact));
+        Assert.Equal(("Docs의 파일 400개 중 3개를 온전히 복원하지 못했습니다", "bad"), RehearsalRunner.Headline(lost));
+        Assert.Equal(("Docs의 파일 400개 중 1개가 이전 버전으로 복원되었습니다", "fair"), RehearsalRunner.Headline(older));
+        Assert.Equal(("Docs에는 복원할 파일이 없습니다", "none"), RehearsalRunner.Headline(empty));
+        Assert.Equal(("리허설을 시작하지 못했습니다", "fair"), RehearsalRunner.Headline(refused));
+        Assert.Equal(("Drive에 연결할 수 없습니다", "bad"), RehearsalRunner.Headline(unplugged));
+    }
+
+    /// <summary>A rehearsal's result as it is kept, for the words that are written again from its numbers.</summary>
+    private static RehearsalResult Rehearsed(long files, long verified) => new()
+    {
+        SourceName = "Docs",
+        SourceRoot = "/home/you/Docs",
+        DestinationId = "drive",
+        DestinationName = "Drive",
+        RootPath = "/mnt/backup",
+        StartedUtc = Old,
+        FinishedUtc = Old,
+        Reachable = true,
+        Files = files,
+        Verified = verified,
+        Sentence = string.Empty,
+    };
 
     [Fact]
     public async Task EveryFileIsAccountedFor_NotASample()

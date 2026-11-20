@@ -8,6 +8,9 @@ public sealed record BoundSource(string SourceId, string SourceName, MirrorLayou
 {
     /// <summary>Why nothing could be found there, when the adapter knew.</summary>
     public string? Problem { get; init; }
+
+    /// <summary>What the verdict says although copies were found: a newer archive that could not be opened, say.</summary>
+    public string? Warning { get; init; }
 }
 
 /// <summary>One destination's side of a drill: the counts, the score, and the sentence the app shows.</summary>

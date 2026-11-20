@@ -229,7 +229,7 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
         var took = Humanize.Duration(r.FinishedUtc - r.StartedUtc);
         WhenText = Language.Pick(
             $"Rehearsed {ago} from {r.DestinationName}, in {took} altogether.",
-            $"{ago}에 {r.DestinationName}에서 리허설했고, 모두 {Korean.Subject(took)} 걸렸습니다.");
+            $"{Humanize.AgoWhen(now - r.FinishedUtc)} {r.DestinationName}에서 리허설했고, 모두 {Korean.Subject(took)} 걸렸습니다.");
 
         var older = r.Outdated + r.Placeholder;
         var broken = r.Corrupt + r.Errors;

@@ -36,6 +36,54 @@ public sealed class RehearsalTests
     }
 
     [Fact]
+    public async Task OnlineOnlyFiles_AreNotDownloadedToCompare_AndTheSentenceSaysSo()
+    {
+        if (!OperatingSystem.IsWindows()) return; // OFFLINE, which stands for every online-only flag, is a Windows attribute.
+
+        using var source = new TempTree();
+        using var mirror = new TempTree();
+        using var scratch = new TempTree();
+        for (var i = 0; i < 5; i++) source.Write($"docs/{i}.txt", $"document {i}", Old);
+        source.MirrorTo(mirror.Root);
+        var away = source.At(Path.Combine("docs", "4.txt"));
+        File.SetAttributes(away, FileAttributes.Offline);
+        try
+        {
+            var result = await RehearseAsync(source, Destination.MirrorFolder(mirror.Root, "Drive"), scratch);
+
+            Assert.True(result.AllIntact);
+            Assert.Equal((4L, 4L, 1L), (result.Files, result.Verified, result.OnlineOnly));
+            Assert.EndsWith(" 1 online-only file was not compared: its bytes are not on this PC.", result.Sentence);
+        }
+        finally
+        {
+            File.SetAttributes(away, FileAttributes.Normal);
+        }
+    }
+
+    [Fact]
+    public void AFolderThatIsAllOnline_IsNotCalledEmpty()
+    {
+        var result = new RehearsalResult
+        {
+            SourceName = "사진",
+            SourceRoot = @"C:\Users\you\OneDrive\사진",
+            DestinationId = "drive",
+            DestinationName = "Drive",
+            RootPath = @"E:\Backup",
+            StartedUtc = Old,
+            FinishedUtc = Old,
+            Reachable = true,
+            OnlineOnly = 3,
+            Sentence = string.Empty,
+        };
+
+        Assert.Equal("사진 has no files on this PC to restore. 3 online-only files were not compared: their bytes are not on this PC.", RehearsalRunner.Sentence(result));
+        using var korean = new InKorean();
+        Assert.Equal("사진에는 이 PC에 있는 파일 중 복원할 것이 없습니다. 온라인 전용 파일 3개는 내용이 이 PC에 없어 비교하지 않았습니다.", RehearsalRunner.Sentence(result));
+    }
+
+    [Fact]
     public async Task EveryFileIsAccountedFor_NotASample()
     {
         using var source = new TempTree();
@@ -71,6 +119,54 @@ public sealed class RehearsalTests
         Assert.Equal(6, result.Files);
         Assert.Equal(6, result.Verified);
         Assert.Contains($"in Docs{Path.DirectorySeparatorChar}photos{Path.DirectorySeparatorChar}2026 came back", result.Sentence);
+    }
+
+    [Fact]
+    public async Task AFolderOutsideTheSource_OrNotThere_IsRefused_AndNothingPassesForIntact()
+    {
+        using var source = new TempTree();
+        using var elsewhere = new TempTree();
+        using var mirror = new TempTree();
+        using var scratch = new TempTree();
+        source.Write("letters/a.txt", "a", Old);
+        Directory.CreateDirectory(source.At("empty"));
+        elsewhere.Write("b.txt", "b", Old);
+        source.MirrorTo(mirror.Root);
+        var drive = Destination.MirrorFolder(mirror.Root, "Drive");
+
+        // Its files would be looked up as if they were the source's, and compared with themselves.
+        var outside = await RehearseAsync(source, drive, scratch, folder: elsewhere.Root);
+        Assert.Equal((0L, false), (outside.Files, outside.AllIntact));
+        Assert.Equal($"{elsewhere.Root} is not a folder inside Docs, so nothing was restored.", outside.Sentence);
+
+        var upward = await RehearseAsync(source, drive, scratch, folder: Path.Combine("..", Path.GetFileName(elsewhere.Root)));
+        Assert.Equal((0L, false), (upward.Files, upward.AllIntact));
+        Assert.NotNull(upward.Refusal);
+
+        var mistyped = await RehearseAsync(source, drive, scratch, folder: "leters");
+        Assert.False(mistyped.AllIntact);
+        Assert.Equal("There is no folder leters in Docs, so nothing was restored.", mistyped.Sentence);
+
+        var empty = await RehearseAsync(source, drive, scratch, folder: "empty");
+        Assert.Null(empty.Refusal);
+        Assert.Equal((0L, false), (empty.Files, empty.AllIntact));
+        TempTree.AssertEmpty(scratch.Root);
+    }
+
+    [Fact]
+    public async Task ABackupWhoseFilesCannotBeListed_RestoresNothing_AndSaysWhy()
+    {
+        using var source = new TempTree();
+        using var scratch = new TempTree();
+        source.Write("a.txt", "a", Old);
+
+        var result = await new RehearsalRunner([new CannotList()]).RunAsync(
+            new RehearsalPlan(Source.FromPath(source.Root, "Docs"), Destination.Rclone("remote:backup", name: "Remote"), scratch.Root));
+
+        Assert.False(result.AllIntact);
+        Assert.Equal((0L, 0L, 0L), (result.Verified, result.Missing, result.Errors));
+        Assert.Equal($"Nothing was restored from Remote: {CannotList.Problem}.", result.Sentence);
+        TempTree.AssertEmpty(scratch.Root);
     }
 
     [Fact]

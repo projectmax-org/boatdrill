@@ -17,7 +17,8 @@ Description: |-
   random sample of files from each backup into a scratch folder and compares every byte with the
   original, then says in plain words whether the backup would restore, how far behind it is, and how
   long a full restore would take. It reads folders of copies on drives and NAS shares, Windows File
-  History, restic repositories, rclone remotes, and zip and 7z archives, and never writes to a backup.
+  History, restic and Kopia repositories, rclone remotes, and zip and 7z archives, and never writes to
+  a backup.
 Moniker: boatdrill
 Tags:
 - backup
@@ -25,6 +26,7 @@ Tags:
 - verification
 - file-history
 - restic
+- kopia
 - rclone
 ReleaseNotesUrl: {{ReleaseNotesUrl}}
 ManifestType: defaultLocale

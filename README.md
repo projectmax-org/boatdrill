@@ -4,10 +4,13 @@ A backup you have never restored from is a hope, not a backup. Boatdrill is a sm
 rehearses restoring from your backups on a schedule and says, in plain words, whether they would work.
 
 Boatdrill is a [Project Max](https://projectmax-org.github.io) application: free, open source under the
-[MIT licence](LICENSE), no account, no telemetry, in English and Korean (한국어). Version 1.0 is in
-development and has no release yet. Every push builds `Boatdrill.exe`, `boatdrill-cli.exe` and the
-installer, which you can download from the run's artifacts on the
-[Actions page](https://github.com/projectmax-org/project_01/actions).
+[MIT licence](LICENSE), no account, no telemetry, in English and Korean (한국어), for Windows 10 and 11.
+Download it from the [Releases page](https://github.com/projectmax-org/boatdrill/releases/latest).
+
+<p>
+  <img src="docs/images/backups.png" width="49%" alt="The Backups page: a card for each backup with its score, how the score moved over recent drills, and a sentence saying whether it would restore">
+  <img src="docs/images/backups-ko-dark.png" width="49%" alt="The same page in Korean, in the dark theme">
+</p>
 
 ---
 
@@ -84,20 +87,30 @@ is most likely to be missing.
   rclone remote is only listed and downloaded from; an archive is only opened for reading. The opt-in
   canary file goes into your *source* folders only.
 - It never phones home. There is no network code in the app at all.
-- It never pulls a cloud placeholder down from OneDrive or Dropbox to check it.
+- It never pulls a cloud placeholder down from OneDrive or Dropbox to check it: an online-only copy in a
+  backup is reported as exactly that, and an online-only file in your own folders is left out, and counted.
 - It never polls. Between drills there is one timer, armed for the moment the next drill is due.
 
 ---
 
 ## Installing
 
-Once 1.0 is released, the [Releases page](https://github.com/projectmax-org/project_01/releases) has the
-installer, which installs for you alone and needs no administrator, and the app as a single file to run
-without installing; `winget install ProjectMax.Boatdrill` will do the same once the package is in winget.
-Each release lists its files' SHA-256 checksums. Reading restic or Kopia repositories, rclone remotes or
-7z archives needs restic, kopia (KopiaUI brings it along), rclone or [7-Zip](https://7-zip.org) installed;
-zip archives need nothing extra.
-[docs/RELEASING.md](docs/RELEASING.md) describes how a release is made and checked.
+Each version on the [Releases page](https://github.com/projectmax-org/boatdrill/releases) comes as:
+
+- `Boatdrill-Setup-<version>.exe`, the installer, which installs for you alone and needs no administrator;
+- `Boatdrill-<version>-portable-x64.exe`, the app as a single file to run without installing;
+- `boatdrill-cli-<version>-x64.exe`, the command-line runner.
+
+`winget install ProjectMax.Boatdrill` will do what the installer does once the package is in winget.
+Boatdrill needs Windows 10 or 11 on an x64 PC (an Arm64 PC runs it under emulation) and nothing else: the
+.NET runtime is inside the files. Reading restic or Kopia repositories, rclone remotes or 7z archives
+needs restic, kopia (KopiaUI brings it along), rclone or [7-Zip](https://7-zip.org) installed; zip
+archives need nothing extra.
+
+The files are not code-signed yet, so the first time one runs, Windows SmartScreen may say "Windows
+protected your PC" and name an unknown publisher; *More info*, then *Run anyway*, starts it. Each release
+lists its files' SHA-256 checksums, and the release workflow attests where each file was built;
+[docs/RELEASING.md](docs/RELEASING.md) shows how to check both and how a release is made.
 
 ## Using the app
 
@@ -148,7 +161,8 @@ reachability part of the score meaningful over time; `--ledger <file>` keeps the
 restores every file of one source, or of `--folder` inside it, from one destination, and `report` turns the
 latest drill in a history file into the report. `drill` exits 0 when every destination would restore
 (fully or mostly) and 1 when at least one would not; `only-here` exits 0 when every file has a current
-copy and 1 when some do not; `rehearse` exits 0 when every file came back intact; 2 means bad arguments.
+copy and 1 when some do not; `rehearse` exits 0 when every file came back intact; 2 means bad arguments,
+a `--source` folder that does not exist among them.
 The runner always speaks English, so scripts can rely on its words.
 
 ## Building
@@ -211,14 +225,12 @@ Shell_NotifyIcon directly, the theme swaps one palette dictionary, and nothing r
 
 ## Roadmap
 
-- **v0.1** folder-mirror destinations, the app with its schedule, tray icon and notifications. Built.
+- **v0.1** folder-mirror destinations, the app with its schedule, tray icon and notifications.
 - **v0.2** Windows File History and restic destinations with passwords kept by DPAPI, a hash ledger that
   catches bit rot, opt-in canary files that measure backup lag directly, and the "only on this PC" scan.
-  Built; waiting for a test against real drives and repositories on Windows.
-- **v1.0** an exportable report, a full-restore rehearsal, rclone remotes, zip and 7z archives, Kopia
-  repositories, an installer with a release workflow and winget manifests, and Korean. Built; the
-  installer is waiting for a first install on a real PC. Still to come: code signing, which needs a
-  certificate.
+- **v1.0**, the first release: an exportable report, a full-restore rehearsal, rclone remotes, zip and 7z
+  archives, Kopia repositories, an installer with a release workflow and winget manifests, and Korean.
+- **Next:** code signing, which needs a certificate, and the package in winget.
 
 ## Licence
 

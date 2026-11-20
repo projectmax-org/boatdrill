@@ -97,7 +97,7 @@ public sealed class DrillRunner
 
     private static SourceSummary Summarise(Sample s) => new(
         s.Source.Id, s.Source.Name, s.Source.RootPath, s.Population, s.PopulationBytes,
-        s.Files.Count, s.SampledBytes, s.SkippedLargeFiles, s.SkippedChurningFiles, s.NewestWriteUtc);
+        s.Files.Count, s.SampledBytes, s.SkippedLargeFiles, s.SkippedChurningFiles, s.NewestWriteUtc, s.Missing, s.SkippedOnlineOnlyFiles);
 
     private async Task<DestinationResult> VerifyDestinationAsync(Destination destination, List<Sample> samples,
         IReadOnlyDictionary<string, IReadOnlyList<DateTimeOffset>>? canaries, string scratch, IProgress<DrillProgress>? progress, CancellationToken ct)
@@ -137,14 +137,13 @@ public sealed class DrillRunner
             .ToDictionary(g => g.Key, g => (IReadOnlyCollection<string>)g.SelectMany(s => s.Files).Select(f => f.RelativePath).ToList()), now).ToList() ?? [];
 
         var findings = new List<FileFinding>();
-        var notCopied = new List<DateTimeOffset>();
         var bindings = new List<BoundSource>();
-        int sampled = 0, verified = 0, outdated = 0, corrupt = 0, missing = 0, placeholder = 0, errors = 0, rechecked = 0, rotted = 0;
+        int sampled = 0, verified = 0, outdated = 0, corrupt = 0, missing = 0, placeholder = 0, errors = 0, rechecked = 0, rotted = 0, sourcesWithoutCopies = 0;
         long bytesRead = 0, population = 0, populationBytes = 0;
         var readTime = TimeSpan.Zero;
         var total = samples.Sum(s => s.Files.Count) + due.Count;
         var done = 0;
-        DateTimeOffset? newestVerified = null, canaryCopied = null, canaryBehind = null;
+        DateTimeOffset? behindSince = null, canaryCopied = null, canaryBehind = null;
 
         foreach (var sample in samples)
         {
@@ -165,8 +164,13 @@ public sealed class DrillRunner
             bindings.Add(new BoundSource(sample.Source.Id, sample.Source.Name, binding.Layout, binding.BasePath, binding.ProbeHits, binding.ProbeTried)
             {
                 Problem = binding.Problem,
+                Warning = binding.Warning,
             });
 
+            // Judged for each source on its own: one folder's fresh copies must not hide another's stalled backup.
+            var found = 0;
+            DateTimeOffset? newestVerified = null;
+            var notCopied = new List<DateTimeOffset>();
             foreach (var file in sample.Files)
             {
                 ct.ThrowIfCancellationRequested();
@@ -184,19 +188,31 @@ public sealed class DrillRunner
                 {
                     case FileOutcome.Verified:
                         verified++;
-                        if (newestVerified is null || file.LastWriteUtc > newestVerified) newestVerified = file.LastWriteUtc;
+                        found++;
+                        if (newestVerified is null || finding.SourceWriteUtc > newestVerified) newestVerified = finding.SourceWriteUtc;
                         break;
-                    case FileOutcome.Outdated: outdated++; break;
-                    case FileOutcome.Corrupt: corrupt++; break;
+                    case FileOutcome.Outdated: outdated++; found++; break;
+                    case FileOutcome.Corrupt: corrupt++; found++; break;
                     case FileOutcome.Missing: missing++; break;
                     case FileOutcome.Placeholder: placeholder++; break;
                     default: errors++; break;
                 }
 
-                if (finding.Outcome is FileOutcome.Missing or FileOutcome.Outdated or FileOutcome.Placeholder) notCopied.Add(file.LastWriteUtc);
+                // The original as it was when this copy was judged: it may have been saved again during the drill.
+                if (finding.Outcome is FileOutcome.Missing or FileOutcome.Outdated or FileOutcome.Placeholder) notCopied.Add(finding.SourceWriteUtc);
                 if (finding.Outcome != FileOutcome.Verified) findings.Add(finding);
                 done++;
                 progress?.Report(new DrillProgress(Language.Pick("Reading back from " + destination.Name, destination.Name + "에서 다시 읽는 중"), destination.Name, done, total, bytesRead));
+            }
+
+            // Freshness looks only at changes newer than anything verified of this source: an old file that was never
+            // copied is a coverage hole, not a lag. A source with nothing verified here has no lag to measure; if none
+            // of its files has a copy at all, the whole folder would be lost with the PC.
+            if (sample.Files.Count > 0 && found == 0) sourcesWithoutCopies++;
+            if (newestVerified is { } floor && notCopied.Where(t => t > floor).Select(t => (DateTimeOffset?)t).Min() is { } sourceBehind &&
+                (behindSince is null || sourceBehind < behindSince))
+            {
+                behindSince = sourceBehind;
             }
 
             foreach (var entry in rechecks)
@@ -234,11 +250,6 @@ public sealed class DrillRunner
             }
         }
 
-        // Freshness looks only at changes newer than anything verified: an old file that was never copied is a
-        // coverage hole, not a lag. The oldest such change says how long the backup has been falling behind.
-        var floor = newestVerified ?? DateTimeOffset.MinValue;
-        var behindSince = notCopied.Where(t => t > floor).Select(t => (DateTimeOffset?)t).Min();
-
         // The canary tells even when nothing in the folder changed since the backup stopped.
         if (canaryBehind is { } stalled && (behindSince is null || stalled < behindSince)) behindSince = stalled;
         TimeSpan? lag = behindSince is { } since ? (now - since < TimeSpan.Zero ? TimeSpan.Zero : now - since) : null;
@@ -247,7 +258,7 @@ public sealed class DrillRunner
         TimeSpan? estimate = bytesPerSecond is > 0 ? TimeSpan.FromSeconds(populationBytes / bytesPerSecond.Value) : null;
 
         var score = Scorer.Score(new ScoreInputs(sampled, verified, outdated, corrupt, missing, placeholder, errors, population, lag, true, reachability,
-            rechecked, rotted));
+            rechecked, rotted, sourcesWithoutCopies));
         var result = new DestinationResult
         {
             DestinationId = destination.Id,
@@ -346,17 +357,31 @@ public sealed class DrillRunner
                     readBack.BytesRead, readBack.Elapsed, copy, readBack.Sha256);
             }
 
-            var copyOlder = copy.LastWriteUtc is { } written && written < file.LastWriteUtc - WriteTimeTolerance;
-            var detail = (copyOlder, copy.Length == file.Length, Language.IsKorean) switch
+            // The bytes just hashed are the original as it is now, which the user may have saved again since it was
+            // sampled: the copy is judged against that version's size and date, or a copy of the one before would be
+            // taken for corruption.
+            var (length, written) = (file.Length, file.LastWriteUtc);
+            try
             {
-                (true, _, false) => $"the copy was written {Humanize.Age(file.LastWriteUtc - copy.LastWriteUtc!.Value)} before the original",
-                (true, _, true) => $"사본이 원본보다 {Humanize.Age(file.LastWriteUtc - copy.LastWriteUtc!.Value)} 먼저 저장되었습니다",
+                var now = new FileInfo(file.FullPath);
+                if (now.Exists) (length, written) = (now.Length, new DateTimeOffset(now.LastWriteTimeUtc, TimeSpan.Zero));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // As sampled, then.
+            }
+
+            var copyOlder = copy.LastWriteUtc is { } copied && copied < written - WriteTimeTolerance;
+            var detail = (copyOlder, copy.Length == length, Language.IsKorean) switch
+            {
+                (true, _, false) => $"the copy was written {Humanize.Age(written - copy.LastWriteUtc!.Value)} before the original",
+                (true, _, true) => $"사본이 원본보다 {Humanize.Age(written - copy.LastWriteUtc!.Value)} 먼저 저장되었습니다",
                 (false, true, false) => "same size and date as the original, different bytes",
                 (false, true, true) => "크기와 날짜는 원본과 같은데 내용이 다릅니다",
-                (false, false, false) => $"the copy is {copy.Length:N0} bytes, the original {file.Length:N0}, and the copy is not older",
-                (false, false, true) => $"사본은 {copy.Length:N0}바이트, 원본은 {file.Length:N0}바이트이고 사본이 더 오래되지도 않았습니다",
+                (false, false, false) => $"the copy is {copy.Length:N0} bytes, the original {length:N0}, and the copy is not older",
+                (false, false, true) => $"사본은 {copy.Length:N0}바이트, 원본은 {length:N0}바이트이고 사본이 더 오래되지도 않았습니다",
             };
-            return (new FileFinding(file.RelativePath, copyOlder ? FileOutcome.Outdated : FileOutcome.Corrupt, file.Length, file.LastWriteUtc,
+            return (new FileFinding(file.RelativePath, copyOlder ? FileOutcome.Outdated : FileOutcome.Corrupt, length, written,
                 copy.Length, copy.LastWriteUtc, detail), readBack.BytesRead, readBack.Elapsed, copy, readBack.Sha256);
         }
         finally

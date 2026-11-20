@@ -90,13 +90,20 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
 
         // The newest archive that holds the most of a few sampled files, under whichever layout finds them.
         State? best = null;
-        var unreadable = new List<string>();
+        var unreadable = new List<(FileInfo Archive, string Problem)>();
         foreach (var archive in Archives(destination.RootPath)?.Take(ArchivesTried) ?? [])
         {
+            // An archive kept online only by OneDrive or the like: even listing it would download all of it.
+            if (CloudFiles.IsNotHere(archive.Attributes))
+            {
+                unreadable.Add((archive, Language.Pick("it is online only, and its bytes are not on this disk", "온라인 전용 파일이라 내용이 이 디스크에 없습니다")));
+                continue;
+            }
+
             var (entries, problem) = await ListAsync(destination, archive.FullName, ct).ConfigureAwait(false);
             if (entries is null)
             {
-                unreadable.Add($"{archive.Name}: {problem}");
+                unreadable.Add((archive, problem ?? string.Empty));
                 continue;
             }
 
@@ -116,10 +123,19 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
             {
                 State = empty,
                 Problem = unreadable.Count > 0
-                    ? Language.Pick("no archive could be read (", "읽을 수 있는 압축 파일이 없습니다(") + string.Join("; ", unreadable) + ")"
+                    ? Language.Pick("no archive could be read (", "읽을 수 있는 압축 파일이 없습니다(") + string.Join("; ", unreadable.Select(u => $"{u.Archive.Name}: {u.Problem}")) + ")"
                     : NoArchives(destination.RootPath),
             };
         }
+
+        // An older archive is read when a newer one could not be: the newest backup may be the one that is broken. It may
+        // also hold another folder (a Pictures archive beside the Documents ones), so the drill says so rather than fails.
+        var chosen = new FileInfo(best.ArchivePath).LastWriteTimeUtc;
+        var newer = unreadable.Where(u => u.Archive.LastWriteTimeUtc > chosen).ToList();
+        var warning = newer.Count == 0
+            ? null
+            : Language.Pick($"{Path.GetFileName(best.ArchivePath)} was read, but a newer archive could not be: ", $"{Korean.Object(Path.GetFileName(best.ArchivePath))} 읽었지만, 더 최근 압축 파일은 읽을 수 없었습니다: ") +
+              string.Join("; ", newer.Select(u => $"{u.Archive.Name}, {u.Problem}"));
 
         if (purpose == BindPurpose.Read)
         {
@@ -128,7 +144,7 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
 
         // Inside an archive as Explorer shows it: D:\Backups\Laptop.zip\Documents.
         var where = Path.Combine(best.ArchivePath, best.Prefix.TrimEnd('/').Replace('/', Path.DirectorySeparatorChar));
-        return new SourceBinding(destination, sample.Source, best.Layout, where, best.Hits, probe.Count) { State = best };
+        return new SourceBinding(destination, sample.Source, best.Layout, where, best.Hits, probe.Count) { State = best, Warning = warning };
     }
 
     /// <summary>Extracts the next batch of a rehearsal into the stage folder, as binding does for a drill's sample.</summary>
@@ -145,7 +161,11 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
             return Task.FromResult(CopyLookup.Missing(state.ArchivePath + "!" + key, binding.Problem ?? Language.Pick("not in " + archiveName, archiveName + "에 없습니다")));
         }
 
-        var staged = StagedPath(state.Stage, key);
+        if (state.StagedPath(key) is not { } staged)
+        {
+            return Task.FromResult(CopyLookup.Failed(state.ArchivePath + "!" + key, Language.Pick("its name leads out of Boatdrill's scratch folder", "이름이 Boatdrill의 작업 폴더 밖을 가리킵니다")));
+        }
+
         var fetch = state.FetchedBytes > 0 && File.Exists(staged)
             ? TimeSpan.FromTicks((long)(state.FetchTime.Ticks * ((double)entry.Size / state.FetchedBytes)))
             : TimeSpan.Zero;
@@ -161,6 +181,12 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
         if (copy.State != CopyState.Found || copy.Path is null) return new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("no copy to read", "읽을 사본이 없습니다"));
 
         var state = (State)binding.State!;
+        if (!state.IsInside(copy.Path) || state.KeyFor(copy.Path) is not { } key)
+        {
+            // Never moved, read or deleted: a path outside the stage is not Boatdrill's to touch.
+            return new ReadBack(false, 0, TimeSpan.Zero, null, Language.Pick("its name leads out of Boatdrill's scratch folder", "이름이 Boatdrill의 작업 폴더 밖을 가리킵니다"));
+        }
+
         var watch = Stopwatch.StartNew();
         if (File.Exists(copy.Path))
         {
@@ -178,16 +204,15 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
             }
         }
 
-        var key = Path.GetRelativePath(state.Stage, copy.Path).Replace(Path.DirectorySeparatorChar, '/');
         if (state.Failures.TryGetValue(key, out var failed))
         {
             return new ReadBack(false, 0, copy.FetchTime, null, failed.Detail) { Damaged = failed.Damaged };
         }
 
-        // Not extracted with a batch: this one file on its own.
+        // Not extracted with a batch: this one file on its own, into the scratch file the drill named.
         var entry = state.Entries[key];
         var single = IsZip(state.ArchivePath)
-            ? ExtractZip(state.ArchivePath, [(entry, scratchPath)])
+            ? ExtractZip(state, [(entry, scratchPath)], insideStage: false)
             : await ExtractSevenZipOneAsync(binding.Destination, state.ArchivePath, entry, scratchPath, ct).ConfigureAwait(false);
         watch.Stop();
         if (single.FirstOrDefault() is { } failure) return new ReadBack(false, 0, watch.Elapsed, null, failure.Value.Detail) { Damaged = failure.Value.Damaged };
@@ -270,14 +295,19 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
             .Where(state.Entries.ContainsKey)
             .Distinct(NameComparer)
             .ToList();
+
+        // 7-Zip puts a name under a drive wherever it decides, not where the stage expects it: those are streamed out
+        // one at a time when read back instead (ExtractSevenZipOneAsync), into a file Boatdrill names itself.
+        var zip = IsZip(state.ArchivePath);
+        if (!zip) wanted.RemoveAll(UnderADrive);
         if (wanted.Count == 0) return;
 
         var watch = Stopwatch.StartNew();
         IReadOnlyDictionary<string, Failure> failures;
-        if (IsZip(state.ArchivePath))
+        if (zip)
         {
-            failures = await Task.Run(() => ExtractZip(state.ArchivePath, wanted.Select(k => (state.Entries[k], StagedPath(state.Stage, k))).ToList()), ct)
-                .ConfigureAwait(false);
+            var targets = wanted.Select(k => (Entry: state.Entries[k], Path: state.StagedPath(k))).Where(t => t.Path is not null).Select(t => (t.Entry, t.Path!)).ToList();
+            failures = await Task.Run(() => ExtractZip(state, targets), ct).ConfigureAwait(false);
         }
         else
         {
@@ -295,21 +325,24 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
         {
             var key = Normalise(name);
             state.Failures[key] = failure;
-            Scratch.TryDeleteFile(StagedPath(state.Stage, key));
+            if (state.StagedPath(key) is { } staged) Scratch.TryDeleteFile(staged);
         }
     }
 
     /// <summary>Extracts zip entries to the given paths; what failed, by entry name, with why.</summary>
-    private IReadOnlyDictionary<string, Failure> ExtractZip(string archive, IReadOnlyList<(Entry Entry, string Path)> files)
+    /// <param name="insideStage">The paths were made from entry names, and each must lie inside the stage; false for a scratch file the drill named.</param>
+    private IReadOnlyDictionary<string, Failure> ExtractZip(State state, IReadOnlyList<(Entry Entry, string Path)> files, bool insideStage = true)
     {
         var failures = new Dictionary<string, Failure>(NameComparer);
         try
         {
-            using var zip = OpenZip(archive);
+            using var zip = OpenZip(state.ArchivePath);
             foreach (var (entry, path) in files)
             {
                 try
                 {
+                    // Checked where it is written, too: nothing outside the stage is ever overwritten.
+                    if (insideStage && !state.IsInside(path)) throw new IOException(Language.Pick("its name leads out of Boatdrill's scratch folder", "이름이 Boatdrill의 작업 폴더 밖을 가리킵니다"));
                     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                     zip.GetEntry(entry.Name)!.ExtractToFile(path, overwrite: true);
                 }
@@ -438,6 +471,14 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
         var below = Normalise(MirrorFolderAdapter.PathBelowVolume(root));
         var volume = MirrorFolderAdapter.VolumeFolder(root);
         yield return (MirrorLayout.Contents, string.Empty);
+        if (below.Length == 0)
+        {
+            // A whole drive: its folder in an archive is named after its letter, with or without the colon.
+            yield return (MirrorLayout.RootFolder, volume + "/");
+            if (OperatingSystem.IsWindows()) yield return (MirrorLayout.FullPath, volume + ":/");
+            yield break;
+        }
+
         yield return (MirrorLayout.RootFolder, Source.DisplayName(root) + "/");
         yield return (MirrorLayout.FullPath, $"{volume}/{below}/");
         if (OperatingSystem.IsWindows()) yield return (MirrorLayout.FullPath, $"{volume}:/{below}/");
@@ -481,7 +522,8 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
     [DllImport("kernel32.dll")]
     private static extern uint GetOEMCP();
 
-    private static string StagedPath(string stage, string key) => Path.Combine(stage, key.Replace('/', Path.DirectorySeparatorChar));
+    /// <summary>A key under a drive, "C:/Users/max/...", as 7z a -spf stores names: one 7-Zip extracts where it decides.</summary>
+    private static bool UnderADrive(string key) => key.Length >= 2 && char.IsAsciiLetter(key[0]) && key[1] == ':';
 
     internal sealed record Entry(string Name, long Size, DateTimeOffset? ModifiedUtc, bool Encrypted = false);
 
@@ -489,12 +531,36 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
 
     private sealed record State(string ArchivePath, Dictionary<string, Entry> Entries, MirrorLayout Layout, string Prefix, int Hits, string Stage)
     {
+        private readonly Dictionary<string, string> _keys = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
         public TimeSpan FetchTime { get; set; }
 
         public long FetchedBytes { get; set; }
 
         /// <summary>Files a batch could not extract, by key, with why.</summary>
         public Dictionary<string, Failure> Failures { get; } = new(NameComparer);
+
+        /// <summary>
+        /// Where an entry is extracted to, always inside the stage folder; null when its name would lead out of it. A key
+        /// under a drive ("C:/Users/max/Documents/a.txt") is one Path.Combine takes for a whole path, which is the
+        /// original file in the user's folder: its drive becomes a folder of the stage ("C/Users/...") instead.
+        /// </summary>
+        public string? StagedPath(string key)
+        {
+            var relative = UnderADrive(key) ? key[0] + key[2..] : key;
+            var path = Path.GetFullPath(Path.Combine(Stage, relative.TrimStart('/').Replace('/', Path.DirectorySeparatorChar)));
+            if (!IsInside(path)) return null;
+
+            _keys[path] = key;
+            return path;
+        }
+
+        /// <summary>The key a staged path was made for; null for a path this state did not make.</summary>
+        public string? KeyFor(string stagedPath) => _keys.GetValueOrDefault(Path.GetFullPath(stagedPath));
+
+        public bool IsInside(string path) =>
+            Path.GetFullPath(path).StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(Stage)) + Path.DirectorySeparatorChar,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
 
     /// <summary>

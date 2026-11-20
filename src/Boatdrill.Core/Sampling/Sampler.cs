@@ -21,7 +21,7 @@ public sealed class Sampler(SampleOptions? options = null, TimeProvider? clock =
         var root = Path.GetFullPath(source.RootPath);
         if (!Directory.Exists(root))
         {
-            return new Sample(source, [], 0, 0, 0, 0, null);
+            return new Sample(source, [], 0, 0, 0, 0, null, Missing: true);
         }
 
         var random = _options.Seed is int seed ? new Random(seed) : Random.Shared;
@@ -31,10 +31,10 @@ public sealed class Sampler(SampleOptions? options = null, TimeProvider? clock =
         var global = new Reservoir(_options.SampleSize);
         var perFolder = new Dictionary<string, Reservoir>(StringComparer.OrdinalIgnoreCase);
 
-        long population = 0, populationBytes = 0, skippedLarge = 0, skippedChurning = 0;
+        long population = 0, populationBytes = 0, skippedLarge = 0, skippedChurning = 0, notHere = 0;
         DateTimeOffset? newest = null;
 
-        foreach (var file in SourceFiles.Enumerate(source))
+        foreach (var file in SourceFiles.Enumerate(source, notHere: () => notHere++))
         {
             var (relative, length, written) = (file.RelativePath, file.Length, file.LastWriteUtc);
 
@@ -69,7 +69,7 @@ public sealed class Sampler(SampleOptions? options = null, TimeProvider? clock =
         }
 
         var files = ApplyByteCap(chosen.Values.OrderBy(f => f.RelativePath, StringComparer.Ordinal).ToList(), _options.ByteCap);
-        return new Sample(source, files, population, populationBytes, skippedLarge, skippedChurning, newest);
+        return new Sample(source, files, population, populationBytes, skippedLarge, skippedChurning, newest) { SkippedOnlineOnlyFiles = notHere };
     }
 
     /// <summary>Recent files weigh more: a file changed this week is eight times as likely to be drawn as one untouched for a year.</summary>

@@ -12,8 +12,10 @@
 
     <UserControl.Resources>
         <!-- A row with a title, a line of explanation, and a switch on the right. -->
+        <!-- The margin keeps rows apart when a caption wraps onto a second line, as it does in a narrow window. -->
         <Style x:Key="Row" TargetType="Grid">
             <Setter Property="MinHeight" Value="48" />
+            <Setter Property="Margin" Value="0,3" />
         </Style>
     </UserControl.Resources>
 

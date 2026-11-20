@@ -12,11 +12,11 @@
     <Company>Project Max</Company>
     <Authors>Project Max</Authors>
     <Copyright>Copyright © 2026 Project Max</Copyright>
-    <PackageProjectUrl>https://github.com/projectmax-org/project_01</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/projectmax-org/project_01</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/projectmax-org/boatdrill</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/projectmax-org/boatdrill</RepositoryUrl>
     <!-- The only version to edit. AssemblyVersion and FileVersion follow it, and the release workflow
          checks the tag against it. -->
-    <Version>0.2.0</Version>
+    <Version>1.0.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>

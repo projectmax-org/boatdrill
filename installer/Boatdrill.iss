@@ -1,4 +1,4 @@
-﻿; Boatdrill's Windows installer, for Inno Setup 6.3 or later (CI builds it with the Inno Setup 6 that windows-latest brings).
+﻿; Boatdrill's Windows installer, for Inno Setup 6.3 or later, 7 included (CI builds it with the Inno Setup that windows-latest brings).
 ;
 ;   ISCC installer\Boatdrill.iss                          after .\build.ps1, which publishes to dist\
 ;   ISCC /DAppVersion=1.0.0 /DDistDir=C:\out installer\Boatdrill.iss
@@ -20,7 +20,7 @@
 
 #define AppName "Boatdrill"
 #define AppExe "Boatdrill.exe"
-#define RepositoryUrl "https://github.com/projectmax-org/project_01"
+#define RepositoryUrl "https://github.com/projectmax-org/boatdrill"
 
 [Setup]
 ; Never change the AppId: upgrades and the uninstaller find an existing install by it.

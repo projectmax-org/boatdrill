@@ -86,6 +86,11 @@ public static class Verdicts
             text.Append($" {explained.SourceName}: {explained.Problem}.");
         }
 
+        foreach (var warned in r.Bindings.Where(b => b.Warning is not null && !lost.Contains(b)))
+        {
+            text.Append($" {warned.SourceName}: {warned.Warning}.");
+        }
+
         if (r.BehindSince is { } since)
         {
             text.Append(korean
@@ -164,6 +169,13 @@ public static class Verdicts
 
         var problems = results.Where(r => NotificationPolicy.IsProblem(r.Score.Verdict)).ToList();
         var korean = Language.IsKorean;
+
+        // Not one file was read back: that says nothing about whether the backups would restore.
+        if (problems.Count == 0 && results.Any(r => r.Score.Verdict == Verdict.NothingToCheck))
+        {
+            return Language.Pick("Nothing could be checked", "확인할 수 있는 파일이 없었습니다");
+        }
+
         return problems.Count switch
         {
             0 when results.All(r => r.Score.Verdict != Verdict.WouldMostlyRestore) => korean
@@ -176,6 +188,64 @@ public static class Verdicts
             _ => korean ? $"확인이 필요한 백업이 {problems.Count}개 있습니다" : $"{problems.Count} backups need attention",
         };
     }
+
+    /// <summary>
+    /// The protected folders a drill did not find, as a sentence; empty when it found them all. One folder comes
+    /// with its path, since that is where the user has to look.
+    /// </summary>
+    public static string MissingSources(IReadOnlyList<SourceSummary> missing)
+    {
+        if (missing.Count == 0) return string.Empty;
+
+        var names = Language.List(missing.Select(s => s.Name).ToList());
+        if (Language.IsKorean)
+        {
+            return missing.Count == 1
+                ? $"{names} 폴더({missing[0].RootPath})를 찾을 수 없어 확인하지 못했습니다."
+                : $"{names} 폴더를 찾을 수 없어 확인하지 못했습니다.";
+        }
+
+        return missing.Count == 1
+            ? $"{names} was not found at {missing[0].RootPath}, so none of it was checked."
+            : $"{names} were not found, so none of their files were checked.";
+    }
+
+    /// <summary>
+    /// Why a drill read nothing back, from what its sources held: "No file could be read: 1,204 are online only and 3
+    /// are too large." Empty when files were sampled.
+    /// </summary>
+    public static string NothingChecked(IReadOnlyList<SourceSummary> sources)
+    {
+        if (sources.Sum(s => s.Sampled) > 0) return string.Empty;
+
+        long online = sources.Sum(s => s.SkippedOnlineOnlyFiles), large = sources.Sum(s => s.SkippedLargeFiles), fresh = sources.Sum(s => s.SkippedChurningFiles);
+        var reasons = new List<string>();
+        if (Language.IsKorean)
+        {
+            if (online > 0) reasons.Add($"온라인 전용 파일 {online:N0}개");
+            if (large > 0) reasons.Add($"너무 큰 파일 {large:N0}개");
+            if (fresh > 0) reasons.Add($"최근 몇 시간 사이에 바뀐 파일 {fresh:N0}개");
+            return reasons.Count == 0
+                ? "보호하는 폴더에 확인할 파일이 없습니다."
+                : $"읽을 수 있는 파일이 없었습니다. 제외한 파일: {string.Join(", ", reasons)}.";
+        }
+
+        if (online > 0) reasons.Add($"{online:N0} {(online == 1 ? "is" : "are")} online only");
+        if (large > 0) reasons.Add($"{large:N0} {(large == 1 ? "is" : "are")} too large");
+        if (fresh > 0) reasons.Add($"{fresh:N0} changed in the last few hours");
+        return reasons.Count == 0
+            ? "The protected folders hold no files to check."
+            : $"No file could be read: {Language.List(reasons)}.";
+    }
+
+    /// <summary>The same as a headline, for a drill whose backups are otherwise fine: "Pictures was not found".</summary>
+    public static string MissingHeadline(IReadOnlyList<SourceSummary> missing) => (missing.Count, Language.IsKorean) switch
+    {
+        (1, true) => $"{missing[0].Name} 폴더를 찾을 수 없습니다",
+        (1, false) => $"{missing[0].Name} was not found",
+        (_, true) => $"보호하는 폴더 {missing.Count}개를 찾을 수 없습니다",
+        (_, false) => $"{missing.Count} protected folders were not found",
+    };
 
     /// <summary>A backup and its verdict, as a headline: "Family NAS needs attention".</summary>
     public static string Phrase(string name, Verdict verdict)

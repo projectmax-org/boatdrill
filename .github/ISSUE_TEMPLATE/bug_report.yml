@@ -13,8 +13,8 @@ body:
     id: version
     attributes:
       label: Boatdrill version
-      description: Settings → About, or the file name you downloaded.
-      placeholder: 0.1.0
+      description: At the bottom of Settings, or in the name of the file you downloaded.
+      placeholder: 1.0.0
     validations:
       required: true
   - type: input

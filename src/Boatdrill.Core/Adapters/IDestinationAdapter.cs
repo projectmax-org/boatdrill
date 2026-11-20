@@ -47,6 +47,24 @@ public sealed record SourceBinding(Destination Destination, Source Source, Mirro
 
     /// <summary>Why nothing can be found, when the adapter knows: "no snapshot in the repository covers it".</summary>
     public string? Problem { get; init; }
+
+    /// <summary>
+    /// Nothing may be looked up through this binding at all, because of its <see cref="Problem"/>: the only place left
+    /// to look would be the protected folder itself.
+    /// </summary>
+    public bool NothingThere { get; init; }
+
+    /// <summary>
+    /// Something the verdict should say even though copies were found, such as a newer archive that could not be
+    /// opened, so that an older backup was read in its place.
+    /// </summary>
+    public string? Warning { get; init; }
+
+    /// <summary>
+    /// The adapter could not find out what the destination holds (a listing failed, and its <see cref="Problem"/>
+    /// says why): that it found nothing does not mean there is nothing. A scan counts such a backup as not looked in.
+    /// </summary>
+    public bool CouldNotLook { get; init; }
 }
 
 public sealed record ReadBack(bool Success, long BytesRead, TimeSpan Elapsed, string? Sha256, string? Detail)

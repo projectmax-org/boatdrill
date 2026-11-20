@@ -45,7 +45,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _dispatcher = Dispatcher.CurrentDispatcher;
 
         RunDrillCommand = new RelayCommand(() => _ = _services.Drills.RunAsync(DrillTrigger.Manual),
-            () => !_services.Drills.IsRunning && !_services.Rehearsals.IsRunning && _services.Settings.Settings.IsReadyToDrill);
+            () => !_services.Drills.IsRunning && !_services.Rehearsals.IsRunning && !_services.Scans.IsRunning && _services.Settings.Settings.IsReadyToDrill);
         StopDrillCommand = new RelayCommand(() => _services.Drills.Cancel(), () => _services.Drills.IsRunning);
         ShowSettingsCommand = new RelayCommand(() => Section = AppSection.Settings);
 
@@ -63,6 +63,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _services.Drills.Completed += OnDrillCompleted;
         _services.Scheduler.ScheduleChanged += OnBackgroundChange;
         _services.Rehearsals.StateChanged += OnBackgroundChange;
+        _services.Scans.StateChanged += OnBackgroundChange;
         _services.Settings.Changed += OnSettingsChanged;
 
         Refresh();
@@ -279,6 +280,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (latest is null) return Language.Pick("Boatdrill: no drill has run yet", "Boatdrill: 아직 복원 훈련 전");
 
         var problems = latest.Destinations.Where(d => NotificationPolicy.IsProblem(d.Score.Verdict)).ToList();
+        if (problems.Count == 0)
+        {
+            // Backups that would restore say nothing about a protected folder the drill could not find, nor about
+            // files it could not read at all.
+            var protectedNow = _services.Settings.Settings.Sources;
+            var missing = latest.MissingSources.Where(m => protectedNow.Any(s => s.Id == m.SourceId)).ToList();
+            if (missing.Count > 0) return "Boatdrill: " + Verdicts.MissingHeadline(missing);
+            if (latest.Destinations.Any(d => d.Score.Verdict == Core.Scoring.Verdict.NothingToCheck)) return "Boatdrill: " + Verdicts.Headline(latest.Destinations);
+        }
+
         return problems.Count switch
         {
             0 => Language.Pick("Boatdrill: your backups would restore", "Boatdrill: 백업에서 복원할 수 있음"),
@@ -329,6 +340,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _services.Drills.Completed -= OnDrillCompleted;
         _services.Scheduler.ScheduleChanged -= OnBackgroundChange;
         _services.Rehearsals.StateChanged -= OnBackgroundChange;
+        _services.Scans.StateChanged -= OnBackgroundChange;
         _services.Settings.Changed -= OnSettingsChanged;
         OnlyHere.Dispose();
         Rehearsal.Dispose();

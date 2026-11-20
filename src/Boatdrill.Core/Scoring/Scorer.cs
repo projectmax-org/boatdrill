@@ -13,7 +13,8 @@ public sealed record ScoreInputs(
     bool Reachable,
     double Reachability,
     int Rechecked = 0,
-    int Rotted = 0)
+    int Rotted = 0,
+    int SourcesWithoutCopies = 0)
 {
     /// <summary>Files that have a copy on the destination's disk, whatever its state.</summary>
     public int Found => Verified + Outdated + Corrupt;
@@ -34,7 +35,10 @@ public static class Scorer
     /// <summary>A backup this far behind scores zero for freshness.</summary>
     public static readonly TimeSpan FreshnessHorizon = TimeSpan.FromDays(30);
 
-    /// <summary>Any corruption, or any rot found by a re-check, caps the total below "would restore".</summary>
+    /// <summary>
+    /// Any corruption, any rot found by a re-check, or a protected folder none of whose sampled files has a copy here,
+    /// caps the total below "would restore".
+    /// </summary>
     public const int CorruptionCap = 69;
 
     public const int WouldRestoreFrom = 95;
@@ -62,7 +66,8 @@ public static class Scorer
 
         var rest = BaseWeight + FreshnessWeight * freshness + IntegrityWeight * integrity + ReachabilityWeight * reachability;
         var total = (int)Math.Round(100 * coverage * rest);
-        if (i.Corrupt + i.Rotted > 0) total = Math.Min(total, CorruptionCap);
+        // A whole folder with no copy is lost with the PC, however small a share of the sample it is.
+        if (i.Corrupt + i.Rotted > 0 || i.SourcesWithoutCopies > 0) total = Math.Min(total, CorruptionCap);
 
         var verdict = total switch
         {

@@ -25,6 +25,7 @@ public sealed class DrillScheduler : IDisposable
 
     private readonly SettingsStore _settings;
     private readonly DrillService _drills;
+    private readonly Func<bool> _otherWorkRunning;
     private readonly Timer _timer;
     private readonly Lock _gate = new();
 
@@ -33,10 +34,15 @@ public sealed class DrillScheduler : IDisposable
     private bool _started;
     private bool _disposed;
 
-    public DrillScheduler(SettingsStore settings, DrillService drills)
+    /// <param name="otherWorkRunning">
+    /// True while a scan or a full-restore rehearsal runs: a due drill waits for it, as they wait for a drill. A drill
+    /// beside a rehearsal would also sweep the scratch folder the rehearsal is restoring into.
+    /// </param>
+    public DrillScheduler(SettingsStore settings, DrillService drills, Func<bool>? otherWorkRunning = null)
     {
         _settings = settings;
         _drills = drills;
+        _otherWorkRunning = otherWorkRunning ?? (() => false);
         _timer = new Timer(_ => OnTimer(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -100,7 +106,7 @@ public sealed class DrillScheduler : IDisposable
                     return;
                 }
 
-                if (_drills.IsRunning)
+                if (_drills.IsRunning || _otherWorkRunning())
                 {
                     RetryLater();
                     return;

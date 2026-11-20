@@ -9,7 +9,7 @@ public sealed record Notice(string Title, string Text);
 
 /// <summary>
 /// What, if anything, a finished drill should say in a notification. Silence when every destination
-/// would restore: a notification is for something the user needs to do.
+/// would restore and every protected folder was found: a notification is for something the user needs to do.
 /// </summary>
 public static class NotificationPolicy
 {
@@ -25,7 +25,15 @@ public static class NotificationPolicy
             .OrderByDescending(d => d.Score.Verdict)
             .ToList();
 
-        if (problems.Count == 0) return null;
+        if (problems.Count == 0)
+        {
+            // Every backup would restore what was checked, but a folder that was not found was not checked at all.
+            var missing = report.MissingSources;
+            return missing.Count == 0
+                ? null
+                : new Notice(Verdicts.MissingHeadline(missing), Shorten(
+                    Verdicts.MissingSources(missing) + Language.Pick(" Check the folder in Settings.", " 설정에서 폴더를 확인하세요."), MaxText));
+        }
 
         if (problems.Count == 1)
         {

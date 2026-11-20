@@ -22,7 +22,7 @@ param(
     [Parameter(Mandatory)]
     [string]$OutputDirectory,
 
-    [string]$Repository = 'projectmax-org/project_01',
+    [string]$Repository = 'projectmax-org/boatdrill',
 
     [string]$ReleaseDate = (Get-Date -Format 'yyyy-MM-dd')
 )

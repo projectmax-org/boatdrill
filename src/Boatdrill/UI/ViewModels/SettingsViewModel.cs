@@ -141,7 +141,7 @@ public sealed record ToolForm(
 /// <summary>Everything on the Settings page. Each change is saved as it is made.</summary>
 public sealed class SettingsViewModel : ViewModelBase, IDisposable
 {
-    public const string RepositoryUrl = "https://github.com/projectmax-org/project_01";
+    public const string RepositoryUrl = "https://github.com/projectmax-org/boatdrill";
 
     private readonly AppServices _services;
     private string _message = string.Empty;
@@ -425,7 +425,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
     public string DataFolder => Paths.DataDirectory;
 
-    public string Version => "Boatdrill " + (typeof(SettingsViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.2.0");
+    public string Version => "Boatdrill " + (typeof(SettingsViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3));
 
     // ---------------- folders ----------------
 

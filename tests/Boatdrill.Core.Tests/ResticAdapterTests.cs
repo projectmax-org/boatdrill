@@ -4,6 +4,7 @@ using Boatdrill.Core.History;
 using Boatdrill.Core.Scan;
 using Boatdrill.Core.Sampling;
 using Boatdrill.Core.Scoring;
+using Boatdrill.Core.Tools;
 using Boatdrill.Core.Verification;
 
 namespace Boatdrill.Core.Tests;
@@ -322,7 +323,19 @@ public sealed class ResticAdapterTests
 
         Assert.True(ResticAdapter.TakenHere(here.ToLowerInvariant()));
         Assert.True(ResticAdapter.TakenHere(here + ".local"));
-        Assert.False(ResticAdapter.TakenHere(here + "-other"));
+        Assert.False(ResticAdapter.TakenHere("other-" + here));
+
+        // A machine name shorter than fifteen characters is whole: a longer name that begins with it is another PC.
+        Assert.True(HostNames.Matches("studio-pc", "STUDIO-PC"));
+        Assert.True(HostNames.Matches("studio-pc.lan", "STUDIO-PC"));
+        Assert.False(HostNames.Matches("studio-pc-2", "STUDIO-PC"));
+
+        // Fifteen is where Windows cuts a longer DNS name short for .NET, and the length of the names it makes up
+        // itself, so this test once failed on most PCs: what follows the fifteenth character settles nothing.
+        Assert.True(HostNames.Matches("desktop-4qk7m2p", "DESKTOP-4QK7M2P"));
+        Assert.True(HostNames.Matches("accounting-laptop-07.corp.example", "ACCOUNTING-LAPT"));
+        Assert.True(HostNames.Matches("desktop-4qk7m2p-other", "DESKTOP-4QK7M2P"));
+        Assert.False(HostNames.Matches("desktop-9zr3x8w", "DESKTOP-4QK7M2P"));
     }
 
     [Fact]

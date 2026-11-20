@@ -55,23 +55,28 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
         // The layout: the candidate where most of a few sampled files are found, by name, without walking the remote.
         var candidates = Candidates(destination, sample.Source).Where(c => destination.Layout == MirrorLayout.Auto || c.Layout == destination.Layout).ToList();
         (MirrorLayout Layout, string Base, int Hits) best = (candidates[0].Layout, candidates[0].Base, 0);
+        ToolRunner.Result? failedLayout = null;
         foreach (var (layout, @base) in candidates)
         {
             if (candidates.Count == 1 || probe.Count == 0) break;
-            var found = await LookUpAsync(destination, @base, probe, list, ct).ConfigureAwait(false);
+            var (found, failed) = await LookUpAsync(destination, @base, probe, list, ct).ConfigureAwait(false);
+            failedLayout ??= failed;
             if (found.Count > best.Hits) best = (layout, @base, found.Count);
         }
 
         Dictionary<string, Entry> index;
+        ToolRunner.Result? failure;
         if (purpose == BindPurpose.ListOnly)
         {
             // A scan looks up every file, so the whole of the remote's copy is listed once.
             var listing = await RunAsync(destination, ["lsjson", "-R", "--files-only", "--no-mimetype", best.Base], ListLimit, ct).ConfigureAwait(false);
-            index = listing.ExitCode == 0 ? Index(ParseListing(listing.Output)) : new Dictionary<string, Entry>(PathComparer);
+            (index, failure) = listing.ExitCode == 0
+                ? (Index(ParseListing(listing.Output)), null)
+                : (new Dictionary<string, Entry>(PathComparer), IsDirectoryNotFound(listing) ? null : listing);
         }
         else
         {
-            index = await LookUpAsync(destination, best.Base, [.. sample.Files.Select(f => Remote(f.RelativePath)), .. alsoRead.Select(Remote)], list, ct)
+            (index, failure) = await LookUpAsync(destination, best.Base, [.. sample.Files.Select(f => Remote(f.RelativePath)), .. alsoRead.Select(Remote)], list, ct)
                 .ConfigureAwait(false);
         }
 
@@ -81,9 +86,22 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
             await CopyAsync(destination, [.. sample.Files.Select(f => f.RelativePath), .. alsoRead], state, ct).ConfigureAwait(false);
         }
 
+        // A listing that failed is not a remote that holds nothing: an expired token, a timeout, one folder it may not read.
         var hits = probe.Count(index.ContainsKey);
-        return new SourceBinding(destination, sample.Source, best.Layout, Destination.Redact(best.Base), hits, probe.Count) { State = state };
+        var unknown = failure ?? (hits == 0 ? failedLayout : null);
+        return new SourceBinding(destination, sample.Source, best.Layout, Destination.Redact(best.Base), hits, probe.Count)
+        {
+            State = state,
+            Problem = unknown is null ? null : Language.Pick("its files could not be listed: ", "파일 목록을 가져오지 못했습니다: ") + Explain(destination, best.Base, unknown),
+            CouldNotLook = unknown is not null,
+        };
     }
+
+    /// <summary>rclone's exit code for "directory not found": a layout that is not on the remote, so nothing to find there.</summary>
+    private const int DirectoryNotFound = 3;
+
+    private static bool IsDirectoryNotFound(ToolRunner.Result result) =>
+        result.ExitCode == DirectoryNotFound || result.Error.Contains("directory not found", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Downloads the next batch of a rehearsal into the stage folder, as binding does for a drill's sample.</summary>
     public Task PrefetchAsync(SourceBinding binding, IReadOnlyCollection<string> relativePaths, CancellationToken ct) =>
@@ -94,6 +112,9 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
         var state = (State)binding.State!;
         var remote = Remote(relativePath);
         var where = Join(state.Base, remote);
+
+        // An unlisted file is not known to be missing when the listing itself failed.
+        if (binding.CouldNotLook) return Task.FromResult(CopyLookup.Failed(where, binding.Problem ?? Language.Pick("its files could not be listed", "파일 목록을 가져오지 못했습니다")));
         if (!state.Index.TryGetValue(remote, out var entry))
         {
             return Task.FromResult(CopyLookup.Missing(where, Language.Pick("not on " + Destination.Redact(state.Base), $"{Destination.Redact(state.Base)}에 없습니다")));
@@ -146,19 +167,23 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
         return new ReadBack(true, new FileInfo(scratchPath).Length, timer.Elapsed, restored, null);
     }
 
-    /// <summary>Which of these files (paths below <paramref name="base"/>) the remote holds, looked up by name.</summary>
-    private static async Task<Dictionary<string, Entry>> LookUpAsync(Destination destination, string @base, IReadOnlyCollection<string> paths, string list,
-        CancellationToken ct)
+    /// <summary>
+    /// Which of these files (paths below <paramref name="base"/>) the remote holds, looked up by name; with the listing that
+    /// failed, when one did for another reason than the folder not being there.
+    /// </summary>
+    private static async Task<(Dictionary<string, Entry> Index, ToolRunner.Result? Failure)> LookUpAsync(Destination destination, string @base,
+        IReadOnlyCollection<string> paths, string list, CancellationToken ct)
     {
-        if (paths.Count == 0) return new Dictionary<string, Entry>(PathComparer);
+        if (paths.Count == 0) return (new Dictionary<string, Entry>(PathComparer), null);
 
         // --files-from-raw takes every line as a name: no comments, no patterns, so "#notes" and "[draft]" are files.
         await File.WriteAllLinesAsync(list, paths.Distinct(PathComparer), ct).ConfigureAwait(false);
         var result = await RunAsync(destination, ["lsjson", "-R", "--files-only", "--no-mimetype", "--files-from-raw", list, @base], ListLimit, ct)
             .ConfigureAwait(false);
+        if (result.ExitCode == 0) return (Index(ParseListing(result.Output)), null);
 
         // A layout that does not exist on the remote is "directory not found": nothing found there, not a failure.
-        return result.ExitCode == 0 ? Index(ParseListing(result.Output)) : new Dictionary<string, Entry>(PathComparer);
+        return (new Dictionary<string, Entry>(PathComparer), IsDirectoryNotFound(result) ? null : result);
     }
 
     /// <summary>Downloads the files that the remote holds into the stage folder, in one rclone copy, timing it.</summary>

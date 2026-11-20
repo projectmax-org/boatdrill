@@ -36,10 +36,15 @@ jobs:
           }
           "version=$version" >> $env:GITHUB_OUTPUT
 
+      # A release is tested with every adapter: without its tool, an adapter's tests would only be skipped.
       - name: Install restic, rclone and 7-Zip for the tests
         shell: pwsh
-        continue-on-error: true
-        run: choco install restic rclone 7zip --no-progress -y
+        run: |
+          choco install restic rclone 7zip --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw 'Installing restic, rclone and 7-Zip failed.' }
+          foreach ($tool in 'restic', 'rclone', '7z') {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool is not on the PATH, so its tests would be skipped." }
+          }
 
       # The Kopia tests too, as on every push; without kopia they are skipped.
       - name: Install kopia for the tests
@@ -72,6 +77,12 @@ jobs:
         run: |
           if ($env:SIGN_COMMAND) { .\build.ps1 -Installer -SignCommand $env:SIGN_COMMAND }
           else { .\build.ps1 -Installer }
+
+      # The installer people will download installs and uninstalls cleanly here first, and the program it
+      # installs starts.
+      - name: Install and uninstall it once
+        shell: pwsh
+        run: .\installer\Test-Installer.ps1 -Setup "artifacts/installer/Boatdrill-Setup-${{ steps.version.outputs.version }}.exe" -LogDirectory "$env:RUNNER_TEMP/installer-test"
 
       - name: Gather the files and their checksums
         shell: pwsh
@@ -138,10 +149,13 @@ jobs:
           "@ | Set-Content artifacts/release-notes.md -Encoding utf8
 
           $files = Get-ChildItem artifacts/release | ForEach-Object { $_.FullName }
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
-            # Run again for the same tag: replace the files on the existing draft.
+          $existing = gh release view $tag --json isDraft 2> $null | ConvertFrom-Json
+          if ($existing) {
+            # Run again for the same tag: the draft gets these files and notes whose checksums describe them. A published
+            # release is never changed: its files are what people downloaded, and what winget's manifest checks.
+            if (-not $existing.isDraft) { throw "Boatdrill $version is already published; release the change as a new version." }
             gh release upload $tag @files --clobber
+            if ($LASTEXITCODE -eq 0) { gh release edit $tag --notes-file artifacts/release-notes.md }
           } else {
             gh release create $tag @files --draft --verify-tag --title "Boatdrill $version" --notes-file artifacts/release-notes.md
           }

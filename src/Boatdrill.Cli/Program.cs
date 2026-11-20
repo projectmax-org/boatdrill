@@ -41,7 +41,7 @@ public static class Program
 
           --sample       files per source (200)          --cap-mb       most MB read per source (512)
           --seed         repeatable sample                --churn-hours  skip files written this recently (2)
-          --scratch      where read-back lands (temp)     --history      append the report to this .jsonl file
+          --scratch      read back into a folder here     --history      append the report to this .jsonl file
           --ledger       hash ledger file: copies verified before are read again, to catch bit rot
           --canaries     keep a canary file in each source, to show how far behind each backup is
           --html         also write the drill as a one-page HTML report to this file
@@ -59,7 +59,7 @@ public static class Program
 
         Exit codes: drill 0 when every destination would restore (fully or mostly), 1 otherwise; only-here 0
         when every file has a current copy, 1 otherwise; rehearse 0 when every file came back intact, 1 otherwise;
-        report 0 when it wrote the report; 2 for bad arguments.
+        report 0 when it wrote the report; 2 for bad arguments, a --source folder that does not exist among them.
         """;
 
     public static async Task<int> Main(string[] args)
@@ -82,6 +82,13 @@ public static class Program
             return 2;
         }
 
+        // "boatdrill-cli drill --help" asks for the same page as "boatdrill-cli --help".
+        if (args.Skip(1).Any(a => a is "-h" or "--help"))
+        {
+            Console.WriteLine(Usage);
+            return 0;
+        }
+
         Options options;
         try
         {
@@ -93,13 +100,27 @@ public static class Program
             return 2;
         }
 
-        return args[0] switch
+        try
         {
-            "drill" => await DrillAsync(options),
-            "only-here" => await OnlyHereAsync(options),
-            "rehearse" => await RehearseAsync(options),
-            _ => await ReportAsync(options),
-        };
+            return args[0] switch
+            {
+                "drill" => await DrillAsync(options),
+                "only-here" => await OnlyHereAsync(options),
+                "rehearse" => await RehearseAsync(options),
+                _ => await ReportAsync(options),
+            };
+        }
+        finally
+        {
+            // The scratch folder goes once a run has emptied it; one that still holds a locked file stays for the next run.
+            try
+            {
+                if (Directory.Exists(options.Scratch) && !Directory.EnumerateFileSystemEntries(options.Scratch).Any()) Directory.Delete(options.Scratch);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     private static async Task<int> DrillAsync(Options options)
@@ -138,7 +159,12 @@ public static class Program
             Print(report);
         }
 
-        return report.Worst <= Verdict.WouldMostlyRestore ? 0 : 1;
+        // A pass is a backup that would restore what was read back. A drill that read nothing back, or that could not
+        // find a source (it vanished while the drill ran), has not shown that.
+        var passed = report.Destinations.Count > 0 &&
+                     report.Destinations.All(d => d.Score.Verdict is Verdict.WouldRestore or Verdict.WouldMostlyRestore) &&
+                     report.MissingSources.Count == 0;
+        return passed ? 0 : 1;
     }
 
     private static async Task<int> OnlyHereAsync(Options options)
@@ -157,7 +183,8 @@ public static class Program
             Print(report);
         }
 
-        return report.Checked.Count > 0 && report.OnlyHereFiles == 0 ? 0 : 1;
+        // A pass is every file looked up and found: a folder no backup could be looked in for has not been.
+        return report.Checked.Count > 0 && report.OnlyHereFiles == 0 && report.NotCompared.Count == 0 ? 0 : 1;
     }
 
     private static async Task<int> RehearseAsync(Options options)
@@ -222,11 +249,20 @@ public static class Program
 
         foreach (var source in report.Sources)
         {
+            if (source.Missing)
+            {
+                Console.WriteLine($"  {source.Name}: not found at {source.RootPath}, so none of it was checked");
+                continue;
+            }
+
             var skipped = source.SkippedLargeFiles + source.SkippedChurningFiles;
             Console.WriteLine($"  {source.Name}: {source.Population:N0} files, {Humanize.Bytes(source.PopulationBytes)}; " +
                               $"sampled {source.Sampled:N0} ({Humanize.Bytes(source.SampledBytes)})" +
-                              (skipped > 0 ? $"; left out {source.SkippedLargeFiles:N0} large and {source.SkippedChurningFiles:N0} just-changed files" : string.Empty));
+                              (skipped > 0 ? $"; left out {source.SkippedLargeFiles:N0} large and {source.SkippedChurningFiles:N0} just-changed files" : string.Empty) +
+                              (source.SkippedOnlineOnlyFiles > 0 ? $"; {Humanize.Plural(source.SkippedOnlineOnlyFiles, "online-only file")} not read, as not on this PC" : string.Empty));
         }
+
+        if (Verdicts.NothingChecked(report.Sources) is { Length: > 0 } why) Console.WriteLine("  " + why);
 
         foreach (var d in report.Destinations)
         {
@@ -336,6 +372,17 @@ public static class Program
             for (var i = 1; i < args.Length; i++)
             {
                 string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value.");
+
+                // A number that names its option when it is wrong: "--sample needs a whole number of at least 1, not 'many'."
+                long Whole(long least)
+                {
+                    var option = args[i];
+                    var text = Next();
+                    return long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) && number >= least
+                        ? number
+                        : throw new ArgumentException($"{option} needs a whole number of at least {least}, not '{text}'.");
+                }
+
                 switch (args[i])
                 {
                     case "--source": sources.Add(Next()); break;
@@ -350,10 +397,24 @@ public static class Program
                     case "--restic-tool": resticTool = Next(); break;
                     case "--kopia": destinations.Add((DestinationKind.Kopia, Next())); break;
                     case "--kopia-tool": kopiaTool = Next(); break;
-                    case "--sample": sampleSize = int.Parse(Next(), CultureInfo.InvariantCulture); break;
-                    case "--cap-mb": capMb = long.Parse(Next(), CultureInfo.InvariantCulture); break;
-                    case "--seed": seed = int.Parse(Next(), CultureInfo.InvariantCulture); break;
-                    case "--churn-hours": churnHours = double.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--sample": sampleSize = (int)Math.Min(Whole(1), int.MaxValue); break;
+                    case "--cap-mb": capMb = Math.Min(Whole(1), long.MaxValue / (1024 * 1024)); break;
+                    case "--seed":
+                    {
+                        var text = Next();
+                        seed = int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
+                            ? number
+                            : throw new ArgumentException($"--seed needs a whole number, not '{text}'.");
+                        break;
+                    }
+                    case "--churn-hours":
+                    {
+                        var text = Next();
+                        churnHours = double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var hours) && double.IsFinite(hours) && hours >= 0
+                            ? Math.Min(hours, 24 * 365 * 100)
+                            : throw new ArgumentException($"--churn-hours needs a number of hours, zero or more, not '{text}'.");
+                        break;
+                    }
                     case "--scratch": scratch = Next(); break;
                     case "--history": history = Next(); break;
                     case "--ledger": ledger = Next(); break;
@@ -361,7 +422,7 @@ public static class Program
                     case "--json": json = true; break;
                     case "--html": html = Next(); break;
                     case "--folder": folder = Next(); break;
-                    case "--batch-mb": batchMb = long.Parse(Next(), CultureInfo.InvariantCulture); break;
+                    case "--batch-mb": batchMb = Math.Min(Whole(1), long.MaxValue / (1024 * 1024)); break;
                     default: throw new ArgumentException($"Unknown option '{args[i]}'.\n\n{Usage}");
                 }
             }
@@ -377,6 +438,13 @@ public static class Program
             else if (args[0] == "rehearse" && (sources.Count != 1 || destinations.Count != 1 || batchMb <= 0))
             {
                 throw new ArgumentException("rehearse takes one --source, one destination and a positive --batch-mb.\n\n" + Usage);
+            }
+
+            // A source that is not there cannot be checked, and "nothing to check" must not pass for "would restore":
+            // a mistyped path, or a drive that is not plugged in, stops here instead of exiting 0.
+            foreach (var source in sources)
+            {
+                if (!Directory.Exists(source)) throw new ArgumentException($"The source folder {Path.GetFullPath(source)} was not found.");
             }
 
             // The password never goes on the command line, where other programs can read it.
@@ -400,7 +468,9 @@ public static class Program
                     Seed = seed,
                     ChurnWindow = TimeSpan.FromHours(churnHours),
                 },
-                scratch ?? Path.Combine(Path.GetTempPath(), "boatdrill"),
+                // A folder of Boatdrill's own: each run empties what earlier runs left in it, and nothing else of the
+                // folder --scratch names is ever touched.
+                scratch is null ? Path.Combine(Path.GetTempPath(), "boatdrill") : Path.Combine(scratch, "Boatdrill scratch"),
                 history,
                 ledger,
                 canaries,

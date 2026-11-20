@@ -33,6 +33,41 @@ public static class Korean
     /// <summary>"드라이브입니다", "사진입니다": "is", which is the same after a vowel or a consonant.</summary>
     public static string Is(string word) => word + "입니다";
 
+    /// <summary>U+2060 WORD JOINER: no width, and no line break on either side of it.</summary>
+    public const char WordJoiner = '⁠';
+
+    /// <summary>
+    /// The text with a word joiner wherever a Hangul syllable touches a letter, a digit or another syllable, and
+    /// after a closing bracket or quote that a particle follows, so that a line is broken at the spaces between
+    /// Korean words and never inside one ("확인할", "NAS에", "400개", "(E:)에서"): what CSS calls
+    /// <c>word-break: keep-all</c>, for a text engine that has no such setting. Text without Hangul comes back as it was.
+    /// </summary>
+    public static string KeepWordsWhole(string text)
+    {
+        System.Text.StringBuilder? joined = null;
+        var copied = 0;
+        for (var i = 0; i + 1 < text.Length; i++)
+        {
+            if (!Joins(text[i], text[i + 1])) continue;
+
+            joined ??= new System.Text.StringBuilder(text.Length + 16);
+            joined.Append(text, copied, i + 1 - copied).Append(WordJoiner);
+            copied = i + 1;
+        }
+
+        return joined is null ? text : joined.Append(text, copied, text.Length - copied).ToString();
+    }
+
+    /// <summary>The text as it was written, without the joiners <see cref="KeepWordsWhole"/> put in.</summary>
+    public static string WithoutJoiners(string text) =>
+        text.Contains(WordJoiner) ? text.Replace(WordJoiner.ToString(), string.Empty, StringComparison.Ordinal) : text;
+
+    private static bool Joins(char before, char after) =>
+        (IsSyllable(before) && char.IsLetterOrDigit(after)) ||
+        (IsSyllable(after) && (char.IsLetterOrDigit(before) || before is ')' or ']' or '}' or '"' or '\'' or '’' or '”'));
+
+    private static bool IsSyllable(char c) => c is >= '가' and <= '힣';
+
     private static Ending LastSound(string word)
     {
         for (var i = word.Length - 1; i >= 0; i--)

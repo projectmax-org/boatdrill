@@ -29,6 +29,64 @@ public sealed class MirrorFolderAdapterTests
     }
 
     [Fact]
+    public void AWholeDrive_IsLookedForInAFolderNamedAfterIt_NeverInItself()
+    {
+        // "D:\" has no name but itself, and Path.Combine takes a rooted name for the whole path: the source.
+        var (drive, backup, folder) = OperatingSystem.IsWindows() ? (@"D:\", @"E:\Backup", @"E:\Backup\D") : ("/", "/mnt/backup", "/mnt/backup/root");
+        var source = Source.FromPath(drive);
+
+        var candidates = MirrorFolderAdapter.Candidates(Destination.MirrorFolder(backup), source).ToList();
+
+        Assert.Equal(folder, candidates.Single(c => c.Layout == MirrorLayout.RootFolder).BasePath);
+        Assert.DoesNotContain(candidates, c => MirrorFolderAdapter.IsTheSource(c.BasePath, source));
+        Assert.Equal(["", "D/"], Adapters.ArchiveAdapter.Prefixes(Source.FromPath(@"D:\")).Select(p => p.Prefix).Take(OperatingSystem.IsWindows() ? 2 : 0));
+    }
+
+    [Fact]
+    public async Task ABackupFolderThatHoldsTheProtectedFolder_IsNeverReadAsItsOwnCopy()
+    {
+        // Protecting OneDrive\Documents and choosing OneDrive itself as the backup: the "folder named after the source"
+        // inside it is the source. Every file would read back from itself and verify.
+        using var tree = new TempTree();
+        using var scratch = new TempTree();
+        for (var i = 0; i < 8; i++) tree.Write($"OneDrive/Documents/{i}.txt", $"document {i}", DateTimeOffset.UtcNow.AddDays(-3));
+
+        var report = await new Drill.DrillRunner().RunAsync(new Drill.DrillPlan
+        {
+            Sources = [Source.FromPath(tree.At("OneDrive/Documents"), "Documents")],
+            Destinations = [Destination.MirrorFolder(tree.At("OneDrive"), "OneDrive")],
+            ScratchDirectory = scratch.Root,
+            Sampling = Everything,
+        });
+
+        var result = Assert.Single(report.Destinations);
+        Assert.Equal(0, result.Verified);
+        Assert.Equal(8, result.Missing);
+        Assert.NotEqual(Scoring.Verdict.WouldRestore, result.Score.Verdict);
+        Assert.NotEqual(MirrorLayout.RootFolder, Assert.Single(result.Bindings).Layout);
+
+        // Told to use that layout, it says why it finds nothing rather than reading the originals.
+        var fixedLayout = Destination.MirrorFolder(tree.At("OneDrive"), "OneDrive", layout: MirrorLayout.RootFolder);
+        var binding = await new MirrorFolderAdapter().BindAsync(fixedLayout, new Sampler(Everything).Take(Source.FromPath(tree.At("OneDrive/Documents"))),
+            scratch.Root, BindPurpose.Read, [], CancellationToken.None);
+        Assert.True(binding.NothingThere);
+        Assert.Contains("the protected folder itself", binding.Problem);
+        Assert.Equal(Adapters.CopyState.Missing, (await new MirrorFolderAdapter().LocateAsync(binding, "0.txt", CancellationToken.None)).State);
+    }
+
+    [Fact]
+    public async Task APathThatLeadsOutOfTheBackup_IsNotLookedUp()
+    {
+        using var backup = new TempTree();
+        using var elsewhere = new TempTree();
+        var outside = elsewhere.Write("secret.txt", "not part of the backup");
+        var binding = new SourceBinding(Destination.MirrorFolder(backup.Root), Source.FromPath(elsewhere.Root), MirrorLayout.Contents, backup.Root, 0, 0);
+
+        Assert.Equal(Adapters.CopyState.Missing, (await new MirrorFolderAdapter().LocateAsync(binding, outside, CancellationToken.None)).State);
+        Assert.Equal(Adapters.CopyState.Missing, (await new MirrorFolderAdapter().LocateAsync(binding, Path.Combine("..", Path.GetFileName(elsewhere.Root), "secret.txt"), CancellationToken.None)).State);
+    }
+
+    [Fact]
     public async Task Bind_HonoursAFixedLayout()
     {
         using var tree = new TempTree();

@@ -71,6 +71,12 @@ public static class Humanize
         return Language.IsKorean ? Age(span) + " 전" : Age(span) + " ago";
     }
 
+    /// <summary>
+    /// When something happened, to open a Korean sentence: "방금" or "5분 전에" (방금 takes no 에). The same as
+    /// <see cref="Ago"/> in English.
+    /// </summary>
+    public static string AgoWhen(TimeSpan span) => Language.IsKorean && span >= TimeSpan.FromMinutes(1) ? Ago(span) + "에" : Ago(span);
+
     /// <summary>"3 files", or "파일 3개": a count of things, in English with a plural, in Korean with a counter.</summary>
     public static string Count(long count, string englishNoun, string koreanNoun) =>
         Language.IsKorean ? $"{koreanNoun} {count:N0}개" : Plural(count, englishNoun);

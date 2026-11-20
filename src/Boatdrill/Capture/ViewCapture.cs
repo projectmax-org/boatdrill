@@ -39,10 +39,11 @@ internal static class ViewCapture
         PresentationTraceSources.DataBindingSource.Listeners.Add(bindings);
         PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning;
 
+        var sampleFolders = new List<string>();
         try
         {
-            await CaptureAsync(output, Core.Text.Language.EnglishCode);
-            await CaptureAsync(Path.Combine(output, Core.Text.Language.KoreanCode), Core.Text.Language.KoreanCode);
+            await CaptureAsync(output, Core.Text.Language.EnglishCode, sampleFolders);
+            await CaptureAsync(Path.Combine(output, Core.Text.Language.KoreanCode), Core.Text.Language.KoreanCode, sampleFolders);
 
             File.WriteAllLines(Path.Combine(output, "binding-messages.txt"), bindings.Messages);
             var pathErrors = bindings.Messages.Count(m => m.Contains("BindingExpression path error", StringComparison.Ordinal));
@@ -53,15 +54,31 @@ internal static class ViewCapture
             File.WriteAllText(Path.Combine(output, "capture-error.txt"), ex.ToString());
             return 1;
         }
+        finally
+        {
+            // The throwaway data folders go with the capture; one that is still held open stays for Windows to clear.
+            foreach (var folder in sampleFolders)
+            {
+                try
+                {
+                    Directory.Delete(folder, recursive: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+        }
     }
 
     /// <summary>Every view, in one language, against sample data written in that language.</summary>
-    private static async Task CaptureAsync(string output, string language)
+    /// <param name="sampleFolders">Receives the throwaway data folder this capture makes, for the caller to remove.</param>
+    private static async Task CaptureAsync(string output, string language, List<string> sampleFolders)
     {
         Directory.CreateDirectory(output);
         Core.Text.Language.Use(language);
 
         var data = Path.Combine(Path.GetTempPath(), "boatdrill-capture-" + Guid.NewGuid().ToString("N")[..8]);
+        sampleFolders.Add(data);
         Paths.UseDataDirectory(data);
         SampleData.Write(data);
 

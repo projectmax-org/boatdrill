@@ -130,8 +130,18 @@ public sealed class DashboardViewModel : ViewModelBase
         {
             Headline = Verdicts.Headline(results);
             HeadlineKind = results.Any(r => NotificationPolicy.IsProblem(r.Score.Verdict)) ? VerdictStyle.Bad
+                : results.Any(r => r.Score.Verdict == Core.Scoring.Verdict.NothingToCheck) ? VerdictStyle.None
                 : results.Any(r => r.Score.Verdict == Core.Scoring.Verdict.WouldMostlyRestore) ? VerdictStyle.Fair
                 : VerdictStyle.Good;
+
+            // A folder the drill could not find was not checked, whatever the backups say about the others.
+            // One the user has since taken out of Settings is no longer their concern.
+            var missing = latest.MissingSources.Where(m => settings.Sources.Any(s => s.Id == m.SourceId)).ToList();
+            if (missing.Count > 0 && HeadlineKind != VerdictStyle.Bad)
+            {
+                Headline = Verdicts.MissingHeadline(missing);
+                HeadlineKind = VerdictStyle.Bad;
+            }
 
             var sampled = latest.Sources.Sum(s => s.Sampled);
             var reached = results.Count(r => r.Reachable);
@@ -139,9 +149,10 @@ public sealed class DashboardViewModel : ViewModelBase
             if (Language.IsKorean)
             {
                 var from = reached == results.Count ? $"백업 {results.Count:N0}개" : $"백업 {results.Count:N0}개 중 {reached:N0}개";
+                var when = Humanize.AgoWhen(now - latest.FinishedUtc);
                 Summary = reached == 0
-                    ? $"{ago}에 한 마지막 복원 훈련에서는 어떤 백업에도 연결하지 못했습니다."
-                    : $"{ago}에 한 마지막 복원 훈련에서 표본 파일 {sampled:N0}개를 {from}에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.";
+                    ? $"{when} 한 마지막 복원 훈련에서는 어떤 백업에도 연결하지 못했습니다."
+                    : $"{when} 한 마지막 복원 훈련에서 표본 파일 {sampled:N0}개를 {from}에서 다시 읽어 원본과 한 바이트도 빠짐없이 비교했습니다.";
             }
             else
             {
@@ -152,6 +163,9 @@ public sealed class DashboardViewModel : ViewModelBase
                     ? $"The last drill, {ago}, could not reach any backup."
                     : $"The last drill, {ago}, read {Humanize.Plural(sampled, "sampled file")} back from {from} and compared every byte with the original.";
             }
+
+            if (missing.Count > 0) Summary += " " + Verdicts.MissingSources(missing);
+            if (Verdicts.NothingChecked(latest.Sources) is { Length: > 0 } why) Summary += " " + why;
         }
     }
 

@@ -1,0 +1,8 @@
+# Text is stored with LF in the repository; each checkout gets its platform's line endings.
+* text=auto
+
+# Run on Linux, where a CRLF line ending breaks the interpreter line.
+*.sh text eol=lf
+
+*.png binary
+*.ico binary

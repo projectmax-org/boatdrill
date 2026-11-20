@@ -111,6 +111,62 @@ public sealed class ArchiveAdapterTests
     }
 
     [Fact]
+    public async Task AnArchiveOfFullPaths_IsReadIntoScratch_AndNeverOverTheOriginals()
+    {
+        // 7z a -spf, and some zip tools, keep each file under its full path, drive and all: "C:/Users/max/Documents/a.txt".
+        // Path.Combine takes such a name for a whole path, which once pointed extraction at the original file itself.
+        if (!OperatingSystem.IsWindows()) return;
+
+        using var source = new TempTree();
+        using var folder = new TempTree();
+        WriteDocuments(source, 4);
+        var archive = folder.At("full paths.zip");
+        using (var zip = ZipFile.Open(archive, ZipArchiveMode.Create))
+        {
+            foreach (var file in Directory.EnumerateFiles(source.Root, "*", SearchOption.AllDirectories))
+            {
+                // The copy in the archive is the version before: other bytes, an earlier date.
+                var entry = zip.CreateEntry(file.Replace('\\', '/'));
+                entry.LastWriteTime = LastWeek.AddDays(-1);
+                using var writer = new StreamWriter(entry.Open());
+                writer.Write("an earlier version of " + Path.GetFileName(file));
+            }
+        }
+
+        File.SetLastWriteTimeUtc(archive, LastWeek.UtcDateTime);
+        var before = TreeFingerprint.Of(source.Root);
+
+        var drill = await DrillAsync(source, Archives(folder.Root));
+        using var scratch = new TempTree();
+        var rehearsal = await new RehearsalRunner().RunAsync(new RehearsalPlan(Source.FromPath(source.Root, "Docs"), Archives(folder.Root), scratch.Root));
+
+        Assert.Equal(before, TreeFingerprint.Of(source.Root));
+        Assert.Equal(MirrorLayout.FullPath, Assert.Single(drill.Bindings).Layout);
+        Assert.Equal((4, 0), (drill.Outdated, drill.Errors));
+        Assert.Equal((4L, 0L), (rehearsal.Outdated, rehearsal.Errors));
+        TempTree.AssertEmpty(scratch.Root);
+    }
+
+    [Fact]
+    public async Task ANewerArchiveThatCannotBeOpened_IsNamed_WhenAnOlderOneIsRead()
+    {
+        // The newest weekly zip was cut short by a full disk: the drill reads last month's, and says why.
+        using var source = new TempTree();
+        using var folder = new TempTree();
+        WriteDocuments(source, 3);
+        Zip(source, folder, "Docs 2026-10-01.zip", LastWeek.AddDays(-30));
+        var broken = folder.At("Docs 2026-11-15.zip");
+        File.WriteAllBytes(broken, [0x50, 0x4B, 0x03, 0x04, 1, 2, 3]);
+        File.SetLastWriteTimeUtc(broken, LastWeek.UtcDateTime);
+
+        var result = await DrillAsync(source, Archives(folder.Root));
+
+        Assert.Equal(3, result.Verified);
+        Assert.Contains("Docs 2026-10-01.zip was read, but a newer archive could not be: Docs 2026-11-15.zip, the zip could not be opened", result.Sentence);
+        Assert.NotNull(Assert.Single(result.Bindings).Warning);
+    }
+
+    [Fact]
     public async Task AZipOfTheFolderItself_IsFound()
     {
         using var source = new TempTree();

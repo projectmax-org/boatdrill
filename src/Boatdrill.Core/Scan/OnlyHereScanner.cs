@@ -70,6 +70,9 @@ public sealed class OnlyHereScanner
         }
 
         var summaries = new List<OnlyHereSource>();
+        var lookedIn = new HashSet<string>(StringComparer.Ordinal);
+        var notLookedIn = new Dictionary<string, string>(StringComparer.Ordinal);
+        var notCompared = new List<string>();
         var folders = new Dictionary<(string Source, string Folder), (int Files, long Bytes)>();
         var largest = new PriorityQueue<OnlyHereFile, long>();
         long checkedFiles = 0, onlyHere = 0;
@@ -85,7 +88,24 @@ public sealed class OnlyHereScanner
             var bindings = new List<(IDestinationAdapter Adapter, SourceBinding Binding)>();
             foreach (var (destination, adapter) in reachable)
             {
-                bindings.Add((adapter, await adapter.BindAsync(destination, probeSample, scratchDirectory, BindPurpose.ListOnly, [], ct).ConfigureAwait(false)));
+                var binding = await adapter.BindAsync(destination, probeSample, scratchDirectory, BindPurpose.ListOnly, [], ct).ConfigureAwait(false);
+
+                // A backup whose files could not be listed holds an unknown share of them, not none: it is not looked in.
+                if (binding.CouldNotLook)
+                {
+                    notLookedIn.TryAdd(destination.Name, binding.Problem ?? string.Empty);
+                    continue;
+                }
+
+                lookedIn.Add(destination.Name);
+                bindings.Add((adapter, binding));
+            }
+
+            // With no backup to look in, every file would count as having no copy anywhere; the report names the folder instead.
+            if (bindings.Count == 0)
+            {
+                notCompared.Add(source.Name);
+                continue;
             }
 
             var summary = new OnlyHereSource(source.Id, source.Name, Path.GetFullPath(source.RootPath));
@@ -137,8 +157,10 @@ public sealed class OnlyHereScanner
         {
             StartedUtc = started,
             FinishedUtc = _clock.GetUtcNow(),
-            Checked = reachable.Select(r => r.Destination.Name).ToList(),
-            Unreachable = unreachable,
+            // A backup counts as looked in when at least one folder's files could be listed in it.
+            Checked = reachable.Select(r => r.Destination.Name).Where(name => lookedIn.Contains(name) || !notLookedIn.ContainsKey(name)).ToList(),
+            Unreachable = [.. unreachable, .. notLookedIn.Select(n => $"{n.Key}: {n.Value}")],
+            NotCompared = notCompared,
             Sources = summaries,
             Folders = folders
                 .OrderByDescending(f => f.Value.Bytes)
@@ -177,14 +199,16 @@ public sealed class OnlyHereScanner
         {
             return r.Unreachable.Count == 0
                 ? "There are no backups set up to compare with."
-                : "None of the backups could be reached, so nothing was compared.";
+                : "None of the backups could be looked in, so nothing was compared.";
         }
 
+        // A folder that no backup could be looked in for is not counted, and must not pass for one whose files have copies.
+        var notCompared = r.NotCompared.Count == 0 ? string.Empty : $" {string.Join(", ", r.NotCompared)} could not be compared with any backup.";
         var total = r.Sources.Sum(s => s.Files);
-        if (total == 0) return "There are no files in the folders being protected.";
+        if (total == 0) return r.NotCompared.Count == 0 ? "There are no files in the folders being protected." : notCompared.TrimStart();
         if (r.OnlyHereFiles == 0)
         {
-            return $"All {total:N0} {(total == 1 ? "file has" : "files have")} a current copy in at least one backup.";
+            return $"All {total:N0} {(total == 1 ? "file has" : "files have")} a current copy in at least one backup." + notCompared;
         }
 
         var noCopy = r.Sources.Sum(s => s.NoCopyFiles);
@@ -194,7 +218,8 @@ public sealed class OnlyHereScanner
         if (older > 0) parts.Add($"{older:N0} changed after {(older == 1 ? "its" : "their")} last copy");
 
         var lead = $"{r.OnlyHereFiles:N0} of {total:N0} {(total == 1 ? "file" : "files")} ({Humanize.Bytes(r.OnlyHereBytes)}) exist only on this PC: {string.Join(" and ", parts)}.";
-        return r.Unreachable.Count == 0 ? lead : $"{lead} {Humanize.Plural(r.Unreachable.Count, "backup")} could not be reached and {(r.Unreachable.Count == 1 ? "was" : "were")} not looked in.";
+        if (r.Unreachable.Count > 0) lead += $" {Humanize.Plural(r.Unreachable.Count, "backup")} could not be looked in and may hold copies of some of these files.";
+        return lead + notCompared;
     }
 
     private static string KoreanSentence(OnlyHereReport r)
@@ -203,19 +228,20 @@ public sealed class OnlyHereScanner
         {
             return r.Unreachable.Count == 0
                 ? "비교할 백업이 아직 설정되지 않았습니다."
-                : "연결할 수 있는 백업이 없어 아무것도 비교하지 못했습니다.";
+                : "살펴볼 수 있는 백업이 없어 아무것도 비교하지 못했습니다.";
         }
 
+        var notCompared = r.NotCompared.Count == 0 ? string.Empty : $" {Korean.Topic(string.Join(", ", r.NotCompared))} 어느 백업과도 비교하지 못했습니다.";
         var total = r.Sources.Sum(s => s.Files);
-        if (total == 0) return "보호하는 폴더에 파일이 없습니다.";
-        if (r.OnlyHereFiles == 0) return $"파일 {total:N0}개 모두 적어도 한 백업에 최신 사본이 있습니다.";
+        if (total == 0) return r.NotCompared.Count == 0 ? "보호하는 폴더에 파일이 없습니다." : notCompared.TrimStart();
+        if (r.OnlyHereFiles == 0) return $"파일 {total:N0}개 모두 적어도 한 백업에 최신 사본이 있습니다." + notCompared;
 
         var noCopy = r.Sources.Sum(s => s.NoCopyFiles);
         var older = r.Sources.Sum(s => s.OlderFiles);
         var sentences = new List<string> { $"파일 {total:N0}개 중 {r.OnlyHereFiles:N0}개({Humanize.Bytes(r.OnlyHereBytes)})가 이 PC에만 있습니다." };
         if (noCopy > 0) sentences.Add($"{noCopy:N0}개는 어느 백업에도 사본이 없습니다.");
         if (older > 0) sentences.Add($"{older:N0}개는 마지막으로 복사된 뒤에 바뀌었습니다.");
-        if (r.Unreachable.Count > 0) sentences.Add($"백업 {r.Unreachable.Count:N0}개는 연결할 수 없어 살펴보지 못했습니다.");
-        return string.Join(" ", sentences);
+        if (r.Unreachable.Count > 0) sentences.Add($"살펴보지 못한 백업 {r.Unreachable.Count:N0}개에 이 중 일부 파일의 사본이 있을 수 있습니다.");
+        return string.Join(" ", sentences) + notCompared;
     }
 }

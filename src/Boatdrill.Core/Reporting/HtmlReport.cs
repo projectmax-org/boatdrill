@@ -27,6 +27,14 @@ public static class HtmlReport
         var headline = Verdicts.Headline(report.Destinations);
         var tone = Tone(report);
 
+        // Backups that would restore say nothing about a folder the drill could not find.
+        var missing = report.MissingSources;
+        if (missing.Count > 0 && tone != "bad")
+        {
+            headline = Verdicts.MissingHeadline(missing);
+            tone = "bad";
+        }
+
         var html = new StringBuilder(32 * 1024);
         html.Append("<!doctype html>\n<html lang=\"").Append(korean ? "ko" : "en").Append("\">\n<head>\n<meta charset=\"utf-8\">\n")
             .Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
@@ -39,7 +47,10 @@ public static class HtmlReport
         var sampled = report.Sources.Sum(s => s.Sampled);
         html.Append("<header>\n<p class=\"eyebrow\">").Append(Language.Pick("Boatdrill drill report", "Boatdrill 복원 훈련 보고서")).Append("</p>\n")
             .Append("<h1><span class=\"dot ").Append(tone).Append("-fill\" aria-hidden=\"true\"></span>").Append(E(headline)).Append("</h1>\n")
-            .Append("<p class=\"lead\">").Append(E(Lead(report, reached, sampled))).Append("</p>\n</header>\n");
+            .Append("<p class=\"lead\">").Append(E(Lead(report, reached, sampled))).Append("</p>\n");
+        if (missing.Count > 0) html.Append("<p class=\"lead bad\">").Append(E(Verdicts.MissingSources(missing))).Append("</p>\n");
+        if (Verdicts.NothingChecked(report.Sources) is { Length: > 0 } why) html.Append("<p class=\"lead\">").Append(E(why)).Append("</p>\n");
+        html.Append("</header>\n");
 
         AppendSources(html, report);
         foreach (var destination in report.Destinations) AppendDestination(html, destination, history, report.FinishedUtc);
@@ -88,8 +99,10 @@ public static class HtmlReport
         foreach (var s in report.Sources)
         {
             var left = new List<string>();
+            if (s.Missing) left.Add(Language.Pick("the whole folder: it was not found", "폴더 전체: 찾을 수 없음"));
             if (s.SkippedLargeFiles > 0) left.Add(Language.Pick($"{s.SkippedLargeFiles:N0} too large", $"너무 큰 파일 {s.SkippedLargeFiles:N0}개"));
             if (s.SkippedChurningFiles > 0) left.Add(Language.Pick($"{s.SkippedChurningFiles:N0} changed in the last hours", $"최근 몇 시간 사이에 바뀐 파일 {s.SkippedChurningFiles:N0}개"));
+            if (s.SkippedOnlineOnlyFiles > 0) left.Add(Language.Pick($"{s.SkippedOnlineOnlyFiles:N0} online only, not on this PC", $"이 PC에 없는 온라인 전용 파일 {s.SkippedOnlineOnlyFiles:N0}개"));
             html.Append("<tr><td><strong>").Append(E(s.Name)).Append("</strong><br><span class=\"muted small\">").Append(E(s.RootPath)).Append("</span></td>")
                 .Append("<td class=\"num\">").Append(s.Population.ToString("N0", CultureInfo.InvariantCulture)).Append("</td>")
                 .Append("<td class=\"num\">").Append(E(Humanize.Bytes(s.PopulationBytes))).Append("</td>")
@@ -177,6 +190,7 @@ public static class HtmlReport
     private static string Tone(DrillReport report) =>
         report.Destinations.Count == 0 ? "none"
         : report.Destinations.Any(d => Notifications.NotificationPolicy.IsProblem(d.Score.Verdict)) ? "bad"
+        : report.Destinations.Any(d => d.Score.Verdict == Scoring.Verdict.NothingToCheck) ? "none"
         : report.Destinations.Any(d => d.Score.Verdict == Scoring.Verdict.WouldMostlyRestore) ? "fair"
         : "good";
 

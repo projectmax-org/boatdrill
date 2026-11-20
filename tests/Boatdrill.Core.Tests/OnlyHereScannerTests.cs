@@ -1,3 +1,4 @@
+using Boatdrill.Core.Adapters;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.Scan;
 using Boatdrill.Core.Text;
@@ -74,11 +75,54 @@ public sealed class OnlyHereScannerTests
         Assert.Empty(none.Checked);
         Assert.Empty(none.Sources);
         Assert.Equal($"USB drive: {mirror.At("unplugged")} was not found", Assert.Single(none.Unreachable));
-        Assert.Equal("None of the backups could be reached, so nothing was compared.", none.Sentence);
+        Assert.Equal("None of the backups could be looked in, so nothing was compared.", none.Sentence);
 
         var some = await ScanAsync(source, gone, Destination.MirrorFolder(mirror.Root, "Drive"));
         Assert.Equal(1, some.OnlyHereFiles);
-        Assert.EndsWith("1 backup could not be reached and was not looked in.", some.Sentence);
+        Assert.EndsWith("1 backup could not be looked in and may hold copies of some of these files.", some.Sentence);
+    }
+
+    [Fact]
+    public async Task ABackupWhoseFilesCannotBeListed_IsNotLookedIn_AndDoesNotMakeFilesOnlyHere()
+    {
+        using var source = new TempTree();
+        using var mirror = new TempTree();
+        using var scratch = new TempTree();
+        source.Write("x.txt", "x", Old);
+        var remote = Destination.Rclone("remote:backup", name: "Remote");
+        var scanner = new OnlyHereScanner([new MirrorFolderAdapter(), new CannotList()]);
+
+        var alone = await scanner.ScanAsync([Source.FromPath(source.Root, "Docs")], [remote], scratch.Root);
+        Assert.Equal(0, alone.OnlyHereFiles);
+        Assert.Empty(alone.Checked);
+        Assert.Empty(alone.Sources);
+        Assert.Equal("Remote: its files could not be listed: the remote said no", Assert.Single(alone.Unreachable));
+        Assert.Equal("None of the backups could be looked in, so nothing was compared.", alone.Sentence);
+
+        source.MirrorTo(mirror.Root);
+        var beside = await scanner.ScanAsync([Source.FromPath(source.Root, "Docs")], [remote, Destination.MirrorFolder(mirror.Root, "Drive")], scratch.Root);
+        Assert.Equal(["Drive"], beside.Checked);
+        Assert.Single(beside.Unreachable);
+        Assert.Equal(0, beside.OnlyHereFiles);
+    }
+
+    [Fact]
+    public async Task AFolderNoBackupCouldBeLookedInFor_IsNamed_AndDoesNotPassForCopied()
+    {
+        using var docs = new TempTree();
+        using var photos = new TempTree();
+        using var scratch = new TempTree();
+        docs.Write("x.txt", "x", Old);
+        photos.Write("y.jpg", "y", Old);
+
+        var report = await new OnlyHereScanner([new CannotList(failsFor: "Docs")]).ScanAsync(
+            [Source.FromPath(docs.Root, "Docs"), Source.FromPath(photos.Root, "Photos")], [Destination.Rclone("remote:backup", name: "Remote")], scratch.Root);
+
+        Assert.Equal(["Remote"], report.Checked);
+        Assert.Equal(["Docs"], report.NotCompared);
+        Assert.Equal("Photos", Assert.Single(report.Sources).SourceName);
+        Assert.Equal(0, report.OnlyHereFiles);
+        Assert.Equal("All 1 file has a current copy in at least one backup. Docs could not be compared with any backup.", report.Sentence);
     }
 
     [Fact]

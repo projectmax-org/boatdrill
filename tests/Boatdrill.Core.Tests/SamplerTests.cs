@@ -29,6 +29,21 @@ public sealed class SamplerTests
     }
 
     [Fact]
+    public void Take_TellsAFolderThatIsGone_FromOneThatIsEmpty()
+    {
+        using var tree = new TempTree();
+
+        var empty = new Sampler(Options(10)).Take(Source.FromPath(tree.Root));
+        var gone = new Sampler(Options(10)).Take(Source.FromPath(tree.At("renamed away")));
+
+        Assert.False(empty.Missing);
+        Assert.Equal(0, empty.Population);
+        Assert.True(gone.Missing);
+        Assert.Empty(gone.Files);
+        Assert.Equal(0, gone.Population);
+    }
+
+    [Fact]
     public void Take_RespectsTheByteCap()
     {
         using var tree = new TempTree();
@@ -88,6 +103,31 @@ public sealed class SamplerTests
         Assert.Equal(1, sample.SkippedChurningFiles);
         var only = Assert.Single(sample.Files);
         Assert.Equal("ok.txt", only.RelativePath);
+    }
+
+    [Fact]
+    public void Take_LeavesOutFilesWhoseBytesAreNotHere_AndCountsThem()
+    {
+        // OneDrive's online-only files carry RECALL_ON_DATA_ACCESS, which only a cloud provider can set; OFFLINE means
+        // the same to Boatdrill, and Windows lets anyone set it. Elsewhere there is no such attribute to test with.
+        if (!OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempTree();
+        tree.Write("here.txt", "on this disk", DateTimeOffset.UtcNow.AddDays(-3));
+        var away = tree.Write("in the cloud.txt", "elsewhere", DateTimeOffset.UtcNow.AddDays(-3));
+        File.SetAttributes(away, FileAttributes.Offline);
+        try
+        {
+            var sample = new Sampler(Options(10)).Take(Source.FromPath(tree.Root));
+
+            Assert.Equal("here.txt", Assert.Single(sample.Files).RelativePath);
+            Assert.Equal(1, sample.Population);
+            Assert.Equal(1, sample.SkippedOnlineOnlyFiles);
+        }
+        finally
+        {
+            File.SetAttributes(away, FileAttributes.Normal);
+        }
     }
 
     [Fact]

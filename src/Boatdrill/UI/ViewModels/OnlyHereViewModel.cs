@@ -162,7 +162,8 @@ public sealed class OnlyHereViewModel : ViewModelBase, IDisposable
         var korean = Language.IsKorean;
         (Headline, HeadlineKind) = report switch
         {
-            { Checked.Count: 0 } => (Language.Pick("No backup could be reached", "연결할 수 있는 백업이 없습니다"), VerdictStyle.Bad),
+            { Checked.Count: 0 } => (Language.Pick("No backup could be looked in", "살펴볼 수 있는 백업이 없습니다"), VerdictStyle.Bad),
+            { OnlyHereFiles: 0, NotCompared.Count: > 0 } => (Language.Pick("Not every folder could be compared", "비교하지 못한 폴더가 있습니다"), VerdictStyle.Fair),
             { OnlyHereFiles: 0 } => (Language.Pick("Every file has a copy", "모든 파일에 사본이 있습니다"), VerdictStyle.Good),
             _ when noCopy == 0 => (korean
                 ? $"마지막으로 복사된 뒤에 바뀐 파일이 {report.OnlyHereFiles:N0}개 있습니다"
@@ -177,7 +178,7 @@ public sealed class OnlyHereViewModel : ViewModelBase, IDisposable
         var ago = Humanize.Ago(now - report.FinishedUtc);
         var took = Humanize.Duration(report.FinishedUtc - report.StartedUtc);
         WhenText = korean
-            ? $"{ago}에 살펴봤고, {Korean.Subject(took)} 걸렸습니다." + (report.Checked.Count > 0 ? " 살펴본 백업: " + string.Join(", ", report.Checked) + "." : string.Empty)
+            ? $"{Humanize.AgoWhen(now - report.FinishedUtc)} 살펴봤고, {Korean.Subject(took)} 걸렸습니다." + (report.Checked.Count > 0 ? " 살펴본 백업: " + string.Join(", ", report.Checked) + "." : string.Empty)
             : $"Looked {ago}, in {took}" + (report.Checked.Count > 0 ? ", in " + string.Join(", ", report.Checked) + "." : ".");
         UnreachableText = report.Unreachable.Count == 0
             ? string.Empty

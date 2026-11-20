@@ -20,9 +20,10 @@ public sealed class AppServices : IDisposable
         Settings = new SettingsStore(Paths.SettingsFile, DefaultSettings);
         History = new HistoryStore(Paths.HistoryFile);
         Drills = new DrillService(Settings, History);
-        Scheduler = new DrillScheduler(Settings, Drills);
         Scans = new ScanService(Settings, Drills);
         Rehearsals = new RehearsalService(Settings, Drills, Scans);
+        // A drill that falls due while a scan or a rehearsal runs waits for it to finish.
+        Scheduler = new DrillScheduler(Settings, Drills, () => Scans.IsRunning || Rehearsals.IsRunning);
         Tray = withTray ? new TrayIcon() : null;
     }
 
@@ -54,9 +55,9 @@ public sealed class AppServices : IDisposable
         _disposed = true;
 
         Tray?.Dispose();
+        Scheduler.Dispose();
         Rehearsals.Dispose();
         Scans.Dispose();
-        Scheduler.Dispose();
         Drills.Dispose();
     }
 }

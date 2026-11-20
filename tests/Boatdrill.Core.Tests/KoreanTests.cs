@@ -60,6 +60,24 @@ public sealed class KoreanTests
         Assert.Equal(toward, Korean.Toward(word));
     }
 
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("Backup drive (E:) would restore.", "Backup drive (E:) would restore.")]
+    [InlineData("사", "사")]
+    [InlineData("사진", "사\u2060진")]
+    [InlineData("사진 2개", "사\u2060진 2\u2060개")]
+    [InlineData("E:\\Backup에서 복원할 수 있습니다.", "E:\\Backup\u2060에\u2060서 복\u2060원\u2060할 수 있\u2060습\u2060니\u2060다.")]
+    [InlineData("가족 NAS에 확인할", "가\u2060족 NAS\u2060에 확\u2060인\u2060할")]
+    [InlineData("백업 드라이브 (E:)에서", "백\u2060업 드\u2060라\u2060이\u2060브 (E:)\u2060에\u2060서")]
+    [InlineData("2026년 10월 26일, 문서·사진", "2026\u2060년 10\u2060월 26\u2060일, 문\u2060서·사\u2060진")]
+    public void KoreanWords_AreKeptWhole_AndComeBackAsWritten(string written, string joined)
+    {
+        Assert.Equal(joined, Korean.KeepWordsWhole(written));
+        Assert.Equal(written, Korean.WithoutJoiners(Korean.KeepWordsWhole(written)));
+        Assert.Equal(joined, Korean.KeepWordsWhole(Korean.WithoutJoiners(joined)));
+        Assert.Same(written, Korean.WithoutJoiners(written));
+    }
+
     [Fact]
     public void Numbers_AreSaidInKorean()
     {
@@ -139,6 +157,31 @@ public sealed class KoreanTests
         var one = NotificationPolicy.For(report with { Destinations = [nas] });
         Assert.Equal("가족 NAS에 확인할 문제가 있습니다", one!.Title);
         Assert.Equal("표본 파일 200개 중 150개를 제대로 읽어 왔습니다. 50개는 사본이 없습니다.", one.Text);
+    }
+
+    [Fact]
+    public void AFolderThatIsGone_IsNamedInKorean()
+    {
+        var pictures = new SourceSummary("p", "사진", @"C:\Users\you\Pictures", 0, 0, 0, 0, 0, 0, null, Missing: true);
+        var videos = new SourceSummary("v", "동영상", @"D:\동영상", 0, 0, 0, 0, 0, 0, null, Missing: true);
+        var report = new DrillReport
+        {
+            Id = "r1",
+            StartedUtc = Finished.AddMinutes(-4),
+            FinishedUtc = Finished,
+            Trigger = DrillTrigger.Scheduled,
+            Sources = [pictures],
+            Destinations = [Result(verified: 200)],
+        };
+
+        using var korean = new InKorean();
+
+        Assert.Equal(@"사진 폴더(C:\Users\you\Pictures)를 찾을 수 없어 확인하지 못했습니다.", Verdicts.MissingSources([pictures]));
+        Assert.Equal("사진, 동영상 폴더를 찾을 수 없어 확인하지 못했습니다.", Verdicts.MissingSources([pictures, videos]));
+        Assert.Equal("보호하는 폴더 2개를 찾을 수 없습니다", Verdicts.MissingHeadline([pictures, videos]));
+        var notice = NotificationPolicy.For(report);
+        Assert.Equal("사진 폴더를 찾을 수 없습니다", notice!.Title);
+        Assert.EndsWith("확인하지 못했습니다. 설정에서 폴더를 확인하세요.", notice.Text);
     }
 
     [Fact]

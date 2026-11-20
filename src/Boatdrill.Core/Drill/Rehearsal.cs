@@ -64,6 +64,9 @@ public sealed record RehearsalResult
 
     public long Errors { get; init; }
 
+    /// <summary>Files of the folder left out because they are online only: their bytes are not on this PC to compare with.</summary>
+    public long OnlineOnly { get; init; }
+
     public long BytesRestored { get; init; }
 
     /// <summary>Time spent restoring and reading copies back: what a real restore of this folder would take.</summary>
@@ -74,7 +77,8 @@ public sealed record RehearsalResult
 
     public required string Sentence { get; init; }
 
-    public bool AllIntact => Reachable && Refusal is null && Verified == Files;
+    /// <summary>Every file came back intact. A rehearsal that restored nothing has not shown that.</summary>
+    public bool AllIntact => Reachable && Refusal is null && Files > 0 && Verified == Files;
 }
 
 /// <summary>
@@ -128,10 +132,15 @@ public sealed class RehearsalRunner
         if (!probe.Reachable) return Finish(result with { ProbeDetail = probe.Detail });
 
         result = result with { Reachable = true, ProbeDetail = probe.Detail };
+
+        // A folder that is not there would rehearse nothing; one outside the source would compare files elsewhere with themselves.
+        if (FolderProblem(plan) is { } problem) return Finish(result with { Refusal = problem });
+
         progress?.Report(new RehearsalProgress(Language.Pick("Listing " + Label(result), Label(result) + " 목록 만드는 중"), 0, 0, 0, 0));
-        var files = SourceFiles.Enumerate(plan.Source, plan.Folder).ToList();
+        long onlineOnly = 0;
+        var files = SourceFiles.Enumerate(plan.Source, plan.Folder, () => onlineOnly++).ToList();
         var total = files.Sum(f => f.Length);
-        result = result with { Files = files.Count, Bytes = total };
+        result = result with { Files = files.Count, Bytes = total, OnlineOnly = onlineOnly };
         if (files.Count == 0) return Finish(result);
 
         Scratch.Sweep(plan.ScratchDirectory, started);
@@ -155,6 +164,15 @@ public sealed class RehearsalRunner
             var probeFiles = files.Where((_, i) => i % stride == 0).Take(MirrorFolderAdapter.ProbeFiles).ToList();
             var sample = new Sample(plan.Source, probeFiles, files.Count, total, 0, 0, null);
             var binding = await adapter.BindAsync(destination, sample, scratch.FullName, BindPurpose.ListOnly, [], ct).ConfigureAwait(false);
+
+            // Without the backup's list of files, every file would read as having no copy; say why nothing was restored instead.
+            if (binding.CouldNotLook)
+            {
+                return Finish(result with
+                {
+                    Refusal = Language.Pick($"Nothing was restored from {destination.Name}: {binding.Problem}.", $"{destination.Name}에서 아무것도 복원하지 않았습니다: {binding.Problem}."),
+                });
+            }
 
             var findings = new List<FileFinding>();
             long verified = 0, outdated = 0, corrupt = 0, missing = 0, placeholder = 0, errors = 0, bytesRestored = 0, filesDone = 0, bytesDone = 0;
@@ -213,6 +231,27 @@ public sealed class RehearsalRunner
         }
     }
 
+    /// <summary>Why the plan's folder cannot be rehearsed, if it cannot: it leads out of the source, or it is not there.</summary>
+    private static string? FolderProblem(RehearsalPlan plan)
+    {
+        if (string.IsNullOrEmpty(plan.Folder)) return null;
+
+        var root = Path.GetFullPath(plan.Source.RootPath);
+        var folder = Path.GetFullPath(Path.Combine(root, plan.Folder));
+        if (!SourceFiles.IsInside(root, folder))
+        {
+            return Language.Pick(
+                $"{plan.Folder} is not a folder inside {plan.Source.Name}, so nothing was restored.",
+                $"{Korean.Topic(plan.Folder)} {plan.Source.Name} 안의 폴더가 아니어서 아무것도 복원하지 않았습니다.");
+        }
+
+        return Directory.Exists(folder)
+            ? null
+            : Language.Pick(
+                $"There is no folder {plan.Folder} in {plan.Source.Name}, so nothing was restored.",
+                $"{plan.Source.Name}에 {plan.Folder} 폴더가 없어 아무것도 복원하지 않았습니다.");
+    }
+
     private RehearsalResult Finish(RehearsalResult result)
     {
         var finished = result with { FinishedUtc = _clock.GetUtcNow() };
@@ -227,7 +266,7 @@ public sealed class RehearsalRunner
         var what = Label(r);
         if (!r.Reachable) return $"{r.DestinationName} could not be reached: {r.ProbeDetail}.";
         if (r.Refusal is { } refusal) return refusal;
-        if (r.Files == 0) return $"{what} has no files to restore.";
+        if (r.Files == 0) return r.OnlineOnly > 0 ? $"{what} has no files on this PC to restore. {OnlineOnlySentence(r.OnlineOnly)}" : $"{what} has no files to restore.";
 
         var lead = r.Verified == r.Files
             ? $"All {r.Files:N0} {(r.Files == 1 ? "file" : "files")} in {what} came back from {r.DestinationName} intact."
@@ -240,17 +279,21 @@ public sealed class RehearsalRunner
         if (r.Errors > 0) facts.Add($"{r.Errors:N0} could not be read");
 
         var text = facts.Count == 0 ? lead : $"{lead}; {string.Join(", ", facts.Take(facts.Count - 1))}{(facts.Count > 1 ? " and " : string.Empty)}{facts[^1]}.";
-        return r.BytesRestored > 0
-            ? $"{text} Restoring {Humanize.Bytes(r.BytesRestored)} took {Humanize.Duration(r.RestoreTime)}."
-            : text;
+        if (r.BytesRestored > 0) text += $" Restoring {Humanize.Bytes(r.BytesRestored)} took {Humanize.Duration(r.RestoreTime)}.";
+        return r.OnlineOnly > 0 ? text + " " + OnlineOnlySentence(r.OnlineOnly) : text;
     }
+
+    /// <summary>Why some of the folder's files were not rehearsed, when some are online only.</summary>
+    private static string OnlineOnlySentence(long count) => Language.IsKorean
+        ? $"온라인 전용 파일 {count:N0}개는 내용이 이 PC에 없어 비교하지 않았습니다."
+        : $"{count:N0} online-only {(count == 1 ? "file was" : "files were")} not compared: {(count == 1 ? "its" : "their")} bytes are not on this PC.";
 
     private static string KoreanSentence(RehearsalResult r)
     {
         var what = Label(r);
         if (!r.Reachable) return $"{r.DestinationName}에 연결할 수 없습니다: {r.ProbeDetail}.";
         if (r.Refusal is { } refusal) return refusal;
-        if (r.Files == 0) return $"{what}에는 복원할 파일이 없습니다.";
+        if (r.Files == 0) return r.OnlineOnly > 0 ? $"{what}에는 이 PC에 있는 파일 중 복원할 것이 없습니다. {OnlineOnlySentence(r.OnlineOnly)}" : $"{what}에는 복원할 파일이 없습니다.";
 
         var sentences = new List<string>
         {
@@ -268,6 +311,7 @@ public sealed class RehearsalRunner
             sentences.Add($"{Korean.Object(Humanize.Bytes(r.BytesRestored))} 복원하는 데 {Korean.Subject(Humanize.Duration(r.RestoreTime))} 걸렸습니다.");
         }
 
+        if (r.OnlineOnly > 0) sentences.Add(OnlineOnlySentence(r.OnlineOnly));
         return string.Join(" ", sentences);
     }
 

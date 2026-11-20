@@ -16,6 +16,7 @@
         WindowStyle="None"
         Background="{DynamicResource Brush.Base}"
         Foreground="{DynamicResource Brush.TextPrimary}"
+        FontFamily="{StaticResource Font.UI}"
         TextOptions.TextFormattingMode="Ideal"
         UseLayoutRounding="True">
 

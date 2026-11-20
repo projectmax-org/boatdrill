@@ -38,8 +38,14 @@ public sealed record OnlyHereReport
     /// <summary>The backups looked in, by name.</summary>
     public required IReadOnlyList<string> Checked { get; init; }
 
-    /// <summary>The backups that could not be reached, each as "name: why".</summary>
+    /// <summary>The backups that could not be looked in, each as "name: why": not reached, or their files not listed.</summary>
     public required IReadOnlyList<string> Unreachable { get; init; }
+
+    /// <summary>
+    /// The sources, by name, that no backup could be looked in for. Their files are not counted here, which must not
+    /// read as their having copies.
+    /// </summary>
+    public IReadOnlyList<string> NotCompared { get; init; } = [];
 
     public required IReadOnlyList<OnlyHereSource> Sources { get; init; }
 

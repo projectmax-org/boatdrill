@@ -23,9 +23,11 @@ reaches users until a maintainer publishes the draft it makes.
 
 3. The release workflow checks the tag against `<Version>` and stops if they differ. Then it:
 
-   - runs the tests on Windows, with restic, rclone and 7-Zip installed;
+   - runs the tests on Windows, with restic, rclone, 7-Zip and kopia installed, and stops if one of them
+     is missing rather than let its tests be skipped;
    - publishes `Boatdrill.exe` and `boatdrill-cli.exe`, self-contained, and signs them if signing is set up;
-   - builds `Boatdrill-Setup-<version>.exe` with Inno Setup from `installer/Boatdrill.iss`;
+   - builds `Boatdrill-Setup-<version>.exe` with Inno Setup from `installer/Boatdrill.iss`, then installs it
+     silently, checks what it put where, and uninstalls it again (`installer/Test-Installer.ps1`);
    - writes `SHA256SUMS.txt` for the three files, in `sha256sum` format;
    - attests the files' build provenance, so anyone can check they came from this repository's workflow;
    - writes the winget manifests for the release, kept as the workflow artifact `winget-manifests-<version>`;
@@ -33,7 +35,9 @@ reaches users until a maintainer publishes the draft it makes.
 
 4. Read the draft on the Releases page. Add what changed in words a user would use, then publish it.
 
-Running the workflow again for the same tag replaces the files on its release.
+Running the workflow again for the same tag replaces the files on its draft, and the notes with them, so add
+your words after the last run. A published release is never changed: the workflow stops rather than replace
+files people have downloaded and winget has the checksums of. Release a fix as a new version.
 
 ## What users get
 
@@ -53,7 +57,7 @@ To check a download:
 
 ```powershell
 Get-FileHash .\Boatdrill-Setup-1.0.0.exe -Algorithm SHA256
-gh attestation verify .\Boatdrill-Setup-1.0.0.exe --repo projectmax-org/project_01
+gh attestation verify .\Boatdrill-Setup-1.0.0.exe --repo projectmax-org/boatdrill
 ```
 
 ## winget
@@ -106,12 +110,18 @@ environment, for services that take their credentials that way. Locally:
 
 ## Building the installer locally
 
-Install [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 or later (`winget install JRSoftware.InnoSetup`),
-then:
+Install [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 or later; 7 works too
+(`winget install JRSoftware.InnoSetup.7`). Then:
 
 ```powershell
 .\build.ps1 -Installer
 ```
 
-The installer lands in `artifacts\installer\`. The installer is built with Inno Setup, by Jordan Russell
-and Martijn Laan.
+The installer lands in `artifacts\installer\`. To try it the way the release workflow does, on a PC where
+Boatdrill is not installed (the script refuses otherwise):
+
+```powershell
+.\installer\Test-Installer.ps1 -Setup .\artifacts\installer\Boatdrill-Setup-1.0.0.exe
+```
+
+The installer is built with Inno Setup, by Jordan Russell and Martijn Laan.

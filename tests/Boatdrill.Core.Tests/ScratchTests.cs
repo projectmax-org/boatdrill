@@ -26,26 +26,53 @@ public sealed class ScratchTests
         File.SetAttributes(mine, FileAttributes.ReadOnly);
         var theirs = new DirectoryInfo(tree.At("documents"));
         theirs.Attributes |= FileAttributes.ReadOnly;
-        tree.Write("scratch/stage/C/Users/a.txt", "restored");
-        new DirectoryInfo(tree.At("scratch/stage/C/Users")).Attributes |= FileAttributes.ReadOnly;
         try
         {
-            Directory.CreateSymbolicLink(tree.At("scratch/stage/link"), tree.At("documents"));
+            tree.Write("scratch/stage/C/Users/a.txt", "restored");
+            new DirectoryInfo(tree.At("scratch/stage/C/Users")).Attributes |= FileAttributes.ReadOnly;
+            Assert.True(TryLink(tree.At("scratch/stage/link"), tree.At("documents")), "No link could be made to test with.");
+
+            Assert.True(Scratch.TryDelete(tree.At("scratch")));
+
+            Assert.False(Directory.Exists(tree.At("scratch")));
+            Assert.Equal("the user's own", File.ReadAllText(mine));
+            Assert.True(File.GetAttributes(mine).HasFlag(FileAttributes.ReadOnly));
+            theirs.Refresh();
+            Assert.True(theirs.Attributes.HasFlag(FileAttributes.ReadOnly));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        finally
         {
-            return; // Windows makes links for administrators and in developer mode only.
+            // Writable again, so that the temp tree can be deleted whatever happened above.
+            File.SetAttributes(mine, FileAttributes.Normal);
+            theirs.Attributes = FileAttributes.Normal;
+            Scratch.TryDelete(tree.At("scratch"));
+        }
+    }
+
+    /// <summary>
+    /// A link to a folder. On Windows a junction, which anyone may make, as a restore can bring one back; a symbolic
+    /// link there needs an administrator or developer mode.
+    /// </summary>
+    private static bool TryLink(string link, string target)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return true;
         }
 
-        Assert.True(Scratch.TryDelete(tree.At("scratch")));
-
-        Assert.False(Directory.Exists(tree.At("scratch")));
-        Assert.Equal("the user's own", File.ReadAllText(mine));
-        Assert.True(File.GetAttributes(mine).HasFlag(FileAttributes.ReadOnly));
-        theirs.Refresh();
-        Assert.True(theirs.Attributes.HasFlag(FileAttributes.ReadOnly));
-        File.SetAttributes(mine, FileAttributes.Normal);
-        theirs.Attributes = FileAttributes.Normal;
+        var mklink = new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        // Backslashes only: mklink reads "/stage" in "scratch/stage/link" as a switch.
+        foreach (var argument in new[] { "/c", "mklink", "/J", Path.GetFullPath(link), Path.GetFullPath(target) }) mklink.ArgumentList.Add(argument);
+        using var process = System.Diagnostics.Process.Start(mklink)!;
+        process.WaitForExit();
+        return process.ExitCode == 0 && new DirectoryInfo(link).Attributes.HasFlag(FileAttributes.ReparsePoint);
     }
 
     [Fact]

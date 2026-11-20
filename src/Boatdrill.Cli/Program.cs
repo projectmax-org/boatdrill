@@ -476,8 +476,8 @@ public static class Program
                 },
                 // A folder of Boatdrill's own: each run empties what earlier runs left in it, and nothing else of the
                 // folder --scratch names is ever touched. On Linux and macOS it is the user's alone, or refused here;
-                // report reads nothing back, so it has none.
-                args[0] == "report" ? string.Empty : RunnerScratch.Prepare(scratch),
+                // report reads nothing back, so there it neither makes nor checks one.
+                args[0] == "report" && !OperatingSystem.IsWindows() ? string.Empty : RunnerScratch.Prepare(scratch),
                 history,
                 ledger,
                 canaries,

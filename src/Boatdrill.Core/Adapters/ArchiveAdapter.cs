@@ -125,6 +125,9 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
                 Problem = unreadable.Count > 0
                     ? Language.Pick("no archive could be read (", "읽을 수 있는 압축 파일이 없습니다(") + string.Join("; ", unreadable.Select(u => $"{u.Archive.Name}: {u.Problem}")) + ")"
                     : NoArchives(destination.RootPath),
+
+                // Archives that are there and could not be read may well hold the files: what they hold is not known.
+                CouldNotLook = unreadable.Count > 0,
             };
         }
 
@@ -142,8 +145,12 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
             await ExtractAsync(destination, [.. sample.Files.Select(f => f.RelativePath), .. alsoRead], best, ct).ConfigureAwait(false);
         }
 
-        // Inside an archive as Explorer shows it: D:\Backups\Laptop.zip\Documents.
-        var where = Path.Combine(best.ArchivePath, best.Prefix.TrimEnd('/').Replace('/', Path.DirectorySeparatorChar));
+        // Inside an archive as Explorer shows it: D:\Backups\Laptop.zip\Documents. A prefix under a drive, "C:/Users/max",
+        // is one Path.Combine would take for the whole path, which would name the protected folder as the place its
+        // copies were found. Its drive is shown as the folder it becomes in the stage: D:\Backups\Laptop.7z\C\Users\max.
+        var inside = best.Prefix.TrimEnd('/');
+        if (UnderADrive(inside)) inside = inside[0] + inside[2..];
+        var where = inside.Length == 0 ? best.ArchivePath : best.ArchivePath + Path.DirectorySeparatorChar + inside.Replace('/', Path.DirectorySeparatorChar);
         return new SourceBinding(destination, sample.Source, best.Layout, where, best.Hits, probe.Count) { State = best, Warning = warning };
     }
 
@@ -155,6 +162,9 @@ public sealed partial class ArchiveAdapter : IDestinationAdapter
     {
         var state = (State)binding.State!;
         var key = state.Prefix + Normalise(relativePath);
+
+        // A file is not known to be missing from archives that could not be read.
+        if (binding.CouldNotLook) return Task.FromResult(CopyLookup.Failed(state.ArchivePath + "!" + key, binding.Problem ?? NoArchives(binding.Destination.RootPath)));
         if (!state.Entries.TryGetValue(key, out var entry))
         {
             var archiveName = Path.GetFileName(state.ArchivePath);

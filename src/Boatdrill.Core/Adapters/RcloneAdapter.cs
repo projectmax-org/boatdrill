@@ -53,7 +53,14 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
         var probe = sample.Files.Take(MirrorFolderAdapter.ProbeFiles).Select(f => Remote(f.RelativePath)).ToList();
 
         // The layout: the candidate where most of a few sampled files are found, by name, without walking the remote.
-        var candidates = Candidates(destination, sample.Source).Where(c => destination.Layout == MirrorLayout.Auto || c.Layout == destination.Layout).ToList();
+        var candidates = Usable(destination, sample.Source).Where(c => destination.Layout == MirrorLayout.Auto || c.Layout == destination.Layout).ToList();
+        if (candidates.Count == 0)
+        {
+            // The only place left to look is the protected folder itself: nothing is listed there, and nothing downloaded.
+            var (itsLayout, itself) = Candidates(destination, sample.Source).First(c => destination.Layout == MirrorLayout.Auto || c.Layout == destination.Layout);
+            return MirrorFolderAdapter.Unusable(destination, sample, itsLayout, Destination.Redact(itself));
+        }
+
         (MirrorLayout Layout, string Base, int Hits) best = (candidates[0].Layout, candidates[0].Base, 0);
         ToolRunner.Result? failedLayout = null;
         foreach (var (layout, @base) in candidates)
@@ -109,8 +116,12 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
 
     public Task<CopyLookup> LocateAsync(SourceBinding binding, string relativePath, CancellationToken ct)
     {
-        var state = (State)binding.State!;
         var remote = Remote(relativePath);
+
+        // Bound to nothing, because the one place to look was the protected folder itself.
+        if (binding.NothingThere) return Task.FromResult(CopyLookup.Missing(Join(binding.BasePath, remote), binding.Problem));
+
+        var state = (State)binding.State!;
         var where = Join(state.Base, remote);
 
         // An unlisted file is not known to be missing when the listing itself failed.
@@ -327,6 +338,50 @@ public sealed partial class RcloneAdapter : IDestinationAdapter
         yield return (MirrorLayout.Contents, root);
         yield return (MirrorLayout.RootFolder, Join(root, Source.DisplayName(sourceRoot)));
         yield return (MirrorLayout.FullPath, Join(root, Remote(Path.Combine(MirrorFolderAdapter.VolumeFolder(sourceRoot), MirrorFolderAdapter.PathBelowVolume(sourceRoot)))));
+    }
+
+    /// <summary>
+    /// The layouts that may be looked in. When the location is a folder on this PC, one that is the protected folder
+    /// itself is left out, as in a folder of copies: rclone would list the originals there and download each of them
+    /// as its own copy, and every one would verify.
+    /// </summary>
+    internal static List<(MirrorLayout Layout, string Base)> Usable(Destination destination, Source source)
+    {
+        var real = new RealPaths();
+        return Candidates(destination, source)
+            .Where(c => LocalFolder(c.Base) is not { } folder || !MirrorFolderAdapter.IsTheSource(folder, source, real))
+            .ToList();
+    }
+
+    /// <summary>
+    /// The folder on this PC that a location is, when rclone would read it as one, and null for a remote. As rclone
+    /// reads a location: with no colon in it, with a slash before its first colon or, on Windows, with a drive letter
+    /// before it, it is a path; and ":local:" names the local back end outright. A remote that rclone's own config
+    /// points at a folder on this PC (an alias, say) cannot be told from here, and is taken for a remote.
+    /// </summary>
+    internal static string? LocalFolder(string location)
+    {
+        const string localBackEnd = ":local:";
+        var path = location;
+        if (location.StartsWith(localBackEnd, StringComparison.Ordinal))
+        {
+            path = location[localBackEnd.Length..];
+        }
+        else if (location.IndexOf(':') is var colon and >= 0 &&
+                 location.AsSpan(0, colon).IndexOfAny('/', '\\') < 0 &&
+                 !(OperatingSystem.IsWindows() && colon == 1 && char.IsAsciiLetter(location[0])))
+        {
+            return null;
+        }
+
+        try
+        {
+            return path.Length == 0 ? null : Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+        {
+            return null;
+        }
     }
 
     /// <summary>A path below a remote location: "gdrive:" and "Docs" give "gdrive:Docs"; "gdrive:Backup" gives "gdrive:Backup/Docs".</summary>

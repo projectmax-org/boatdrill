@@ -55,7 +55,7 @@ public sealed class ScratchTests
     /// A link to a folder. On Windows a junction, which anyone may make, as a restore can bring one back; a symbolic
     /// link there needs an administrator or developer mode.
     /// </summary>
-    private static bool TryLink(string link, string target)
+    internal static bool TryLink(string link, string target)
     {
         if (!OperatingSystem.IsWindows())
         {

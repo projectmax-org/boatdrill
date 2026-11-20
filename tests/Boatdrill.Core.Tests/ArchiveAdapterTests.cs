@@ -142,6 +142,9 @@ public sealed class ArchiveAdapterTests
 
         Assert.Equal(before, TreeFingerprint.Of(source.Root));
         Assert.Equal(MirrorLayout.FullPath, Assert.Single(drill.Bindings).Layout);
+
+        // And the copies are said to be where they were found, in the archive, not in the protected folder its names spell.
+        Assert.Equal(archive + Path.DirectorySeparatorChar + source.Root[0] + source.Root[2..], drill.Bindings[0].BasePath);
         Assert.Equal((4, 0), (drill.Outdated, drill.Errors));
         Assert.Equal((4L, 0L), (rehearsal.Outdated, rehearsal.Errors));
         TempTree.AssertEmpty(scratch.Root);
@@ -299,9 +302,85 @@ public sealed class ArchiveAdapterTests
             var result = await DrillAsync(source, Archives(folder.Root));
 
             Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), $"{name} took {watch.Elapsed}");
-            Assert.Equal((0, 0, 4), (result.Verified, result.Corrupt, result.Missing));
+
+            // Not read, which is not the same as holding no copy: the archive may hold every one of them.
+            Assert.Equal((0, 0, 0, 4), (result.Verified, result.Corrupt, result.Missing, result.Errors));
             Assert.Contains($"{name}: it is password-protected, and Boatdrill cannot open encrypted archives yet", result.Sentence);
         }
+    }
+
+    [Fact]
+    public async Task ArchivesThatCannotBeRead_AreNotTakenToHoldNothing()
+    {
+        // Archives that are cut short, password-protected or kept online only may well hold every file. A scan does not
+        // count such a backup as looked in, a rehearsal does not start, and a drill says the files could not be read.
+        using var source = new TempTree();
+        using var broken = new TempTree();
+        using var locked = new TempTree();
+        using var away = new TempTree();
+        WriteDocuments(source, 4);
+        var docs = Source.FromPath(source.Root, "Docs");
+        File.WriteAllBytes(broken.At("Docs.zip"), [0x50, 0x4B, 0x03, 0x04, 1, 2, 3]);
+        MarkEncrypted(Zip(source, locked, "Docs.zip", LastWeek));
+        var online = Zip(source, away, "Docs.zip", LastWeek);
+        var cases = new List<(TempTree Folder, string Why)>
+        {
+            (broken, "the zip could not be opened: "),
+            (locked, "it is password-protected, and Boatdrill cannot open encrypted archives yet)"),
+        };
+
+        // OFFLINE, which stands for every online-only flag, is a Windows attribute.
+        if (OperatingSystem.IsWindows())
+        {
+            File.SetAttributes(online, FileAttributes.Offline);
+            cases.Add((away, "it is online only, and its bytes are not on this disk)"));
+        }
+
+        try
+        {
+            foreach (var (folder, why) in cases)
+            {
+                var archives = Archives(folder.Root);
+                using var scratch = new TempTree();
+
+                var drill = await DrillAsync(source, archives);
+                Assert.Equal((0, 0, 4), (drill.Verified, drill.Missing, drill.Errors));
+                Assert.Equal(Scoring.Verdict.WouldNotRestore, drill.Score.Verdict);
+                Assert.Contains($" and 4 could not be read. Docs: no archive could be read (Docs.zip: {why}", drill.Sentence);
+
+                var scan = await new OnlyHereScanner().ScanAsync([docs], [archives], scratch.Root);
+                Assert.Empty(scan.Checked);
+                Assert.Equal(0, scan.OnlyHereFiles);
+                Assert.StartsWith($"Archives: no archive could be read (Docs.zip: {why}", Assert.Single(scan.Unreachable));
+                Assert.Equal("None of the backups could be looked in, so nothing was compared.", scan.Sentence);
+
+                var rehearsal = await new RehearsalRunner().RunAsync(new RehearsalPlan(docs, archives, scratch.Root));
+                Assert.Equal((false, 0L, 0L), (rehearsal.AllIntact, rehearsal.Verified, rehearsal.Missing));
+                Assert.StartsWith($"Nothing was restored from Archives: no archive could be read (Docs.zip: {why}", rehearsal.Sentence);
+                TempTree.AssertEmpty(scratch.Root);
+            }
+        }
+        finally
+        {
+            File.SetAttributes(online, FileAttributes.Normal);
+        }
+    }
+
+    /// <summary>Marks every entry of a zip as encrypted, the way a password-protected zip's are: bit 0 of the flags in each header.</summary>
+    private static void MarkEncrypted(string zip)
+    {
+        var bytes = File.ReadAllBytes(zip);
+        for (var i = 0; i < bytes.Length - 10; i++)
+        {
+            if (bytes[i] != 0x50 || bytes[i + 1] != 0x4B) continue;
+
+            // A local file header keeps its flags after the version needed; a central directory header after two versions.
+            if (bytes[i + 2] == 0x03 && bytes[i + 3] == 0x04) bytes[i + 6] |= 1;
+            else if (bytes[i + 2] == 0x01 && bytes[i + 3] == 0x02) bytes[i + 8] |= 1;
+        }
+
+        File.WriteAllBytes(zip, bytes);
+        File.SetLastWriteTimeUtc(zip, LastWeek.UtcDateTime);
     }
 
     [SevenZipFact]

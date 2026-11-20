@@ -12,7 +12,8 @@ internal static class SourceFiles
         IgnoreInaccessible = true,
         // Hidden and system files are mostly churn (desktop.ini, Thumbs.db); reparse points are links, which Boatdrill
         // must never follow. A folder that is recalled on open is a cloud folder whose list of files is not here
-        // either: listing it would fetch it.
+        // either: listing it would fetch it. What it holds is not known, so it is neither sampled nor counted, and a
+        // file with that mark is left out the same way.
         AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint | CloudFiles.RecallOnOpen,
     };
 

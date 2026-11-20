@@ -28,8 +28,8 @@ reaches other than through a Kopia server, read through a read-only connection o
 [rclone](https://rclone.org) remote (Google Drive, S3, B2 and the rest), read with rclone, or a folder of zip
 or 7z archives, whose newest archive holding a folder is its backup. A password is kept encrypted with DPAPI
 for your Windows account. Password-protected zip and 7z archives cannot be read yet: their files count as
-having no copy, so such a backup scores 0, "would not restore", and its sentence says the archive is
-password-protected.
+ones that could not be read, so such a backup scores 0, "would not restore", and its sentence says the
+archive is password-protected.
 
 **Says what it found.** One score and one sentence per destination, such as *"Backup drive would restore.
 397 of 400 sampled files read back correctly and 3 are older than the original. The oldest change not yet
@@ -66,8 +66,9 @@ protected folder; the stamps missing from a backup's copy of it say how long tha
 
 **Shows what exists only on this PC.** On request, every file in your folders is looked up in every backup
 by name and date, and the ones no backup holds a current copy of are listed, by folder and by size: what
-you would lose with this PC today. A backup that could not be reached, or an rclone remote whose files
-could not be listed, is named as not looked in rather than taken to hold nothing.
+you would lose with this PC today. A backup that could not be reached, an rclone remote whose files could
+not be listed, or a folder of archives none of which could be read, is named as not looked in rather than
+taken to hold nothing.
 
 **Rehearses a full restore.** A drill reads a sample; a rehearsal restores every file of one folder, or of a
 folder inside it, from one backup into Boatdrill's own folder, a batch at a time, checks each against the

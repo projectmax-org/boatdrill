@@ -55,11 +55,17 @@ internal sealed class TempTree : IDisposable
 
     public void Dispose()
     {
-        try
+        // Twice: on Windows, deleting a tree that holds a junction removes the junction and what else it can, and then
+        // fails. The second time there is no junction left to fail at.
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            Directory.Delete(Root, recursive: true);
+            try
+            {
+                Directory.Delete(Root, recursive: true);
+                return;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
     }
 }

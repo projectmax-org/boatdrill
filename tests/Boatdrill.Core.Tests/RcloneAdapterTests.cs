@@ -153,6 +153,101 @@ public sealed class RcloneAdapterTests
     }
 
     [Fact]
+    public async Task ALocationThatIsOrHoldsTheProtectedFolder_IsNotLookedInForItsCopies()
+    {
+        // rclone takes a folder on this PC for a location as readily as a remote. With the protected folder in it, the
+        // folder "named after the source" is the source: rclone would download the originals, and each would verify.
+        using var tree = new TempTree();
+        using var scratch = new TempTree();
+        for (var i = 0; i < 4; i++) tree.Write($"OneDrive/Documents/{i}.txt", $"document {i}", LastWeek);
+        var source = Source.FromPath(tree.At("OneDrive/Documents"), "Documents");
+        static MirrorLayout[] Layouts(string location, Source source) =>
+            RcloneAdapter.Usable(Destination.Rclone(location), source).Select(c => c.Layout).ToArray();
+
+        Assert.Equal([MirrorLayout.Contents, MirrorLayout.FullPath], Layouts(tree.At("OneDrive"), source));
+        Assert.Equal([MirrorLayout.Contents, MirrorLayout.FullPath], Layouts(tree.At("OneDrive") + "/", source));
+        Assert.Equal([MirrorLayout.Contents, MirrorLayout.FullPath], Layouts(":local:" + tree.At("OneDrive"), source));
+        Assert.Equal([MirrorLayout.RootFolder, MirrorLayout.FullPath], Layouts(tree.At("OneDrive/Documents"), source));
+
+        // Through a junction or a symbolic link, the folder in it is the protected folder all the same.
+        Assert.True(ScratchTests.TryLink(tree.At("Dropbox"), tree.At("OneDrive")), "No link could be made to test with.");
+        Assert.Equal([MirrorLayout.Contents, MirrorLayout.FullPath], Layouts(tree.At("Dropbox"), source));
+
+        // A remote is somewhere else, whatever its folders are called, and so is another folder on this PC.
+        Assert.Equal(3, Layouts("gdrive:OneDrive", source).Length);
+        Assert.Equal(3, Layouts("gdrive:", source).Length);
+        Assert.Equal(3, Layouts(scratch.Root, source).Length);
+
+        // Told to use that layout, it finds nothing and says why, and rclone is not run to list or download anything.
+        var told = Destination.Rclone(tree.At("OneDrive"), name: "Drive", toolPath: tree.At("no-such-rclone")) with { Layout = MirrorLayout.RootFolder };
+        var adapter = new RcloneAdapter();
+        var binding = await adapter.BindAsync(told, new Sampler(Everything).Take(source), scratch.Root, BindPurpose.Read, [], CancellationToken.None);
+
+        Assert.True(binding.NothingThere);
+        Assert.Equal($"the copies would be looked for in {source.RootPath}, the protected folder itself", binding.Problem);
+        var copy = await adapter.LocateAsync(binding, "0.txt", CancellationToken.None);
+        Assert.Equal((CopyState.Missing, binding.Problem), (copy.State, copy.Detail));
+        await adapter.PrefetchAsync(binding, ["0.txt"], CancellationToken.None);
+    }
+
+    [Fact]
+    public void ALocation_IsAFolderOnThisPc_WhenRcloneWouldReadItAsOne()
+    {
+        using var tree = new TempTree();
+
+        Assert.Null(RcloneAdapter.LocalFolder("gdrive:Backups/Laptop"));
+        Assert.Null(RcloneAdapter.LocalFolder("gdrive:"));
+        Assert.Null(RcloneAdapter.LocalFolder(":s3:bucket/Laptop"));
+
+        Assert.Equal(tree.Root, RcloneAdapter.LocalFolder(tree.Root));
+        Assert.Equal(tree.Root, RcloneAdapter.LocalFolder(":local:" + tree.Root));
+        Assert.Equal(tree.At("Docs"), RcloneAdapter.LocalFolder(RcloneAdapter.Join(tree.Root, "Docs")));
+
+        // Without a colon it can only be a path, from the folder rclone is started in, which is Boatdrill's own.
+        Assert.Equal(Path.GetFullPath("Backups"), RcloneAdapter.LocalFolder("Backups"));
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal(@"C:\Backups\Laptop", RcloneAdapter.LocalFolder("C:/Backups/Laptop"));
+            Assert.Equal(@"\\nas\backup\Laptop", RcloneAdapter.LocalFolder(@"\\nas\backup\Laptop"));
+        }
+        else
+        {
+            // Only Windows has drive letters: elsewhere "C:" is a remote named C, and a colon after a slash is part of a name.
+            Assert.Null(RcloneAdapter.LocalFolder(@"C:\Backups\Laptop"));
+            Assert.Equal("/mnt/backup/a:b", RcloneAdapter.LocalFolder("/mnt/backup/a:b"));
+        }
+    }
+
+    [RcloneFact]
+    public async Task ALocationThatHoldsTheProtectedFolder_IsNotReadAsItsBackup()
+    {
+        using var tree = new TempTree();
+        using var scratch = new TempTree();
+        for (var i = 0; i < 8; i++) tree.Write($"OneDrive/Documents/{i}.txt", $"document {i}", LastWeek);
+        var plan = new DrillPlan
+        {
+            Sources = [Source.FromPath(tree.At("OneDrive/Documents"), "Documents")],
+            Destinations = [Remote(tree.At("OneDrive"))],
+            ScratchDirectory = scratch.Root,
+            Sampling = Everything,
+        };
+
+        // Not one original is downloaded and compared with itself: whether the files then count as having no copy or
+        // as not listed is rclone's to say of the layouts that are left.
+        var result = Assert.Single((await new DrillRunner().RunAsync(plan)).Destinations);
+        Assert.True(result.Reachable, result.ProbeDetail);
+        Assert.Equal((0, 8), (result.Verified, result.Missing + result.Errors));
+        Assert.Equal(Verdict.WouldNotRestore, result.Score.Verdict);
+        Assert.NotEqual(MirrorLayout.RootFolder, Assert.Single(result.Bindings).Layout);
+
+        var told = await new DrillRunner().RunAsync(plan with { Destinations = [Remote(tree.At("OneDrive")) with { Layout = MirrorLayout.RootFolder }] });
+        var refused = Assert.Single(told.Destinations);
+        Assert.Equal((0, 8), (refused.Verified, refused.Missing));
+        Assert.Contains("the protected folder itself", refused.Sentence);
+    }
+
+    [Fact]
     public async Task WithoutRclone_TheRemoteIsUnreachable_AndSaysWhy()
     {
         using var source = new TempTree();

@@ -123,4 +123,6 @@ the whole byte cap), and the sample is trimmed largest-first to the byte cap, 51
 default, always keeping at least one file. Online-only files, whose bytes are in the cloud (OneDrive's
 Files On-Demand, say), are left out and counted, never downloaded. Hidden and system files, links, the
 names a folder is set to leave out (the app leaves out `Thumbs.db`, `*.tmp` and the like) and the canary
-file are neither sampled nor counted.
+file are neither sampled nor counted. Nor is a file or a folder that Windows marks as recalled when it is
+opened, a virtual one whose own listing is not on this PC: looking inside such a folder would fetch it, so
+what it holds is not known.

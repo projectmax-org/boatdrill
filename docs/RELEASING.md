@@ -11,8 +11,8 @@ reaches users until a maintainer publishes the draft it makes.
    <Version>1.0.0</Version>
    ```
 
-   Commit that on `main` and let CI pass. The Windows job already builds the installer on every push, so
-   a release does not discover a broken installer script.
+   Commit that on `main` and let CI pass. The Windows job already builds the installer on every push, and
+   installs and uninstalls it once, so a release does not discover a broken installer script.
 
 2. Tag the commit and push the tag:
 

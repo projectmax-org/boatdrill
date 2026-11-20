@@ -80,6 +80,14 @@ jobs:
         shell: pwsh
         run: .\build.ps1 -Installer
 
+      # The installer just built installs and uninstalls cleanly here, as the release workflow checks again
+      # on the one it is about to offer.
+      - name: Install and uninstall it once
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem artifacts/installer -Filter 'Boatdrill-Setup-*.exe' | Select-Object -First 1
+          .\installer\Test-Installer.ps1 -Setup $setup.FullName -LogDirectory "$env:RUNNER_TEMP/installer-test"
+
       # Loads every view against sample data and renders it to PNG in both themes, in English and in Korean.
       # Fails on a XAML or resource error, or on a binding to a property that does not exist. The images are
       # kept below. This is the first place the single-file Boatdrill.exe starts, so a crash is reported too.

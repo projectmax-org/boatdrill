@@ -25,6 +25,35 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void DefaultFolders_TakeTheNamesWindowsShows_AndKeepTheirPaths()
+    {
+        using var folders = new TempTree();
+        var documents = Directory.CreateDirectory(folders.At("Documents")).FullName;
+        var pictures = Directory.CreateDirectory(folders.At("Pictures")).FullName;
+
+        // Windows names Documents 문서 and says nothing about Pictures, which keeps its folder's name.
+        var settings = AppSettings.CreateDefault([documents, pictures], folder => Path.GetFileName(folder) == "Documents" ? "문서" : null);
+
+        Assert.Equal(["문서", "Pictures"], settings.Sources.Select(s => s.Name));
+        Assert.Equal([Source.IdForPath(documents), Source.IdForPath(pictures)], settings.Sources.Select(s => s.Id));
+        Assert.Equal([Path.GetFullPath(documents), Path.GetFullPath(pictures)], settings.Sources.Select(s => s.Folder));
+    }
+
+    [Fact]
+    public void SavedNames_StayAsTheyWere()
+    {
+        using var data = new TempTree();
+        using var folders = new TempTree();
+        var documents = Directory.CreateDirectory(folders.At("Documents")).FullName;
+        var path = data.At("settings.json");
+        _ = new SettingsStore(path, () => AppSettings.CreateDefault([documents]));
+
+        var reloaded = new SettingsStore(path, () => AppSettings.CreateDefault([documents], _ => "문서"));
+
+        Assert.Equal("Documents", Assert.Single(reloaded.Settings.Sources).Name);
+    }
+
+    [Fact]
     public void Update_PersistsAndAnnounces()
     {
         using var data = new TempTree();

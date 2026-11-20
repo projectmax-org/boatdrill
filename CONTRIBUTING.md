@@ -45,8 +45,9 @@ the word before them, so a sentence assembled from translated pieces reads badly
 - In XAML: `Text="{ui:Say 'Restore it all', '전부 복원하기'}"`. Quote with single quotes; a quote inside
   is `\'`.
 - After a name the user chose, use `Korean.Topic`, `Subject`, `Object`, `With` or `Toward` for 은/는,
-  이/가, 을/를, 과/와 and 으로/로, or word the sentence so no particle follows the name ("{name}에서",
-  "{name} 백업은").
+  이/가, 을/를, 과/와 and 으로/로, or word the sentence so no particle follows the name ("{name}에서").
+  Do not put 백업 or 폴더 after a name to avoid a particle: the name may end in that word already
+  ("백업 백업을"). `Korean.Folder` adds 폴더 only when the name does not end in it ("사진 폴더", "새 폴더").
 - Counts and times go through `Humanize` (`Humanize.Count(n, "file", "파일")` is "3 files" or "파일 3개").
 - Text that wraps keeps Korean words whole by itself, breaking lines at spaces as the HTML report's
   `word-break: keep-all` does: every text style switches on `ui:KoreanWrap`. A TextBlock with a style of its

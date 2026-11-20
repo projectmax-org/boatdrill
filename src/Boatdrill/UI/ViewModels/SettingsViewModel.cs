@@ -31,9 +31,9 @@ public sealed class DestinationRowViewModel : ViewModelBase
     private readonly IReadOnlyList<Choice<MirrorLayout>> _layouts =
     [
         new(Language.Pick("Work it out from the files", "파일을 보고 알아내기"), MirrorLayout.Auto),
-        new(Language.Pick("The folder's contents, directly", "폴더 안의 내용이 바로"), MirrorLayout.Contents),
-        new(Language.Pick("A folder named after each source", "보호하는 폴더 이름의 폴더 안에"), MirrorLayout.RootFolder),
-        new(Language.Pick("The full path, as in E:\\Backup\\C\\Users", "전체 경로대로 (예: E:\\Backup\\C\\Users)"), MirrorLayout.FullPath),
+        new(Language.Pick("The folder's contents, directly", "보호하는 폴더의 내용을 백업 폴더에 바로 저장"), MirrorLayout.Contents),
+        new(Language.Pick("A folder named after each source", "보호하는 폴더마다 같은 이름의 폴더에 저장"), MirrorLayout.RootFolder),
+        new(Language.Pick("The full path, as in E:\\Backup\\C\\Users", "전체 경로대로 저장 (예: E:\\Backup\\C\\Users)"), MirrorLayout.FullPath),
     ];
 
     private readonly SettingsStore _settings;
@@ -442,7 +442,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         if (Shell.FolderDisplayName(source.Folder) is { } shown) source.Name = shown;
         if (Settings.Sources.Any(s => s.Id == source.Id))
         {
-            Say(Language.Pick($"{source.Name} is already protected.", $"{source.Name} 폴더는 이미 보호하고 있습니다."), warning: false);
+            Say(Language.Pick($"{source.Name} is already protected.", $"{Korean.Topic(Korean.Folder(source.Name))} 이미 보호하고 있습니다."), warning: false);
             return;
         }
 
@@ -450,12 +450,12 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         {
             Say(Language.Pick(
                 $"{source.Folder} is part of {backup.Name}, the backup itself. Choose the folder whose files it keeps.",
-                $"{source.Folder} 폴더는 백업인 {backup.Name}의 일부입니다. 백업이 보관하는 원래 파일이 있는 폴더를 고르세요."), warning: true);
+                $"{Korean.Topic(Korean.Folder(source.Folder))} 백업인 {backup.Name}의 일부입니다. 백업이 보관하는 원래 파일이 있는 폴더를 고르세요."), warning: true);
             return;
         }
 
         _services.Settings.Update(s => s.Sources.Add(source));
-        Say(Language.Pick($"{source.Name} is protected from now on. Its files are in the next drill.", $"이제부터 {source.Name} 폴더를 보호합니다. 다음 복원 훈련부터 이 폴더의 파일도 확인합니다."), warning: false);
+        Say(Language.Pick($"{source.Name} is protected from now on. Its files are in the next drill.", $"이제부터 {Korean.Object(Korean.Folder(source.Name))} 보호합니다. 다음 복원 훈련부터 이 폴더의 파일도 확인합니다."), warning: false);
     }
 
     private void AddDestination()
@@ -478,7 +478,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         }
 
         _services.Settings.Update(s => s.Destinations.Add(destination));
-        Say(Language.Pick($"{destination.Name} is added. Boatdrill only ever reads from it.", $"{destination.Name} 백업을 추가했습니다. Boatdrill은 이곳을 읽기만 합니다."), warning: false);
+        Say(Language.Pick($"{destination.Name} is added. Boatdrill only ever reads from it.", $"{Korean.Object(destination.Name)} 추가했습니다. Boatdrill은 이곳을 읽기만 합니다."), warning: false);
     }
 
     private async Task AddFileHistoryAsync()
@@ -534,7 +534,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
         Say(Language.Pick(
             $"{destination.Name} is added: {probe.Detail}. Each drill reads the newest archive that holds each protected folder.",
-            $"{destination.Name} 백업을 추가했습니다: {probe.Detail}. 복원 훈련마다 보호하는 폴더가 담긴 가장 최근 압축 파일을 읽습니다."), warning: false);
+            $"{Korean.Object(destination.Name)} 추가했습니다: {probe.Detail}. 복원 훈련마다 보호하는 폴더가 담긴 가장 최근 압축 파일을 읽습니다."), warning: false);
     }
 
     /// <summary>Opens the Kopia form with KopiaUI's own connection filled in when there is one, so only the password is left to type.</summary>
@@ -631,7 +631,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             var probe = await Task.Run(() => adapter.ProbeAsync(target, CancellationToken.None));
             Say(probe.Reachable
                     ? Language.Pick($"{name} is ready: {probe.Detail}. Boatdrill only ever reads from it.", $"{name} 준비 완료: {probe.Detail}. Boatdrill은 이곳을 읽기만 합니다.")
-                    : Language.Pick($"{name} is in the list, but {form.Tool} could not open it: {probe.Detail}.", $"{name} 백업을 목록에 넣었지만 {form.ToolWith} 열지 못했습니다: {probe.Detail}."),
+                    : Language.Pick($"{name} is in the list, but {form.Tool} could not open it: {probe.Detail}.", $"{Korean.Object(name)} 목록에 넣었지만 {form.ToolWith} 열지 못했습니다: {probe.Detail}."),
                 warning: !probe.Reachable);
         }
         finally
@@ -644,14 +644,14 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     {
         if (row is null) return;
         _services.Settings.Update(s => s.Sources.RemoveAll(x => x.Id == row.Id));
-        Say(Language.Pick($"{row.Name} is no longer protected. Its files stay where they are.", $"{row.Name} 폴더는 더 이상 보호하지 않습니다. 폴더의 파일은 그대로 있습니다."), warning: false);
+        Say(Language.Pick($"{row.Name} is no longer protected. Its files stay where they are.", $"{Korean.Topic(Korean.Folder(row.Name))} 더 이상 보호하지 않습니다. 폴더의 파일은 그대로 있습니다."), warning: false);
     }
 
     private void RemoveDestination(DestinationRowViewModel? row)
     {
         if (row is null) return;
         _services.Settings.Update(s => s.Destinations.RemoveAll(x => x.Id == row.Id));
-        Say(Language.Pick($"{row.Name} is no longer checked. Nothing in it was touched.", $"{row.Name} 백업은 더 이상 확인하지 않습니다. 그 안의 어떤 것도 건드리지 않았습니다."), warning: false);
+        Say(Language.Pick($"{row.Name} is no longer checked. Nothing in it was touched.", $"{Korean.Topic(row.Name)} 더 이상 확인하지 않습니다. 그 안의 어떤 것도 건드리지 않았습니다."), warning: false);
     }
 
     private static bool SameOrInside(string folder, string container)
@@ -745,11 +745,12 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             nameof(IsSystemTheme), nameof(IsLightTheme), nameof(IsDarkTheme));
     }
 
-    private static string AlreadyListed(string name) => Language.Pick($"{name} is already in the list.", $"{name} 백업은 이미 목록에 있습니다.");
+    // The particle goes on a backup's name itself. "{name} 백업은" would read "백업 백업은" for the many backup folders called 백업.
+    private static string AlreadyListed(string name) => Language.Pick($"{name} is already in the list.", $"{Korean.Topic(name)} 이미 목록에 있습니다.");
 
     private static string InsideProtected(string folder, string protectedName) => Language.Pick(
         $"{folder} is inside {protectedName}, which Boatdrill protects. A backup on the same disk as the files it keeps would be lost with them.",
-        $"{folder} 위치는 Boatdrill이 보호하는 {protectedName} 폴더 안에 있습니다. 원본과 같은 디스크에 있는 백업은 원본과 함께 사라집니다.");
+        $"{folder} 위치는 Boatdrill이 보호하는 {Korean.Folder(protectedName)} 안에 있습니다. 원본과 같은 디스크에 있는 백업은 원본과 함께 사라집니다.");
 
     /// <summary>A value set by hand in settings.json gets its own entry, so the drop-down never shows blank.</summary>
     private static IReadOnlyList<Choice<int>> WithCurrent(List<Choice<int>> choices, int current, Func<int, string> label)

@@ -199,7 +199,7 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
                 "A drill reads a sample. A rehearsal restores every file of one folder from one backup and checks each against the original, " +
                 "so you know it would all come back, and how long it would take.",
                 "복원 훈련은 표본만 읽습니다. 리허설은 한 폴더의 모든 파일을 한 백업에서 복원해 하나하나 원본과 비교하므로, " +
-                "전부 돌아올지, 그리고 시간이 얼마나 걸릴지 알 수 있습니다.");
+                "모두 온전히 복원되는지, 그리고 시간이 얼마나 걸리는지 알 수 있습니다.");
             WhenText = string.Empty;
             Tiles = [];
             Findings = [];
@@ -216,11 +216,11 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
             ({ Files: 0 }, false) => ($"{what} has no files to restore", VerdictStyle.None),
             ({ Files: 0 }, true) => ($"{what}에는 복원할 파일이 없습니다", VerdictStyle.None),
             ({ AllIntact: true }, false) => ($"All of {what} came back intact", VerdictStyle.Good),
-            ({ AllIntact: true }, true) => ($"{what} 전체가 그대로 돌아왔습니다", VerdictStyle.Good),
+            ({ AllIntact: true }, true) => ($"{what} 전체를 온전히 복원했습니다", VerdictStyle.Good),
             (_, false) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{notIntact:N0} of {r.Files:N0} files in {what} did not come back intact", VerdictStyle.Bad),
-            (_, true) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개가 그대로 돌아오지 않았습니다", VerdictStyle.Bad),
+            (_, true) when r.Missing + r.Corrupt + r.Errors > 0 => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개를 온전히 복원하지 못했습니다", VerdictStyle.Bad),
             (_, false) => ($"{notIntact:N0} of {r.Files:N0} files in {what} came back older", VerdictStyle.Fair),
-            (_, true) => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개가 이전 버전으로 돌아왔습니다", VerdictStyle.Fair),
+            (_, true) => ($"{what}의 파일 {r.Files:N0}개 중 {notIntact:N0}개가 이전 버전으로 복원되었습니다", VerdictStyle.Fair),
         };
 
         // Written again from the result's numbers, so it reads in the language Boatdrill speaks now.
@@ -236,7 +236,7 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
         Tiles = r.Reachable && r.Refusal is null && r.Files > 0
             ?
             [
-                new ScorePart(Language.Pick("Came back intact", "그대로 돌아온 파일"), $"{r.Verified:N0}",
+                new ScorePart(Language.Pick("Came back intact", "온전히 복원된 파일"), $"{r.Verified:N0}",
                     Language.Pick($"of {r.Files:N0} files, {Humanize.Bytes(r.Bytes)}", $"전체 {r.Files:N0}개, {Humanize.Bytes(r.Bytes)}")),
                 new ScorePart(Language.Pick("No copy", "사본 없음"), $"{r.Missing:N0}",
                     r.Missing == 0 ? Language.Pick("every file has one", "모든 파일에 사본이 있음") : Language.Pick("no copy in the backup", "백업에 사본이 없음")),

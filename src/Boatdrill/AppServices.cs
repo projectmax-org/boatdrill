@@ -41,13 +41,17 @@ public sealed class AppServices : IDisposable
 
     public TrayIcon? Tray { get; }
 
-    /// <summary>Documents, Pictures and the desktop: what most people mean by their files.</summary>
+    /// <summary>
+    /// Documents, Pictures and the desktop: what most people mean by their files. Each is named as Explorer
+    /// names it, as a folder added in Settings is: 문서, 사진 and 바탕 화면 on Korean Windows, which is also
+    /// the language Boatdrill speaks on a first run.
+    /// </summary>
     private static AppSettings DefaultSettings() => AppSettings.CreateDefault(
     [
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
         Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
         Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-    ]);
+    ], Shell.FolderDisplayName);
 
     public void Dispose()
     {

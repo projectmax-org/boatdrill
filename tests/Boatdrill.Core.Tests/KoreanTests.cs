@@ -52,6 +52,28 @@ public sealed class KoreanTests
     [InlineData("10", "10은", "10이", "10을", "10으로")]
     [InlineData("26분", "26분은", "26분이", "26분을", "26분으로")]
     [InlineData("45초", "45초는", "45초가", "45초를", "45초로")]
+    [InlineData("백업", "백업은", "백업이", "백업을", "백업으로")]
+    [InlineData("Backup", "Backup은", "Backup이", "Backup을", "Backup으로")]
+    [InlineData("Backups", "Backups는", "Backups가", "Backups를", "Backups로")]
+    [InlineData("새 폴더", "새 폴더는", "새 폴더가", "새 폴더를", "새 폴더로")]
+    [InlineData("백업 (E:)", "백업 (E:)은", "백업 (E:)이", "백업 (E:)을", "백업 (E:)으로")]
+    [InlineData("새 볼륨 (D:)", "새 볼륨 (D:)은", "새 볼륨 (D:)이", "새 볼륨 (D:)을", "새 볼륨 (D:)으로")]
+    [InlineData("파일 히스토리 (N:)", "파일 히스토리 (N:)는", "파일 히스토리 (N:)가", "파일 히스토리 (N:)를", "파일 히스토리 (N:)로")]
+    [InlineData("외장하드 (M:)", "외장하드 (M:)는", "외장하드 (M:)가", "외장하드 (M:)를", "외장하드 (M:)로")]
+    [InlineData(@"사진(C:\Users\you\Pictures)", @"사진(C:\Users\you\Pictures)은", @"사진(C:\Users\you\Pictures)이", @"사진(C:\Users\you\Pictures)을", @"사진(C:\Users\you\Pictures)으로")]
+    [InlineData("(E:)", "(E:)는", "(E:)가", "(E:)를", "(E:)로")]
+    [InlineData("restic", "restic은", "restic이", "restic을", "restic으로")]
+    [InlineData("rclone", "rclone은", "rclone이", "rclone을", "rclone으로")]
+    [InlineData("kopia", "kopia는", "kopia가", "kopia를", "kopia로")]
+    [InlineData(@"C:\Users\me\Music", @"C:\Users\me\Music은", @"C:\Users\me\Music이", @"C:\Users\me\Music을", @"C:\Users\me\Music으로")]
+    [InlineData("Public", "Public은", "Public이", "Public을", "Public으로")]
+    [InlineData("Mac", "Mac은", "Mac이", "Mac을", "Mac으로")]
+    [InlineData("home", "home은", "home이", "home을", "home으로")]
+    [InlineData("Phone", "Phone은", "Phone이", "Phone을", "Phone으로")]
+    [InlineData("Disc", "Disc는", "Disc가", "Disc를", "Disc로")]
+    [InlineData("Sync", "Sync는", "Sync가", "Sync를", "Sync로")]
+    [InlineData("Drive", "Drive는", "Drive가", "Drive를", "Drive로")]
+    [InlineData("Acme", "Acme는", "Acme가", "Acme를", "Acme로")]
     public void Particles_FollowTheSoundBefore(string word, string topic, string subject, string obj, string toward)
     {
         Assert.Equal(topic, Korean.Topic(word));
@@ -59,6 +81,13 @@ public sealed class KoreanTests
         Assert.Equal(obj, Korean.Object(word));
         Assert.Equal(toward, Korean.Toward(word));
     }
+
+    [Theory]
+    [InlineData("사진", "사진 폴더")]
+    [InlineData("Projects", "Projects 폴더")]
+    [InlineData("새 폴더", "새 폴더")]
+    [InlineData("New folder", "New folder")]
+    public void AFolder_IsCalledAFolderOnlyOnce(string name, string named) => Assert.Equal(named, Korean.Folder(name));
 
     [Theory]
     [InlineData("", "")]
@@ -120,8 +149,8 @@ public sealed class KoreanTests
         using var korean = new InKorean();
 
         Assert.Equal(
-            "Weekly zips에서 복원할 수 있습니다. 표본 파일 400개 중 396개를 제대로 읽어 왔습니다. 4개는 원본보다 오래된 사본입니다. " +
-            $"아직 여기에 복사되지 않은 변경 가운데 가장 오래된 것은 {Language.Date(Finished.AddDays(-4))}(4일 전)의 것입니다. " +
+            "Weekly zips에서 복원할 수 있습니다. 표본 파일 400개 중 396개가 원본과 일치했습니다. 4개는 원본보다 오래된 사본입니다. " +
+            $"아직 여기에 복사되지 않은 가장 오래된 변경 사항은 {Language.Date(Finished.AddDays(-4))}(4일 전)에 생겼습니다. " +
             "측정한 속도라면 212 GB 전체를 복원하는 데 약 26분이 걸립니다.",
             Verdicts.Sentence(result, Finished));
         Assert.Equal("백업에서 복원할 수 있습니다", Verdicts.Headline([result]));
@@ -156,7 +185,53 @@ public sealed class KoreanTests
 
         var one = NotificationPolicy.For(report with { Destinations = [nas] });
         Assert.Equal("가족 NAS에 확인할 문제가 있습니다", one!.Title);
-        Assert.Equal("표본 파일 200개 중 150개를 제대로 읽어 왔습니다. 50개는 사본이 없습니다.", one.Text);
+        Assert.Equal("표본 파일 200개 중 150개가 원본과 일치했습니다. 50개는 사본이 없습니다.", one.Text);
+    }
+
+    [Fact]
+    public void TheFirstFact_SaysHowManyCopiesMatchTheOriginal_NoneAndOneIncluded()
+    {
+        using var korean = new InKorean();
+
+        Assert.Equal("표본 파일 400개가 모두 원본과 일치했습니다.", Verdicts.Body(Result(verified: 400), Finished));
+        Assert.Equal("표본 파일 1개가 원본과 일치했습니다.", Verdicts.Body(Result(verified: 1), Finished));
+        Assert.Equal(
+            "표본 파일 400개 중 원본과 일치한 파일이 없습니다. 400개는 사본이 없습니다.",
+            Verdicts.Body(Result(verified: 0, missing: 400, verdict: Verdict.WouldNotRestore), Finished));
+        Assert.Equal(
+            "표본 파일 1개가 원본과 일치하지 않았습니다. 1개는 사본이 없습니다.",
+            Verdicts.Body(Result(verified: 0, missing: 1, verdict: Verdict.WouldNotRestore), Finished));
+    }
+
+    [Fact]
+    public void ABackupBehindTheCanary_SaysHowFarItsCopyGoes()
+    {
+        var copied = Finished.AddDays(-3);
+        var result = Result(verified: 200) with { CanaryCopiedUtc = copied, CanaryBehindSince = Finished.AddDays(-2) };
+
+        using var korean = new InKorean();
+
+        Assert.EndsWith(
+            $" 카나리아 기록은 {Language.DateAndTime(copied)}에 남긴 것까지만 여기에 있고, 그 뒤의 기록은 아직 복사되지 않았습니다.",
+            Verdicts.Body(result, Finished));
+    }
+
+    [Fact]
+    public void ARehearsal_SaysWhatWasRestoredIntact()
+    {
+        var all = Rehearsed(files: 400, verified: 400);
+        var most = Rehearsed(files: 400, verified: 397) with { Missing = 2, Outdated = 1 };
+        var one = Rehearsed(files: 1, verified: 1);
+        var none = Rehearsed(files: 5, verified: 0) with { Missing = 5 };
+
+        using var korean = new InKorean();
+
+        Assert.Equal("백업 드라이브에서 사진의 파일 400개를 모두 온전히 복원했습니다.", RehearsalRunner.Sentence(all));
+        Assert.Equal(
+            "백업 드라이브에서 사진의 파일 400개 중 397개를 온전히 복원했습니다. 2개는 사본이 없습니다. 1개는 원본보다 오래된 사본입니다.",
+            RehearsalRunner.Sentence(most));
+        Assert.Equal("백업 드라이브에서 사진의 파일 1개를 온전히 복원했습니다.", RehearsalRunner.Sentence(one));
+        Assert.Equal("백업 드라이브에서 사진의 파일 5개 중 온전히 복원한 파일이 없습니다. 5개는 사본이 없습니다.", RehearsalRunner.Sentence(none));
     }
 
     [Fact]
@@ -164,6 +239,7 @@ public sealed class KoreanTests
     {
         var pictures = new SourceSummary("p", "사진", @"C:\Users\you\Pictures", 0, 0, 0, 0, 0, 0, null, Missing: true);
         var videos = new SourceSummary("v", "동영상", @"D:\동영상", 0, 0, 0, 0, 0, 0, null, Missing: true);
+        var unnamed = new SourceSummary("n", "새 폴더", @"D:\새 폴더", 0, 0, 0, 0, 0, 0, null, Missing: true);
         var report = new DrillReport
         {
             Id = "r1",
@@ -179,6 +255,8 @@ public sealed class KoreanTests
         Assert.Equal(@"사진 폴더(C:\Users\you\Pictures)를 찾을 수 없어 확인하지 못했습니다.", Verdicts.MissingSources([pictures]));
         Assert.Equal("사진, 동영상 폴더를 찾을 수 없어 확인하지 못했습니다.", Verdicts.MissingSources([pictures, videos]));
         Assert.Equal("보호하는 폴더 2개를 찾을 수 없습니다", Verdicts.MissingHeadline([pictures, videos]));
+        Assert.Equal(@"새 폴더(D:\새 폴더)를 찾을 수 없어 확인하지 못했습니다.", Verdicts.MissingSources([unnamed]));
+        Assert.Equal("새 폴더를 찾을 수 없습니다", Verdicts.MissingHeadline([unnamed]));
         var notice = NotificationPolicy.For(report);
         Assert.Equal("사진 폴더를 찾을 수 없습니다", notice!.Title);
         Assert.EndsWith("확인하지 못했습니다. 설정에서 폴더를 확인하세요.", notice.Text);
@@ -214,6 +292,21 @@ public sealed class KoreanTests
         Assert.Contains("보호하는 폴더", html);
         Assert.Contains("사본 없음", html);
     }
+
+    private static RehearsalResult Rehearsed(long files, long verified) => new()
+    {
+        SourceName = "사진",
+        SourceRoot = @"C:\Users\you\Pictures",
+        DestinationId = "drive",
+        DestinationName = "백업 드라이브",
+        RootPath = @"E:\Backup",
+        StartedUtc = Finished.AddMinutes(-47),
+        FinishedUtc = Finished,
+        Reachable = true,
+        Files = files,
+        Verified = verified,
+        Sentence = string.Empty,
+    };
 
     private static DestinationResult Result(int verified, int missing = 0, int outdated = 0, Verdict verdict = Verdict.WouldRestore, string name = "Weekly zips")
     {

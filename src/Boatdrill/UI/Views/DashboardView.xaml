@@ -93,7 +93,7 @@
                         <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
                             <TextBlock Text="{ui:Say 'Run the first drill now?', '첫 복원 훈련을 지금 할까요?'}" Style="{StaticResource Text.Heading}" />
                             <TextBlock Style="{StaticResource Text.Body}" Margin="0,4,0,0"
-                                       Text="{ui:Say 'Otherwise it runs on schedule, the next time you step away from the PC.', '지금 하지 않으면 다음에 PC를 비우실 때 일정에 따라 실행됩니다.'}" />
+                                       Text="{ui:Say 'Otherwise it runs on schedule, the next time you step away from the PC.', '지금 하지 않으면 다음에 자리를 비우실 때 일정에 따라 실행됩니다.'}" />
                         </StackPanel>
                         <Button Grid.Column="1" Style="{StaticResource Button.Accent}" Padding="16,8" VerticalAlignment="Center"
                                 Command="{Binding RunDrillCommand}" Content="{ui:Say 'Run a drill now', '지금 복원 훈련하기'}" />

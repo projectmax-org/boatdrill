@@ -151,6 +151,13 @@ public sealed class RehearsalTests
         Assert.Null(empty.Refusal);
         Assert.Equal((0L, false), (empty.Files, empty.AllIntact));
         TempTree.AssertEmpty(scratch.Root);
+
+        // In Korean the folder is called a folder once, even when its name says so already.
+        using (new InKorean())
+        {
+            Assert.Equal("Docs에 leters 폴더가 없어 아무것도 복원하지 않았습니다.", (await RehearseAsync(source, drive, scratch, folder: "leters")).Sentence);
+            Assert.Equal("Docs에 새 폴더가 없어 아무것도 복원하지 않았습니다.", (await RehearseAsync(source, drive, scratch, folder: "새 폴더")).Sentence);
+        }
     }
 
     [Fact]

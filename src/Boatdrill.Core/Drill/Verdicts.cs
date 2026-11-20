@@ -100,7 +100,7 @@ public static class Verdicts
         if (r.BehindSince is { } since)
         {
             text.Append(korean
-                ? $" 아직 여기에 복사되지 않은 변경 가운데 가장 오래된 것은 {Language.Date(since)}({Humanize.Ago(now - since)})의 것입니다."
+                ? $" 아직 여기에 복사되지 않은 가장 오래된 변경 사항은 {Language.Date(since)}({Humanize.Ago(now - since)})에 생겼습니다."
                 : $" The oldest change not yet copied here is from {Language.Date(since)} ({Humanize.Age(now - since)} ago).");
         }
 
@@ -108,7 +108,7 @@ public static class Verdicts
         {
             text.Append((r.CanaryCopiedUtc, korean) switch
             {
-                ({ } copied, true) => $" 여기에 복사된 가장 최근 카나리아 기록은 {Language.DateAndTime(copied)}의 것이며, 그 뒤의 기록은 아직 복사되지 않았습니다.",
+                ({ } copied, true) => $" 카나리아 기록은 {Language.DateAndTime(copied)}에 남긴 것까지만 여기에 있고, 그 뒤의 기록은 아직 복사되지 않았습니다.",
                 ({ } copied, false) => $" The newest canary stamp copied here is from {Language.DateAndTime(copied)}; the later ones have not been copied.",
                 (null, true) => " 여기에서 카나리아 파일의 사본을 찾지 못했습니다.",
                 (null, false) => " No copy of the canary file was found here.",
@@ -150,7 +150,16 @@ public static class Verdicts
     /// <summary>The same facts as sentences of their own, which is how Korean says a list of them.</summary>
     private static string KoreanFacts(DestinationResult r)
     {
-        var facts = new List<string> { $"표본 파일 {r.Sampled:N0}개 중 {r.Verified:N0}개를 제대로 읽어 왔습니다." };
+        // None and one are said apart: "0개가 일치했습니다" would read as good news, and "1개가 모두" is not said.
+        var matched = (r.Verified, r.Sampled) switch
+        {
+            (1, 1) => "표본 파일 1개가 원본과 일치했습니다.",
+            (0, 1) => "표본 파일 1개가 원본과 일치하지 않았습니다.",
+            (0, var sampled) => $"표본 파일 {sampled:N0}개 중 원본과 일치한 파일이 없습니다.",
+            var (verified, sampled) when verified == sampled => $"표본 파일 {sampled:N0}개가 모두 원본과 일치했습니다.",
+            var (verified, sampled) => $"표본 파일 {sampled:N0}개 중 {verified:N0}개가 원본과 일치했습니다.",
+        };
+        var facts = new List<string> { matched };
         if (r.Missing > 0) facts.Add($"{r.Missing:N0}개는 사본이 없습니다.");
         if (r.Outdated > 0) facts.Add($"{r.Outdated:N0}개는 원본보다 오래된 사본입니다.");
         if (r.Corrupt > 0) facts.Add($"{r.Corrupt:N0}개는 원본보다 오래되지 않았는데도 내용이 달라 손상이 의심됩니다.");
@@ -206,9 +215,9 @@ public static class Verdicts
         var names = Language.List(missing.Select(s => s.Name).ToList());
         if (Language.IsKorean)
         {
-            return missing.Count == 1
-                ? $"{names} 폴더({missing[0].RootPath})를 찾을 수 없어 확인하지 못했습니다."
-                : $"{names} 폴더를 찾을 수 없어 확인하지 못했습니다.";
+            // "사진 폴더(C:\Users\you\Pictures)를": the particle goes with the name, not with the path in brackets.
+            var folders = missing.Count == 1 ? $"{Korean.Folder(names)}({missing[0].RootPath})" : Korean.Folder(names);
+            return $"{Korean.Object(folders)} 찾을 수 없어 확인하지 못했습니다.";
         }
 
         return missing.Count == 1
@@ -247,7 +256,7 @@ public static class Verdicts
     /// <summary>The same as a headline, for a drill whose backups are otherwise fine: "Pictures was not found".</summary>
     public static string MissingHeadline(IReadOnlyList<SourceSummary> missing) => (missing.Count, Language.IsKorean) switch
     {
-        (1, true) => $"{missing[0].Name} 폴더를 찾을 수 없습니다",
+        (1, true) => $"{Korean.Object(Korean.Folder(missing[0].Name))} 찾을 수 없습니다",
         (1, false) => $"{missing[0].Name} was not found",
         (_, true) => $"보호하는 폴더 {missing.Count}개를 찾을 수 없습니다",
         (_, false) => $"{missing.Count} protected folders were not found",

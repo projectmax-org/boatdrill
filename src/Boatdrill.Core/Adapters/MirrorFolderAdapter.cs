@@ -85,7 +85,7 @@ public sealed class MirrorFolderAdapter : IDestinationAdapter
         {
             Problem = Language.Pick(
                 $"the copies would be looked for in {sample.Source.RootPath}, the protected folder itself",
-                $"사본을 찾을 곳이 보호하는 폴더 {sample.Source.RootPath} 자신입니다"),
+                $"사본을 찾을 곳이 보호하는 폴더 {sample.Source.RootPath} 자체입니다"),
             NothingThere = true,
         };
 

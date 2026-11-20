@@ -83,13 +83,20 @@ public sealed class AppSettings
     };
 
     /// <summary>The folders most people mean by "my files", those that exist. Destinations are theirs to add.</summary>
-    public static AppSettings CreateDefault(IEnumerable<string> folders)
+    /// <param name="shownName">
+    /// The name Windows shows for a folder, such as 문서 for Documents on Korean Windows; null or blank leaves the
+    /// folder's own name. Only the name changes: the backups are matched by the folder's name on disk.
+    /// </param>
+    public static AppSettings CreateDefault(IEnumerable<string> folders, Func<string, string?>? shownName = null)
     {
         var settings = new AppSettings();
         foreach (var folder in folders)
         {
             if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) continue;
-            settings.Sources.Add(SourceSetting.ForFolder(folder));
+
+            var source = SourceSetting.ForFolder(folder);
+            if (shownName?.Invoke(source.Folder) is { } shown && !string.IsNullOrWhiteSpace(shown)) source.Name = shown;
+            settings.Sources.Add(source);
         }
 
         return settings;

@@ -249,7 +249,7 @@ public sealed class RehearsalRunner
             ? null
             : Language.Pick(
                 $"There is no folder {plan.Folder} in {plan.Source.Name}, so nothing was restored.",
-                $"{plan.Source.Name}에 {plan.Folder} 폴더가 없어 아무것도 복원하지 않았습니다.");
+                $"{plan.Source.Name}에 {Korean.Subject(Korean.Folder(plan.Folder))} 없어 아무것도 복원하지 않았습니다.");
     }
 
     private RehearsalResult Finish(RehearsalResult result)
@@ -295,11 +295,18 @@ public sealed class RehearsalRunner
         if (r.Refusal is { } refusal) return refusal;
         if (r.Files == 0) return r.OnlineOnly > 0 ? $"{what}에는 이 PC에 있는 파일 중 복원할 것이 없습니다. {OnlineOnlySentence(r.OnlineOnly)}" : $"{what}에는 복원할 파일이 없습니다.";
 
+        var from = $"{r.DestinationName}에서 {what}의";
         var sentences = new List<string>
         {
-            r.Verified == r.Files
-                ? $"{what}의 파일 {r.Files:N0}개가 모두 {r.DestinationName}에서 그대로 돌아왔습니다."
-                : $"{what}의 파일 {r.Files:N0}개 중 {r.Verified:N0}개가 {r.DestinationName}에서 그대로 돌아왔습니다.",
+            // None and one are said apart, as in a drill's verdict: "0개를 복원했습니다" would read as good news.
+            (r.Verified, r.Files) switch
+            {
+                (1, 1) => $"{from} 파일 1개를 온전히 복원했습니다.",
+                (0, 1) => $"{from} 파일 1개를 온전히 복원하지 못했습니다.",
+                (0, var files) => $"{from} 파일 {files:N0}개 중 온전히 복원한 파일이 없습니다.",
+                var (verified, files) when verified == files => $"{from} 파일 {files:N0}개를 모두 온전히 복원했습니다.",
+                var (verified, files) => $"{from} 파일 {files:N0}개 중 {verified:N0}개를 온전히 복원했습니다.",
+            },
         };
         if (r.Missing > 0) sentences.Add($"{r.Missing:N0}개는 사본이 없습니다.");
         if (r.Outdated > 0) sentences.Add($"{r.Outdated:N0}개는 원본보다 오래된 사본입니다.");

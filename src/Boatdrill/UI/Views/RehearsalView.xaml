@@ -138,7 +138,7 @@
                 <Border Style="{StaticResource Card}" Margin="0,0,0,14"
                         Visibility="{Binding Findings, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel>
-                        <TextBlock Text="{ui:Say 'FILES THAT DID NOT COME BACK INTACT', '그대로 돌아오지 않은 파일'}" Style="{StaticResource Text.SectionLabel}" />
+                        <TextBlock Text="{ui:Say 'FILES THAT DID NOT COME BACK INTACT', '온전히 복원되지 않은 파일'}" Style="{StaticResource Text.SectionLabel}" />
                         <ItemsControl ItemsSource="{Binding Findings}" Focusable="False">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:FindingRow}">

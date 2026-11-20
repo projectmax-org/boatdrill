@@ -396,7 +396,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
                                 <TextBlock Text="{ui:Say 'Read earlier copies again, for bit rot', '비트 부패를 찾도록 예전 사본 다시 읽기'}" Style="{StaticResource Text.Subheading}" />
-                                <TextBlock Text="{ui:Say 'Boatdrill remembers each copy that read back correctly. Every drill reads a few of them again: one that changed while its name, size and date did not has decayed on the disk.', 'Boatdrill은 제대로 읽어 온 사본을 기억해 두고, 복원 훈련 때마다 그중 몇 개를 다시 읽습니다. 이름, 크기, 날짜는 그대로인데 내용이 바뀐 사본은 디스크에서 변질된 것입니다.'}"
+                                <TextBlock Text="{ui:Say 'Boatdrill remembers each copy that read back correctly. Every drill reads a few of them again: one that changed while its name, size and date did not has decayed on the disk.', 'Boatdrill은 원본과 일치한 사본을 기억해 두고, 복원 훈련 때마다 그중 몇 개를 다시 읽습니다. 이름, 크기, 날짜는 그대로인데 내용이 바뀐 사본은 디스크에서 변질된 것입니다.'}"
                                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Style="{StaticResource Switch}" VerticalAlignment="Center"

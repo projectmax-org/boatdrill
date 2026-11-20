@@ -33,6 +33,16 @@ public static class Korean
     /// <summary>"드라이브입니다", "사진입니다": "is", which is the same after a vowel or a consonant.</summary>
     public static string Is(string word) => word + "입니다";
 
+    /// <summary>
+    /// "사진 폴더": a folder's name with 폴더 after it, to say what the name is. A name that says so already is
+    /// left as it is, "새 폴더" or "New folder", so that no sentence reads "새 폴더 폴더".
+    /// </summary>
+    public static string Folder(string name)
+    {
+        var end = name.TrimEnd();
+        return end.EndsWith("폴더", StringComparison.Ordinal) || end.EndsWith("folder", StringComparison.OrdinalIgnoreCase) ? name : name + " 폴더";
+    }
+
     /// <summary>U+2060 WORD JOINER: no width, and no line break on either side of it.</summary>
     public const char WordJoiner = '⁠';
 
@@ -85,10 +95,37 @@ public static class Korean
             // Another script: no way to tell, and a vowel is the likelier guess.
             if (char.IsLetterOrDigit(c)) return Ending.Vowel;
 
-            // Brackets, quotes, spaces and the like are not read aloud: look at what comes before.
+            // What is in brackets is an aside, and the particle goes with the word before it: "백업 (E:)은", as
+            // "카카오(035720)는". The inside is read only when nothing comes before the brackets.
+            if (c is ')' or ']' or '}')
+            {
+                var open = OpeningBracket(word, i);
+                if (open > 0 && word.Take(open).Any(char.IsLetterOrDigit)) i = open;
+            }
+
+            // Quotes, spaces and the like are not read aloud: look at what comes before.
         }
 
         return Ending.Vowel;
+    }
+
+    /// <summary>Where the bracket closed at <paramref name="close"/> was opened, or -1 when it was not.</summary>
+    private static int OpeningBracket(string word, int close)
+    {
+        var opening = word[close] switch
+        {
+            ')' => '(',
+            ']' => '[',
+            _ => '{',
+        };
+        var depth = 0;
+        for (var i = close; i >= 0; i--)
+        {
+            if (word[i] == word[close]) depth++;
+            else if (word[i] == opening && --depth == 0) return i;
+        }
+
+        return -1;
     }
 
     /// <summary>A number as read in Sino-Korean: 1 일, 3 삼, 10 십, 100 백, 1,000 천, 10,000 만, 2 이.</summary>
@@ -121,7 +158,7 @@ public static class Korean
     /// <summary>
     /// Latin letters: an abbreviation is read letter by letter ("SSD", 에스에스디; of the letters only L 엘,
     /// M 엠, N 엔 and R 알 end in a consonant), a word as it sounds, roughly ("Drive", 드라이브; "Team", 팀;
-    /// "Laptop", 랩톱; "Google", 구글).
+    /// "Laptop", 랩톱; "Google", 구글; "Music", 뮤직; "Home", 홈).
     /// </summary>
     private static Ending LatinEnding(string word, int last)
     {
@@ -146,6 +183,14 @@ public static class Korean
         // "Dock", 독, and "Book", 북, end in ㄱ; "Disk", 디스크, does not.
         if (lower[^1] == 'k' && lower.Length > 1 && lower[^2] is 'a' or 'e' or 'i' or 'o' or 'u' or 'c') return Ending.Consonant;
 
+        // So do "Music", 뮤직, and "restic", 레스틱; "Disc", 디스크, and "Sync", 싱크, do not.
+        if (lower[^1] == 'c' && lower.Length > 1 && IsVowel(lower[^2])) return Ending.Consonant;
+
+        // An e after m or n and a vowel is silent: "Home", 홈; "Phone", 폰; "rclone", 알클론. "Acme", 애크미, is not.
+        if (lower[^1] == 'e' && lower.Length > 2 && lower[^2] is 'm' or 'n' && IsVowel(lower[^3])) return Ending.Consonant;
+
         return Ending.Vowel;
     }
+
+    private static bool IsVowel(char c) => c is 'a' or 'e' or 'i' or 'o' or 'u';
 }

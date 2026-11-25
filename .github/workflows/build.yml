@@ -1,8 +1,9 @@
 name: Build
 
+# On main, on a branch a release is being prepared on (release-prep, release-1.1), and on every pull request.
 on:
   push:
-    branches: [main]
+    branches: [main, 'release-*']
   pull_request:
   workflow_dispatch:
 

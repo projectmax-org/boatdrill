@@ -314,7 +314,8 @@ public sealed partial class ResticAdapter : IDestinationAdapter
     /// % that starts no escape taking the % and the two characters after it for one, and it says which: invalid port
     /// ":hunter2" after host.
     /// </summary>
-    internal static string Masked(string message) => QuotedByGo().Replace(Destination.Redact(message), "***");
+    internal static string Masked(string message) =>
+        QuotedByGo().Replace(QuotedUrlPassword().Replace(Destination.Redact(message), "***"), "***");
 
     private static string Said => Language.Pick("restic said: ", "restic 메시지: ");
 
@@ -531,5 +532,12 @@ public sealed partial class ResticAdapter : IDestinationAdapter
     // What stands between the quotation marks, where Go writes a mark inside them as \".
     [GeneratedRegex(@"(?<=invalid (?:port|URL escape) "")(?:[^""\\\r\n]|\\.)*(?="")")]
     private static partial Regex QuotedByGo();
+
+    // In a URL that Go quotes, all there is from the colon after the user name to the last @ before the closing mark.
+    // That masks a password typed with a slash in it, which Destination.Redact leaves alone because it cannot tell it
+    // from a path. No such URL is taken for a new repository, but a settings file written by hand may hold one, and
+    // restic then says what it could not read of it.
+    [GeneratedRegex(@"(?<=""[A-Za-z][A-Za-z0-9+.\-]*://[^/:\s""]*:)[^""\r\n]+(?=@[^/@\s""]*[/""])")]
+    private static partial Regex QuotedUrlPassword();
 
 }

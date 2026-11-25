@@ -266,6 +266,34 @@ public sealed class DrillRunnerTests
     }
 
     [Fact]
+    public async Task AnOldFileThatWasNeverCopied_BesideStaleCopies_IsACoverageHole_NotYearsOfLag()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        var now = DateTimeOffset.UtcNow;
+        tree.Write("desktop/todo.txt", "buy milk", now.AddDays(-2));
+        tree.Write("desktop/notes.txt", "notes", now.AddDays(-2));
+        tree.MirrorTo(backup.Root);
+
+        // The backup took both files two days ago. Both were edited since, the first three hours ago, and an
+        // installer from years back was never copied at all.
+        var edited = now.AddHours(-3);
+        tree.Write("desktop/todo.txt", "buy milk and bread", edited);
+        tree.Write("desktop/notes.txt", "notes, and more of them", edited.AddHours(1));
+        tree.Write("desktop/old-setup.exe", "an old installer", now.AddDays(-3 * 365));
+
+        var report = await new DrillRunner().RunAsync(Plan(scratch, Source.FromPath(tree.Root, "Desktop"), Destination.MirrorFolder(backup.Root, "USB drive")));
+
+        // Nothing verified, so the stale copies say when the backup last took anything: the lag is hours, measured
+        // from the first change after that, and the file that was never copied counts against coverage alone.
+        var result = Assert.Single(report.Destinations);
+        Assert.Equal((0, 2, 1), (result.Verified, result.Outdated, result.Missing));
+        Assert.Equal(edited.UtcDateTime, result.BehindSince!.Value.UtcDateTime, TimeSpan.FromSeconds(1));
+        Assert.True(result.Lag < TimeSpan.FromHours(4), $"The lag was {result.Lag}.");
+    }
+
+    [Fact]
     public async Task AFolderWithNothingVerified_IsBehind_BesideOneWhoseCopiesAreAllCurrent()
     {
         using var tree = new TempTree();

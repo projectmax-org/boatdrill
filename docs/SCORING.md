@@ -79,12 +79,14 @@ folder marks when the folder fell behind; "behind since" is the earliest of thes
 since then. An old file that was never copied is a coverage hole, not a lag, so it does not count here.
 If nothing is behind, freshness is 1.
 
-A folder that has copies here, none of which verified, has no verified file to measure from, so the
-oldest of its sampled files that is missing, outdated or a placeholder marks when it fell behind. Four
-sampled files, each with a copy older than the original and the oldest change ten days old, score
-100 × 1 × (0.60 + 0.20 × 20/30 + 0.10 + 0.10) = 93.3, so 93, "would mostly restore", not 100. A folder
-none of whose sampled files was found here is the coverage hole that caps the total at 69, and it adds
-no lag.
+A folder that has copies here, none of which verified, has no verified file to measure from. It is measured
+from the newest version its outdated or corrupt copies hold instead, which is when the backup last took
+anything of it: the oldest sampled file that is missing, outdated or a placeholder *and* was written after
+that marks when the folder fell behind. Four sampled files, each with a copy older than the original and
+the oldest change ten days old, score 100 × 1 × (0.60 + 0.20 × 20/30 + 0.10 + 0.10) = 93.3, so 93, "would
+mostly restore", not 100. An old file beside them that was never copied is a coverage hole there too, not
+years of lag. A folder none of whose sampled files was found here is the coverage hole that caps the total
+at 69, and it adds no lag.
 
 With canary files on, each protected folder holds "Boatdrill canary.txt", stamped after every drill. The
 oldest stamp a backup's copy lacks, once it is at least a day old, is when that backup fell behind, and

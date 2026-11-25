@@ -165,13 +165,14 @@ public sealed class MirrorFolderAdapter : IDestinationAdapter
     /// Whether what was found is the original file itself, reached through a junction or a symbolic link below the
     /// backup folder: a "Documents" in the backup that is a link to the one being protected, say. Binding cannot see
     /// those, so each copy is asked here, where a drill, a rehearsal and a scan all come to find it. A folder is
-    /// resolved once for all the files in it, and the protected folder once for the binding. The original is in the
-    /// protected folder under its own name: sampling does not go through links, so none leads to it there.
+    /// resolved once for all the files in it. The original is resolved the same way: sampling does not go through
+    /// links, but a rehearsal of one folder starts in the folder it is given, which may be a link in the protected
+    /// folder, and the backup may hold that same link.
     /// </summary>
     private static bool IsTheOriginal(SourceBinding binding, string relativePath, FileInfo copy)
     {
         var real = binding.State as RealPaths ?? new RealPaths();
-        var original = Path.GetFullPath(Path.Combine(real.Of(binding.Source.RootPath), relativePath));
+        var original = real.OfFile(Path.Combine(binding.Source.RootPath, relativePath), isLink: false);
         var found = real.OfFile(copy.FullName, isLink: (copy.Attributes & FileAttributes.ReparsePoint) != 0);
         return string.Equals(found, original, RealPaths.Comparison);
     }

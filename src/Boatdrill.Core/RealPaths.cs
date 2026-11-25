@@ -61,7 +61,7 @@ internal sealed class RealPaths
             {
                 var folder = Of(Path.GetDirectoryName(full) ?? full);
                 var real = Path.Combine(folder, Path.GetFileName(full));
-                if (!isLink || links == 0 || new FileInfo(real).LinkTarget is not { Length: > 0 } target) return real;
+                if (!isLink || links == 0 || Target(real) is not { } target) return real;
 
                 full = Path.GetFullPath(target, folder);
             }
@@ -81,7 +81,7 @@ internal sealed class RealPaths
 
         var above = Follow(parent, ref links);
         var real = Path.Combine(above, Path.GetFileName(full));
-        if (new FileInfo(real).LinkTarget is { Length: > 0 } target && links-- > 0)
+        if (Target(real) is { } target && links-- > 0)
         {
             // A target that is not a full path starts from the folder the link is in, and may hold links of its own.
             real = Follow(Path.TrimEndingDirectorySeparator(Path.GetFullPath(target, above)), ref links);
@@ -89,4 +89,13 @@ internal sealed class RealPaths
 
         return _folders[full] = real;
     }
+
+    /// <summary>
+    /// Where a link leads, as a path that can be followed, or null for what is no link or leads to no path. A folder a
+    /// volume is mounted in, and a junction made to a volume by its name, hold the volume's name for a target,
+    /// Volume{...}, which is a path from nowhere: taken for one, it would name a folder that is not there, and no
+    /// link below it would be seen any more. Such a link stays as it is spelled.
+    /// </summary>
+    private static string? Target(string path) =>
+        new FileInfo(path).LinkTarget is { Length: > 0 } target && !target.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase) ? target : null;
 }

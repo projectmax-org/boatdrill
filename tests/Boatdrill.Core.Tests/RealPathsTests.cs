@@ -70,6 +70,33 @@ public sealed class RealPathsTests
     }
 
     [Fact]
+    public void AJunctionToAVolumeByItsName_StaysAsItIsSpelled_AndLinksBelowItAreStillFollowed()
+    {
+        // A folder with a volume mounted in it holds the same kind of target: the volume's name, which is no path.
+        // Taken for one, it named a folder that is not there, and no link below it was seen any more.
+        if (!OperatingSystem.IsWindows()) return;
+
+        using var tree = new TempTree();
+        tree.Write(@"home\Documents\a.txt", "a");
+        Directory.CreateDirectory(tree.At(@"data\Dropbox"));
+        Assert.True(ScratchTests.TryLink(tree.At(@"data\Dropbox\Documents"), tree.At(@"home\Documents")), "No link could be made to test with.");
+
+        var drive = Path.GetPathRoot(tree.Root)!;
+        var volume = new System.Text.StringBuilder(64);
+        Assert.True(GetVolumeNameForVolumeMountPoint(drive, volume, volume.Capacity), "The volume's name could not be asked for.");
+        Assert.True(ScratchTests.TryLink(tree.At("mounted"), volume + tree.At("data")[drive.Length..]), "No link could be made to test with.");
+        Assert.StartsWith("Volume{", new DirectoryInfo(tree.At("mounted")).LinkTarget);
+        var real = new RealPaths();
+
+        Assert.Equal(Path.Combine(real.Of(tree.Root), "mounted"), real.Of(tree.At("mounted")));
+        Assert.True(real.Same(tree.At(@"mounted\Dropbox\Documents"), tree.At(@"home\Documents")));
+        Assert.Equal(real.OfFile(tree.At(@"home\Documents\a.txt"), isLink: false), real.OfFile(tree.At(@"mounted\Dropbox\Documents\a.txt"), isLink: false));
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern bool GetVolumeNameForVolumeMountPoint(string mountPoint, System.Text.StringBuilder volumeName, int length);
+
+    [Fact]
     public void ASymbolicLink_MayHoldARelativeTarget_AndMayLeadToAFile()
     {
         // Junctions, which are what a test can make on Windows without being an administrator, lead to folders only and

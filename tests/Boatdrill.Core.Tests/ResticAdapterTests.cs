@@ -376,28 +376,77 @@ public sealed class ResticAdapterTests
     [Theory]
     [InlineData("rest:https://max:pa#ss@nas/", "rest:https://max:***@nas/")]
     [InlineData("rest:https://max:pa?ss@nas:8000/restic", "rest:https://max:***@nas:8000/restic")]
-    [InlineData("rest:https://max:pa/ss@nas/", "rest:https://max:***@nas/")]
-    [InlineData("rest:https://:p/a#s?s@nas", "rest:https://:***@nas")]
-    [InlineData("rest:https://max:@pa/ss@nas/", "rest:https://max:***@nas/")]
-    [InlineData("rest:https://max:1234/5678@nas/", "rest:https://max:***@nas/")]
-    [InlineData("Get \"https://max:1234/5678@nas/config\": dial tcp: lookup max: no such host", "Get \"https://max:***@nas/config\": dial tcp: lookup max: no such host")]
-    [InlineData("open https://max:pa/ss@nas/\r\nask admin@example.com", "open https://max:***@nas/\r\nask admin@example.com")]
+    [InlineData("rest:https://max:P@ssw0rd#123@nas/", "rest:https://max:***@nas/")]
+    [InlineData("rest:https://max:#x@y?z@nas:8000/", "rest:https://max:***@nas:8000/")]
+    [InlineData("rest:https://us#er:hunter2@nas/", "rest:https://us#er:***@nas/")]
+    [InlineData("open https://max:pa#ss@nas/\r\nask admin@example.com", "open https://max:***@nas/\r\nask admin@example.com")]
     [InlineData("rest:https://max:secret@nas:8000/max@home/", "rest:https://max:***@nas:8000/max@home/")]
-    [InlineData("rest:https://nas:8000/max@home/", "rest:https://nas:***@home/")]
-    public void APasswordTypedWithASlash_AQuestionMark_OrAHash_IsMaskedAllTheSame(string text, string masked)
+    public void APasswordTypedWithAQuestionMarkOrAHash_IsMaskedAllTheSame(string text, string masked)
     {
-        // Such a password should have been written with %2F, %3F or %23: as typed, the host ends there for Go, and
-        // restic cannot open the URL. It is a password all the same, to its last @, whether or not what is left reads
-        // as a URL (max:1234 as a host and its port, say). On another line it is not looked for. A URL that does
-        // read as one keeps its reading, and only its password is masked. A port with an @ further along cannot be told
-        // from such a password, and is masked like one: too much is hidden rather than too little.
+        // Such a password should have been written with %3F or %23: as typed, the host ends there for Go, and restic
+        // cannot open the URL. It is a password all the same, from the colon to the last @ before the first slash,
+        // whether an @ of its own comes before the # or after it, and with a # in the user name too. On another line
+        // it is not looked for, and an @ in the path of a URL that does read is left alone.
         Assert.Equal(masked, Destination.Redact(text));
         Assert.Equal(masked, Destination.Redact(masked));
     }
 
     [Theory]
+    [InlineData("rest:https://nas:8000/max@home/")]
+    [InlineData("rest:https://[2001:db8::1]:8000/max@home/")]
+    [InlineData("rest:https://user@nas:8000/max@home/")]
+    [InlineData("s3:https://host:9000/bucket/max@home")]
+    [InlineData(":webdav,url='https://nas:8000/dav':max@home")]
+    [InlineData(@"C:\Backups\restic")]
+    public void ALocationWithNoPassword_IsNeverAltered_WhateverFollowsItsHost(string location)
+    {
+        // A port, or the inside of an IPv6 address, with an @ further along is no password: nothing is taken for one
+        // across a slash, so a repository named after an e-mail address keeps its host, its port and its path.
+        Assert.Equal(location, Destination.Redact(location));
+    }
+
+    [Theory]
+    [InlineData("rest:https://max:pa/ss@nas/")]
+    [InlineData("rest:https://:p/a#s?s@nas")]
+    [InlineData("rest:https://max:@pa/ss@nas/")]
+    [InlineData("rest:https://max:1234/5678@nas/")]
+    [InlineData("rest:https://max:P@ss/w0rd@nas/")]
+    [InlineData("rest:https://max:pa#ss@nas/")]
+    [InlineData("rest:https://max:pa?ss@nas/")]
+    [InlineData("rest:https://us/er:hunter2@nas/")]
+    [InlineData("rest:https://nas:8000/max@home/")]
+    [InlineData("rest:https://max:pa ss@nas/")]
+    public void ARepositoryUrlThatCannotBeReadForCertain_IsRefused_BeforeItIsSavedOrShown(string url)
+    {
+        // An @ after the first slash, ? or # is the end of a password typed with that character in it, or part of a
+        // path, and the two cannot be told apart: what to mask would be a guess, and restic could not open the first
+        // kind anyway. The refusal says how to write either, and does not repeat the URL.
+        Assert.NotNull(Destination.Ambiguity(url));
+        var refused = Assert.Throws<ArgumentException>(() => Destination.Restic(url, "repository-password"));
+        Assert.Contains("%2F", refused.Message);
+        Assert.Contains("%40", refused.Message);
+        Assert.DoesNotContain("://", refused.Message);
+    }
+
+    [Theory]
+    [InlineData("rest:https://max:hunter2@nas:8000/restic")]
+    [InlineData("rest:https://max:p@ss:w$rd@nas/")]
+    [InlineData("rest:https://max:pa%2Fss%23@nas/max%40home/")]
+    [InlineData("rest:https://[2001:db8::1]:8000/restic/")]
+    [InlineData("sftp:max@nas:/srv/restic")]
+    [InlineData("sftp://max@nas:2222//srv/restic")]
+    [InlineData("s3:https://s3.example.com/bucket")]
+    [InlineData("rclone:remote:path")]
+    public void ARepositoryUrlThatReadsOneWayOnly_IsTaken_AsItWasTyped(string url)
+    {
+        Assert.Null(Destination.Ambiguity(url));
+        Assert.Equal(url, Destination.Restic(url, "repository-password").RootPath);
+    }
+
+    [Theory]
     [InlineData("Fatal: parsing repository location failed: parse \"https://max:hunter2/x@nas/\": invalid port \":hunter2\" after host",
         "Fatal: parsing repository location failed: parse \"https://max:***@nas/\": invalid port \"***\" after host")]
+    [InlineData("Get \"https://max:1234/5678@nas/config\": dial tcp: lookup max: no such host", "Get \"https://max:***@nas/config\": dial tcp: lookup max: no such host")]
     [InlineData("Fatal: parsing repository location failed: parse \"https://max:hun\\\"ter2#x@nas/\": invalid port \":hun\\\"ter2\" after host",
         "Fatal: parsing repository location failed: parse \"https://max:***@nas/\": invalid port \"***\" after host")]
     [InlineData("Fatal: parsing repository location failed: parse \"https://max:50%off@nas/\": invalid URL escape \"%of\"",
@@ -409,7 +458,8 @@ public sealed class ResticAdapterTests
     {
         // Go names the part of a URL it cannot read, outside the URL it quotes: for a password with a / or # in it, the
         // password up to there, taken for a port. A port that was only mistyped is masked with it, and is still to be
-        // read in the URL beside it.
+        // read in the URL beside it. Inside the URL Go quotes, a password with a slash in it is masked to its last @:
+        // no such URL is taken for a new repository, but a settings file written by hand may hold one.
         Assert.Equal(masked, ResticAdapter.Masked(said));
         Assert.Equal(masked, ResticAdapter.Masked(masked));
     }
@@ -422,13 +472,16 @@ public sealed class ResticAdapterTests
     [InlineData("sftp:max@nas:/srv/restic", "restic")]
     [InlineData("rest:https://max:pa#ss@nas/", "nas")]
     [InlineData("rest:https://max:pa?ss@nas/", "nas")]
-    [InlineData("rest:https://max:pa/ss@nas/", "nas")]
-    [InlineData("rest:https://max:@pa/ss@nas/", "nas")]
+    [InlineData("rest:https://max:P@ssw0rd#123@nas/", "nas")]
+    [InlineData("rest:https://us#er:hunter2@nas/", "nas")]
+    [InlineData("rest:https://nas:8000/max%40home/", "max%40home")]
     public void ARepositoryUrl_IsNamed_WithoutItsPassword(string url, string name)
     {
-        // Named by the end of the URL alone, the first three were once "hunter2@nas". The last four, whose passwords Go
-        // could not read, were named with the password or the end of it: "pa#ss@nas", "ss@nas".
-        Assert.Equal(name, Destination.Restic(url, "repository-password").Name);
+        // Named by the end of the URL alone, the first three were once "hunter2@nas". Those with a # or a ? in the
+        // password or the user name are not taken for a new repository, but a settings file may hold one, and it was
+        // once named with the password or the end of it: "pa#ss@nas".
+        Assert.Equal(name, Destination.DefaultName(DestinationKind.Restic, url));
+        if (Destination.Ambiguity(url) is null) Assert.Equal(name, Destination.Restic(url, "repository-password").Name);
     }
 
     [Fact]

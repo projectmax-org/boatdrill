@@ -325,7 +325,8 @@ public static class Program
         foreach (var s in report.Sources)
         {
             Console.WriteLine($"  {s.SourceName}: {s.Files:N0} files, {Humanize.Bytes(s.Bytes)}; " +
-                              $"{s.NoCopyFiles:N0} with no copy ({Humanize.Bytes(s.NoCopyBytes)}), {s.OlderFiles:N0} changed since ({Humanize.Bytes(s.OlderBytes)})");
+                              $"{s.NoCopyFiles:N0} with no copy ({Humanize.Bytes(s.NoCopyBytes)}), {s.OlderFiles:N0} changed since ({Humanize.Bytes(s.OlderBytes)})" +
+                              (s.OnlineOnlyFiles > 0 ? $"; {Humanize.Plural(s.OnlineOnlyFiles, "online-only file")} left out, as not on this PC" : string.Empty));
         }
 
         if (report.Folders.Count > 0)

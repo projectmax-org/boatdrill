@@ -119,8 +119,10 @@ public sealed class OnlyHereScanner
                 continue;
             }
 
-            long files = 0, bytes = 0, noCopy = 0, noCopyBytes = 0, older = 0, olderBytes = 0;
-            foreach (var file in SourceFiles.Enumerate(source))
+            // A file whose bytes are not on this PC is left out, as a drill leaves it out: looking it up would say
+            // nothing about what is only here. It is counted, so that the report does not read as if there were none.
+            long files = 0, bytes = 0, noCopy = 0, noCopyBytes = 0, older = 0, olderBytes = 0, onlineOnly = 0;
+            foreach (var file in SourceFiles.Enumerate(source, notHere: () => onlineOnly++))
             {
                 ct.ThrowIfCancellationRequested();
                 files++;
@@ -168,6 +170,7 @@ public sealed class OnlyHereScanner
                 NoCopyBytes = noCopyBytes,
                 OlderFiles = older,
                 OlderBytes = olderBytes,
+                OnlineOnlyFiles = onlineOnly,
             });
         }
 
@@ -225,8 +228,16 @@ public sealed class OnlyHereScanner
         // Neither must a folder that was not there, which is not an empty one either.
         var notCompared = r.NotCompared.Count == 0 ? string.Empty : $" {string.Join(", ", r.NotCompared)} could not be compared with any backup.";
         var notFound = NotFoundSentence(r);
+        var onlineOnly = r.OnlineOnlyFiles == 0 ? string.Empty : " " + OnlineOnlySentence(r.OnlineOnlyFiles);
         var total = r.Sources.Sum(s => s.Files);
-        if (total == 0) return (notFound + notCompared).TrimStart() is { Length: > 0 } leftOut ? leftOut : "There are no files in the folders being protected.";
+        if (total == 0)
+        {
+            // Folders whose files are all online only are not folders with no files in them.
+            var leftOut = (notFound + notCompared + onlineOnly).TrimStart();
+            if (leftOut.Length == 0) return "There are no files in the folders being protected.";
+            return r.OnlineOnlyFiles == 0 ? leftOut : leftOut + " There was no other file to look up.";
+        }
+
         if (r.OnlyHereFiles == 0)
         {
             // Beside a folder that was not found, that is said first and "all" is said of the files that were looked up:
@@ -234,7 +245,7 @@ public sealed class OnlyHereScanner
             var all = notFound.Length == 0
                 ? $"All {total:N0} {(total == 1 ? "file has" : "files have")} a current copy in at least one backup."
                 : $"{notFound} All {total:N0} {(total == 1 ? "file that was looked up has" : "files that were looked up have")} a current copy in at least one backup.";
-            return all + notCompared;
+            return all + notCompared + onlineOnly;
         }
 
         var noCopy = r.Sources.Sum(s => s.NoCopyFiles);
@@ -245,8 +256,16 @@ public sealed class OnlyHereScanner
 
         var lead = $"{r.OnlyHereFiles:N0} of {total:N0} {(total == 1 ? "file" : "files")} ({Humanize.Bytes(r.OnlyHereBytes)}) exist only on this PC: {string.Join(" and ", parts)}.";
         if (r.Unreachable.Count > 0) lead += $" {Humanize.Plural(r.Unreachable.Count, "backup")} could not be looked in and may hold copies of some of these files.";
-        return lead + notCompared + (notFound.Length == 0 ? string.Empty : " " + notFound);
+        return lead + notCompared + (notFound.Length == 0 ? string.Empty : " " + notFound) + onlineOnly;
     }
+
+    /// <summary>
+    /// The files left out because their bytes are not on this PC, as a sentence. They are in the cloud, so they are
+    /// not what would be lost with this PC, but a scan that says nothing of them reads as if they were not there.
+    /// </summary>
+    private static string OnlineOnlySentence(long count) => Language.IsKorean
+        ? $"온라인 전용 파일 {count:N0}개는 이 PC에 없어 살펴보지 않았습니다."
+        : $"{count:N0} online-only {(count == 1 ? "file is" : "files are")} not on this PC and {(count == 1 ? "was" : "were")} left out.";
 
     /// <summary>
     /// The protected folders that were not there, as a sentence; empty when every one was found. One folder comes with
@@ -280,14 +299,21 @@ public sealed class OnlyHereScanner
 
         var notCompared = r.NotCompared.Count == 0 ? string.Empty : $" {Korean.Topic(string.Join(", ", r.NotCompared))} 어느 백업과도 비교하지 못했습니다.";
         var notFound = NotFoundSentence(r);
+        var onlineOnly = r.OnlineOnlyFiles == 0 ? string.Empty : " " + OnlineOnlySentence(r.OnlineOnlyFiles);
         var total = r.Sources.Sum(s => s.Files);
-        if (total == 0) return (notFound + notCompared).TrimStart() is { Length: > 0 } leftOut ? leftOut : "보호하는 폴더에 파일이 없습니다.";
+        if (total == 0)
+        {
+            var leftOut = (notFound + notCompared + onlineOnly).TrimStart();
+            if (leftOut.Length == 0) return "보호하는 폴더에 파일이 없습니다.";
+            return r.OnlineOnlyFiles == 0 ? leftOut : leftOut + " 그 밖에 살펴볼 파일은 없었습니다.";
+        }
+
         if (r.OnlyHereFiles == 0)
         {
             var all = notFound.Length == 0
                 ? $"파일 {total:N0}개 모두 적어도 한 백업에 최신 사본이 있습니다."
                 : $"{notFound} 살펴본 파일 {total:N0}개 모두 적어도 한 백업에 최신 사본이 있습니다.";
-            return all + notCompared;
+            return all + notCompared + onlineOnly;
         }
 
         var noCopy = r.Sources.Sum(s => s.NoCopyFiles);
@@ -296,6 +322,6 @@ public sealed class OnlyHereScanner
         if (noCopy > 0) sentences.Add($"{noCopy:N0}개는 어느 백업에도 사본이 없습니다.");
         if (older > 0) sentences.Add($"{older:N0}개는 마지막으로 복사된 뒤에 바뀌었습니다.");
         if (r.Unreachable.Count > 0) sentences.Add($"살펴보지 못한 백업 {r.Unreachable.Count:N0}개에 이 중 일부 파일의 사본이 있을 수 있습니다.");
-        return string.Join(" ", sentences) + notCompared + (notFound.Length == 0 ? string.Empty : " " + notFound);
+        return string.Join(" ", sentences) + notCompared + (notFound.Length == 0 ? string.Empty : " " + notFound) + onlineOnly;
     }
 }

@@ -152,9 +152,7 @@ public sealed class SettingsStoreTests
     [InlineData("rest:https://max:hunter2@nas:8000/restic", "hunter2")]
     [InlineData("rest:https://max:p@ss:w$rd@nas/", "p@ss:w$rd")]
     [InlineData("rest:https://max:p%40ss@nas:8000/", "p%40ss")]
-    [InlineData("rest:https://max:pa#ss@nas/", "pa#ss")]
-    [InlineData("rest:https://max:pa?ss@nas:8000/restic", "pa?ss")]
-    [InlineData("rest:https://max:pa/ss@nas/", "pa/ss")]
+    [InlineData("rest:https://max:pa%2Fss%23@nas/max%40home/", "pa%2Fss%23")]
     public void APasswordInARepositoryUrl_IsSavedEncrypted_AndComesBackAsTyped(string url, string password)
     {
         using var data = new TempTree();
@@ -166,8 +164,7 @@ public sealed class SettingsStoreTests
         Assert.DoesNotContain(password, File.ReadAllText(path));
         var saved = Assert.Single(new SettingsStore(path, () => throw new InvalidOperationException("defaults must not be used"), Protect).Settings.Destinations);
 
-        // Masked in the folder that is shown and whole only in what is kept encrypted, also when the password was typed
-        // with a #, ? or / of its own, which restic will want written %23, %3F or %2F.
+        // Masked in the folder that is shown and whole only in what is kept encrypted.
         Assert.Equal(url.Replace(password, "***"), saved.Folder);
         Assert.NotNull(saved.ProtectedLocation);
         Assert.Equal(Destination.Redact(url), saved.Folder);
@@ -213,6 +210,37 @@ public sealed class SettingsStoreTests
         // A hand edit of the folder is not overruled by the URL kept for it.
         saved.Folder = "rest:https://max:***@nas2/";
         Assert.Equal("rest:https://max:***@nas2/", saved.ToDestination(Unprotect).RootPath);
+    }
+
+    [Theory]
+    [InlineData("rest:https://max:pa#ss@nas/", "pa#ss")]
+    [InlineData("rest:https://max:pa?ss@nas/", "pa?ss")]
+    [InlineData("rest:https://max:P@ssw0rd#123@nas/", "P@ssw0rd#123")]
+    public void AUrlInASettingsFile_WhosePasswordHoldsAHashOrAQuestionMark_IsMaskedAndEncryptedAllTheSame(string url, string password)
+    {
+        // No such URL is taken for a new repository, as restic could not read it, but a settings file may hold one,
+        // named as an earlier version named it: by its end, password and all.
+        using var data = new TempTree();
+        var id = Destination.IdFor(DestinationKind.Restic, url);
+        var path = data.Write("settings.json", $$"""
+            {
+              "destinations": [ { "id": "{{id}}", "name": "{{Destination.Tail(url)}}", "kind": "Restic", "folder": "{{url}}", "secret": "stored password" } ]
+            }
+            """);
+        Assert.Contains(password, Destination.Tail(url));
+
+        var store = new SettingsStore(path, () => throw new InvalidOperationException("defaults must not be used"), Protect);
+
+        var loaded = Assert.Single(store.Settings.Destinations);
+        Assert.Equal(url.Replace(password, "***"), loaded.Folder);
+        Assert.Equal("nas", loaded.Name);
+        Assert.Equal(url, loaded.ToDestination(Unprotect).RootPath);
+        Assert.Equal(id, loaded.Id);
+
+        store.Save();
+
+        Assert.DoesNotContain(password, File.ReadAllText(path));
+        Assert.Equal(url, Assert.Single(new SettingsStore(path, () => new AppSettings(), Protect).Settings.Destinations).ToDestination(Unprotect).RootPath);
     }
 
     [Fact]

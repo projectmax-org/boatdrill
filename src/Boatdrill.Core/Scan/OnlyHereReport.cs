@@ -23,6 +23,12 @@ public sealed record OnlyHereSource(string SourceId, string SourceName, string R
     public long OlderFiles { get; init; }
 
     public long OlderBytes { get; init; }
+
+    /// <summary>
+    /// Files left out because their bytes are not on this PC, such as OneDrive files that are online only: they are
+    /// not among <see cref="Files"/>, and were not looked up. Zero in a scan saved before 1.0.
+    /// </summary>
+    public long OnlineOnlyFiles { get; init; }
 }
 
 /// <summary>
@@ -66,6 +72,9 @@ public sealed record OnlyHereReport
     public required string Sentence { get; init; }
 
     public long OnlyHereFiles => Sources.Sum(s => s.NoCopyFiles + s.OlderFiles);
+
+    /// <summary>The files left out of the scan because their bytes are not on this PC.</summary>
+    public long OnlineOnlyFiles => Sources.Sum(s => s.OnlineOnlyFiles);
 
     public long OnlyHereBytes => Sources.Sum(s => s.NoCopyBytes + s.OlderBytes);
 }

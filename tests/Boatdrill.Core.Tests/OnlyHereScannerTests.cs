@@ -247,6 +247,41 @@ public sealed class OnlyHereScannerTests
     }
 
     [Fact]
+    public async Task OnlineOnlyFiles_AreLeftOutAndCounted_AndAFolderOfNothingElseIsNotCalledEmpty()
+    {
+        if (!OperatingSystem.IsWindows()) return; // OFFLINE, which stands for every online-only flag, is a Windows attribute.
+
+        using var source = new TempTree();
+        using var mirror = new TempTree();
+        for (var i = 0; i < 5; i++) source.Write($"docs/{i}.txt", $"document {i}", Old);
+        source.MirrorTo(mirror.Root, skip: ["docs/3.txt", "docs/4.txt"]);
+        var all = Enumerable.Range(0, 5).Select(i => source.At(Path.Combine("docs", $"{i}.txt"))).ToArray();
+        try
+        {
+            foreach (var file in all[3..]) File.SetAttributes(file, FileAttributes.Offline);
+            var some = await ScanAsync(source, Destination.MirrorFolder(mirror.Root, "Drive"));
+
+            // The two that are online only have no copy in this backup, and are not what would be lost with this PC:
+            // they are left out, and the report says how many there were.
+            var summary = Assert.Single(some.Sources);
+            Assert.Equal((3L, 2L, 0L), (summary.Files, summary.OnlineOnlyFiles, some.OnlyHereFiles));
+            Assert.Equal("All 3 files have a current copy in at least one backup. 2 online-only files are not on this PC and were left out.", some.Sentence);
+
+            foreach (var file in all) File.SetAttributes(file, FileAttributes.Offline);
+            var none = await ScanAsync(source, Destination.MirrorFolder(mirror.Root, "Drive"));
+
+            Assert.Equal((0L, 5L), (Assert.Single(none.Sources).Files, none.OnlineOnlyFiles));
+            Assert.Equal("5 online-only files are not on this PC and were left out. There was no other file to look up.", none.Sentence);
+            using var korean = new InKorean();
+            Assert.Equal("온라인 전용 파일 5개는 이 PC에 없어 살펴보지 않았습니다. 그 밖에 살펴볼 파일은 없었습니다.", OnlyHereScanner.Sentence(none));
+        }
+        finally
+        {
+            foreach (var file in all) File.SetAttributes(file, FileAttributes.Normal);
+        }
+    }
+
+    [Fact]
     public async Task TheCanaryAndExcludedFiles_AreNotCounted()
     {
         using var source = new TempTree();

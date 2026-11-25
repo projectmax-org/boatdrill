@@ -194,6 +194,31 @@ public sealed class RehearsalTests
     }
 
     [Fact]
+    public async Task AFolderThatIsALinkInTheProtectedFolder_AndTheSameLinkInTheBackup_IsNotRestoredFromItself()
+    {
+        // A tool that copies links as links leaves the backup with a link to the very folder the original link leads
+        // to. There is no copy of those files anywhere, and read back, each would be compared with itself.
+        using var tree = new TempTree();
+        using var scratch = new TempTree();
+        tree.Write(Path.Combine("elsewhere", "Projects", "p1.txt"), "one", Old);
+        tree.Write(Path.Combine("elsewhere", "Projects", "p2.txt"), "two", Old);
+        tree.Write(Path.Combine("home", "Documents", "a.txt"), "a", Old);
+        tree.Write(Path.Combine("backup", "Documents", "a.txt"), "a", Old);
+        Assert.True(ScratchTests.TryLink(tree.At(Path.Combine("home", "Documents", "Projects")), tree.At(Path.Combine("elsewhere", "Projects"))), "No link could be made to test with.");
+        Assert.True(ScratchTests.TryLink(tree.At(Path.Combine("backup", "Documents", "Projects")), tree.At(Path.Combine("elsewhere", "Projects"))), "No link could be made to test with.");
+
+        var result = await new RehearsalRunner().RunAsync(new RehearsalPlan(
+            Source.FromPath(tree.At(Path.Combine("home", "Documents")), "Documents"), Destination.MirrorFolder(tree.At("backup"), "Drive"), scratch.Root)
+        {
+            Folder = "Projects",
+        });
+
+        Assert.Equal((2L, 0L, 2L), (result.Files, result.Verified, result.Missing));
+        Assert.False(result.AllIntact);
+        Assert.Contains(result.Findings, f => f.Detail is { } detail && detail.Contains("the original itself"));
+    }
+
+    [Fact]
     public async Task AFolderInside_IsRehearsedAlone()
     {
         using var source = new TempTree();

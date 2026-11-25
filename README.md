@@ -49,7 +49,10 @@ file it can read back, and once when drills cannot finish at all. Silence when e
 
 **Works out where your copies are.** Whether the drive holds the folder's contents directly, a folder
 named after it, or a full-path mirror (`D:\Backup\C\Users\...`), the drill tries each layout against the
-sample and keeps the one that fits. Settings can fix the layout per destination.
+sample and keeps the one that fits. Settings can fix the layout per destination. A backup folder that is
+the protected folder itself, or a junction or symbolic link to it, is refused rather than read back as a
+copy of itself. The same folder reached through a mapped or `subst` drive, or a share of this PC, and a
+hard link, are not seen through.
 
 **Tells corruption from lag.** A copy that is older than the original is *behind*; a copy that is not
 older yet has different bytes is *corrupt*, and any corruption keeps the score out of the green. A cloud
@@ -98,6 +101,8 @@ says what that weighting does to the margin, which assumes a sample drawn evenly
 - It never phones home. There is no network code in the app at all.
 - It never pulls a cloud placeholder down from OneDrive or Dropbox to check it: an online-only copy in a
   backup is reported as exactly that, and an online-only file in your own folders is left out, and counted.
+  A folder that is itself online only is left out whole and not counted, since what it holds is not known
+  on this PC.
 - It never watches the PC between drills. It looks at what the PC is doing when a drill falls due, and
   every ten minutes while that drill waits. With the window closed, a timer waits for the next drill, and
   one thread wakes once a second, only to see whether Boatdrill is closing.

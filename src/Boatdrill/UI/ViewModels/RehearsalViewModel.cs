@@ -218,13 +218,21 @@ public sealed class RehearsalViewModel : ViewModelBase, IDisposable
 
         var older = r.Outdated + r.Placeholder;
         var broken = r.Corrupt + r.Errors;
+
+        // The tiles count the files that were restored. With online-only files left out, "every file" is said of the
+        // files on this PC, as the headline says it: nobody looked for a copy of the others.
+        var some = r.OnlineOnly > 0;
         Tiles = r.Reachable && r.Refusal is null && r.Files > 0
             ?
             [
                 new ScorePart(Language.Pick("Came back intact", "온전히 복원된 파일"), $"{r.Verified:N0}",
-                    Language.Pick($"of {r.Files:N0} files, {Humanize.Bytes(r.Bytes)}", $"전체 {r.Files:N0}개, {Humanize.Bytes(r.Bytes)}")),
+                    some
+                        ? Language.Pick($"of {r.Files:N0} files on this PC, {Humanize.Bytes(r.Bytes)}", $"이 PC에 있는 {r.Files:N0}개, {Humanize.Bytes(r.Bytes)}")
+                        : Language.Pick($"of {r.Files:N0} files, {Humanize.Bytes(r.Bytes)}", $"전체 {r.Files:N0}개, {Humanize.Bytes(r.Bytes)}")),
                 new ScorePart(Language.Pick("No copy", "사본 없음"), $"{r.Missing:N0}",
-                    r.Missing == 0 ? Language.Pick("every file has one", "모든 파일에 사본이 있음") : Language.Pick("no copy in the backup", "백업에 사본이 없음")),
+                    r.Missing > 0 ? Language.Pick("no copy in the backup", "백업에 사본이 없음")
+                    : some ? Language.Pick("every file on this PC has one", "이 PC에 있는 파일은 모두 사본이 있음")
+                    : Language.Pick("every file has one", "모든 파일에 사본이 있음")),
                 new ScorePart(Language.Pick("Older, or cloud only", "이전 버전, 클라우드 전용"), $"{older:N0}",
                     older == 0 ? Language.Pick("all up to date", "모두 최신 상태") : Language.Pick("not the latest bytes here", "최신 내용이 여기에 없음")),
                 new ScorePart(Language.Pick("Corrupt or unreadable", "손상, 읽을 수 없음"), $"{broken:N0}",

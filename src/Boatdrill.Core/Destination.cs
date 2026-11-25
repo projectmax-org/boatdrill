@@ -63,9 +63,12 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
         return new Destination(IdFor(DestinationKind.FileHistory, full), name ?? DefaultName(DestinationKind.FileHistory, full), DestinationKind.FileHistory, full);
     }
 
+    /// <exception cref="ArgumentException">The repository is a URL that cannot be read for certain; see <see cref="Ambiguity"/>.</exception>
     public static Destination Restic(string repository, string? password, string? name = null, string? toolPath = null)
     {
         var location = NormaliseLocation(DestinationKind.Restic, repository);
+        if (IsRepositoryUrl(location) && Ambiguity(location) is { } why) throw new ArgumentException(why);
+
         return new Destination(IdFor(DestinationKind.Restic, location), name ?? DefaultName(DestinationKind.Restic, location), DestinationKind.Restic, location)
         {
             Secret = password,
@@ -198,21 +201,41 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
     /// <summary>A Kopia connection's configuration file, such as KopiaUI's repository.config, rather than a repository folder.</summary>
     public static bool IsKopiaConfig(string path) => Path.GetExtension(path).Equals(".config", StringComparison.OrdinalIgnoreCase);
 
-    // Read as Go reads a URL, and so restic: the user name runs to the first colon and the password from there to the
-    // last @ before the host, so either may hold an @, and the user name may be empty. A line break ends it, for a URL
-    // found in a tool's message.
+    // The user name runs from :// to the first colon, and the password from there to the last @ before the first
+    // slash, so either may hold an @, a ? or a #, and the user name may be empty. That is wider than Go reads a URL,
+    // and so restic, for which a ? or a # ends the host: a password typed with one of its own is masked all the same.
+    // A line break ends it, for a URL found in a tool's message.
     //
-    // A password is masked whether or not Go could read the URL. One typed with a /, ? or # of its own, which a URL
-    // wants written %2F, %3F or %23, ends the host there for Go; where no @ comes before that, the password is taken
-    // to run to the last @ on the line instead. That takes a port with an @ further along for a password as well
-    // (https://nas:8000/max@home), and masks it: too much is hidden rather than too little. It looks no further than
-    // 1,024 characters, so that a long line with many URLs in it is not read through once for each of them.
-    [GeneratedRegex(@"(?<=://[^/?#:\s]*:)(?:[^/?#\r\n]+|[^\r\n]{1,1024})(?=@[^/?#@\s]*(?:[/?#\s]|$))")]
+    // Nothing is taken for a password across a slash. A slash typed inside a password cannot be told from the one that
+    // ends the host, and reading on to a later @ would take the port of https://nas:8000/max@home for a password, and
+    // mask a URL that holds none. Such a URL is refused when a repository is added (Ambiguity), so none is saved.
+    [GeneratedRegex(@"(?<=://[^/:\s]*:)[^/\r\n]+(?=@[^/@\s]*(?:[/\s]|$))")]
     private static partial Regex UrlPassword();
 
-    /// <summary>A URL's user name and password, with the @ that ends them.</summary>
-    [GeneratedRegex(@"(?<=://)[^/?#\r\n]*@(?=[^/?#@\s]*(?:[/?#\s]|$))")]
+    /// <summary>A URL's user name and password, with the @ that ends them: all there is from :// to the last @ before the first slash.</summary>
+    [GeneratedRegex(@"(?<=://)[^/\r\n]*@(?=[^/@\s]*(?:[/\s]|$))")]
     private static partial Regex UserInfo();
+
+    /// <summary>
+    /// Why a repository URL cannot be read for certain, or null when it can. An @ after the first slash, ? or # may be
+    /// part of a path, or the end of a password that was typed with that slash, ? or # in it, and a space belongs in
+    /// no URL. restic could not open such a URL either, and what Boatdrill would mask of it is a guess: part of a
+    /// password could be shown and saved in the clear.
+    /// </summary>
+    public static string? Ambiguity(string repository)
+    {
+        var start = repository.IndexOf("://", StringComparison.Ordinal);
+        if (start < 0) return null;
+
+        var rest = repository.AsSpan(start + 3);
+        var end = rest.IndexOfAny('/', '?', '#');
+        var unclear = rest.IndexOfAny(' ', '\t') >= 0 || (end >= 0 && rest[end..].Contains('@'));
+        return unclear
+            ? Language.Pick(
+                "This repository URL cannot be read for certain. Write a /, ? or # in its user name or password as %2F, %3F or %23, an @ in its path as %40, and a space as %20.",
+                "이 저장소 URL은 정확히 읽을 수 없습니다. 사용자 이름이나 암호에 들어 있는 /, ?, #은 %2F, %3F, %23으로, 경로에 들어 있는 @은 %40으로, 공백은 %20으로 적어 주세요.")
+            : null;
+    }
 
     /// <summary>Never shows the secret, whatever else prints a destination.</summary>
     public override string ToString() => $"{Kind} {Name} at {DisplayLocation}";

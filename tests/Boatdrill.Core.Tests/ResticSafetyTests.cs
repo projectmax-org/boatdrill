@@ -1,6 +1,9 @@
 using System.Text.Json;
+using Boatdrill.Core.Adapters;
 using Boatdrill.Core.Drill;
 using Boatdrill.Core.Reporting;
+using Boatdrill.Core.Sampling;
+using Boatdrill.Core.Scan;
 using Boatdrill.Core.Scoring;
 using Boatdrill.Core.Settings;
 using Boatdrill.Core.Verification;
@@ -140,6 +143,138 @@ public sealed class ResticSafetyTests
         Assert.DoesNotContain("hunter2", JsonSerializer.Serialize(report, BoatdrillJson.Options));
         Assert.DoesNotContain("hunter2", HtmlReport.Render(report));
     }
+
+    [Fact]
+    public async Task ASnapshotThatCannotBeListed_IsNotLookedIn_AndItsFilesAreUnreadable_NotMissing()
+    {
+        using var source = new TempTree();
+        using var tool = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(source, 3, LastWeek);
+        var docs = Source.FromPath(source.Root, "Docs");
+
+        // restic names the snapshot that holds the folder, and then cannot say what is in it.
+        const string said = "restic said: unable to load index 4f1c2a9e: connection reset by peer";
+        var repository = Destination.Restic(tool.At("repository"), "secret", "Repository", StandIn.Write(tool, "restic", 3,
+        [
+            new("snapshots", Output: SnapshotOf(source.Root)),
+            new("ls", ExitCode: 1, Error: "Fatal: unable to load index 4f1c2a9e: connection reset by peer\n"),
+        ]));
+
+        var result = await DrillOnce(source.Root, repository);
+        Assert.True(result.Reachable, result.ProbeDetail);
+        Assert.Equal((0, 0, 3), (result.Verified, result.Missing, result.Errors));
+        Assert.All(result.Findings, f => Assert.Equal((FileOutcome.Error, said), (f.Outcome, f.Detail)));
+        Assert.Equal($"Repository would not restore. 0 of 3 sampled files read back correctly and 3 could not be read. Docs: {said}.", result.Sentence);
+
+        var scan = await new OnlyHereScanner().ScanAsync([docs], [repository], scratch.Root);
+        Assert.Empty(scan.Checked);
+        Assert.Equal($"Repository: {said}", Assert.Single(scan.Unreachable));
+        Assert.Equal(0, scan.OnlyHereFiles);
+        Assert.Equal("None of the backups could be looked in, so nothing was compared.", scan.Sentence);
+
+        var rehearsal = await new RehearsalRunner().RunAsync(new RehearsalPlan(docs, repository, scratch.Root));
+        Assert.Equal((0L, 0L), (rehearsal.Missing, rehearsal.Errors));
+        Assert.Equal($"Nothing was restored from Repository: {said}.", rehearsal.Sentence);
+        TempTree.AssertEmpty(scratch.Root);
+    }
+
+    [Fact]
+    public async Task SnapshotsThatCannotBeListed_AreNotARepositoryThatHoldsNone()
+    {
+        using var source = new TempTree();
+        using var tool = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(source, 3, LastWeek);
+
+        // Asked again after it answered the drill's first look: a connection that dropped in between, say.
+        var repository = Destination.Restic(tool.At("repository"), "secret", "Repository", StandIn.Write(tool, "restic", 3,
+            [new("snapshots", ExitCode: 1, Error: "Fatal: reading the snapshots failed: connection reset by peer\n")]));
+        var adapter = new ResticAdapter();
+        var sample = new Sampler(Everything).Take(Source.FromPath(source.Root, "Docs"));
+
+        var binding = await adapter.BindAsync(repository, sample, scratch.Root, BindPurpose.Read, [], CancellationToken.None);
+
+        Assert.True(binding.CouldNotLook);
+        Assert.Equal("restic said: reading the snapshots failed: connection reset by peer", binding.Problem);
+        var copy = await adapter.LocateAsync(binding, Path.Combine("docs", "0.txt"), CancellationToken.None);
+        Assert.Equal((CopyState.Error, binding.Problem), (copy.State, copy.Detail));
+    }
+
+    [Fact]
+    public async Task ARepositoryThatAnswers_AndHoldsNoSnapshotOfTheFolder_HasNoCopy()
+    {
+        using var source = new TempTree();
+        using var other = new TempTree();
+        using var tool = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(source, 3, LastWeek);
+
+        // Its one snapshot is of another folder. It is never asked to list it: the stand-in has no answer for that.
+        var repository = Destination.Restic(tool.At("repository"), "secret", "Repository", StandIn.Write(tool, "restic", 3,
+            [new("snapshots", Output: SnapshotOf(other.Root))]));
+
+        var result = await DrillOnce(source.Root, repository);
+        Assert.Equal((0, 3, 0), (result.Verified, result.Missing, result.Errors));
+        Assert.Equal(
+            $"Repository would not restore. 0 of 3 sampled files read back correctly and 3 have no copy. Docs: no snapshot in the repository holds {source.Root}.",
+            result.Sentence);
+
+        var scan = await new OnlyHereScanner().ScanAsync([Source.FromPath(source.Root, "Docs")], [repository], scratch.Root);
+        Assert.Equal(["Repository"], scan.Checked);
+        Assert.Empty(scan.Unreachable);
+        Assert.Equal(3, Assert.Single(scan.Sources).NoCopyFiles);
+    }
+
+    [Fact]
+    public async Task ARestoreThatStops_LeavesNoFileToTrust_AndIsNotCorruption()
+    {
+        using var source = new TempTree();
+        using var tool = new TempTree();
+        WriteDocuments(source, 3, LastWeek);
+
+        // restic writes each file in place, so one it was still writing when it stopped is there under its own name, with
+        // some of its bytes. Here it stops without naming any file, as when it is killed for taking too long.
+        var repository = Destination.Restic(tool.At("repository"), "secret", "Repository", StandIn.Write(tool, "restic", 3,
+        [
+            new("snapshots", Output: SnapshotOf(source.Root)),
+            new("ls", Output: ListingOf(source.Root, "docs/0.txt", "docs/1.txt", "docs/2.txt")),
+            new("version", Output: "restic 0.18.0 compiled with go1.24.4 on linux/amd64\n"),
+            new("restore", ExitCode: 1, Error: "Fatal: unable to load pack 7c0a1d33: connection reset by peer\n")
+            {
+                // The sixth argument is the folder restic restores to: restore <snapshot> --target <folder>.
+                Windows = ["mkdir \"%~6\\docs\"", ">\"%~6\\docs\\0.txt\" echo docu"],
+                Unix = ["mkdir -p \"$6/docs\"", "printf 'docu' > \"$6/docs/0.txt\""],
+            },
+        ]));
+
+        var result = await DrillOnce(source.Root, repository);
+
+        Assert.Equal((0, 0, 3), (result.Verified, result.Corrupt, result.Errors));
+        Assert.All(result.Findings, f => Assert.Equal((FileOutcome.Error, "restic said: unable to load pack 7c0a1d33: connection reset by peer"), (f.Outcome, f.Detail)));
+        Assert.DoesNotContain("corruption", result.Sentence);
+    }
+
+    /// <summary>What restic prints for `snapshots --json` when its one snapshot is of this folder, taken on this PC.</summary>
+    private static string SnapshotOf(string folder) => JsonSerializer.Serialize(new[]
+    {
+        new { time = LastWeek.UtcDateTime.ToString("o"), tree = "ab", paths = new[] { folder }, hostname = Environment.MachineName, id = new string('a', 64), short_id = "aaaaaaaa" },
+    });
+
+    /// <summary>What restic prints for `ls --json` of a snapshot that holds these files of a folder as they are now: a line each.</summary>
+    private static string ListingOf(string folder, params string[] files) => string.Concat(files.Select(file =>
+    {
+        var info = new FileInfo(Path.Combine(folder, file));
+        return JsonSerializer.Serialize(new
+        {
+            name = info.Name,
+            type = "file",
+            path = ResticAdapter.TreePath(info.FullName),
+            size = info.Length,
+            mtime = info.LastWriteTimeUtc.ToString("o"),
+            struct_type = "node",
+        }) + "\n";
+    }));
 
     /// <summary>
     /// A restic that notes the repository it was given, then fails quoting it in full, as a message about the URL

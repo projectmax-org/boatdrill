@@ -129,8 +129,10 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
     {
         if ((kind == DestinationKind.Restic && IsRepositoryUrl(location)) || kind == DestinationKind.Rclone)
         {
-            // Without the user name and password: rest:https://max:secret@nas/ is "nas", where its end alone would be "secret@nas".
-            return Tail(UserInfo().Replace(location, string.Empty));
+            // Without the user name and password: rest:https://max:secret@nas/ is "nas", where its end alone would be
+            // "secret@nas". The password is masked first, so that whatever is masked when the location is shown is also
+            // kept out of the name, however it was typed.
+            return Tail(UserInfo().Replace(Redact(location), string.Empty));
         }
 
         // A connection's file is named "repository.config" whatever it connects to.
@@ -199,7 +201,13 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
     // Read as Go reads a URL, and so restic: the user name runs to the first colon and the password from there to the
     // last @ before the host, so either may hold an @, and the user name may be empty. A line break ends it, for a URL
     // found in a tool's message.
-    [GeneratedRegex(@"(?<=://[^/?#:\s]*:)[^/?#\r\n]+(?=@[^/?#@\s]*(?:[/?#\s]|$))")]
+    //
+    // A password is masked whether or not Go could read the URL. One typed with a /, ? or # of its own, which a URL
+    // wants written %2F, %3F or %23, ends the host there for Go; where no @ comes before that, the password is taken
+    // to run to the last @ on the line instead. That takes a port with an @ further along for a password as well
+    // (https://nas:8000/max@home), and masks it: too much is hidden rather than too little. It looks no further than
+    // 1,024 characters, so that a long line with many URLs in it is not read through once for each of them.
+    [GeneratedRegex(@"(?<=://[^/?#:\s]*:)(?:[^/?#\r\n]+|[^\r\n]{1,1024})(?=@[^/?#@\s]*(?:[/?#\s]|$))")]
     private static partial Regex UrlPassword();
 
     /// <summary>A URL's user name and password, with the @ that ends them.</summary>

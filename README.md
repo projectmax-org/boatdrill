@@ -66,9 +66,9 @@ protected folder; the stamps missing from a backup's copy of it say how long tha
 
 **Shows what exists only on this PC.** On request, every file in your folders is looked up in every backup
 by name and date, and the ones no backup holds a current copy of are listed, by folder and by size: what
-you would lose with this PC today. A backup that could not be reached, an rclone remote whose files could
-not be listed, or a folder of archives none of which could be read, is named as not looked in rather than
-taken to hold nothing.
+you would lose with this PC today. A backup that could not be reached, a restic or Kopia repository or an
+rclone remote whose files could not be listed, or a folder of archives none of which could be read, is named
+as not looked in rather than taken to hold nothing.
 
 **Rehearses a full restore.** A drill reads a sample; a rehearsal restores every file of one folder, or of a
 folder inside it, from one backup into Boatdrill's own folder, a batch at a time, checks each against the
@@ -90,11 +90,11 @@ says what that weighting does to the margin, which assumes a sample drawn evenly
 
 - It never writes into a destination. The one place a drill or a rehearsal restores files to is its scratch
   folder on this PC, which is emptied when it ends. A restic repository is read with `--no-lock`, so not
-  even a lock file is left in it; a Kopia repository through a connection made read-only, with no cache, no
-  log in the repository and no notifications, and kopia is never pointed at a folder that holds no
-  repository; an rclone remote is only listed and downloaded from; an archive is only opened for reading.
-  The opt-in canary file goes into your *source* folders only. [SECURITY.md](SECURITY.md) lists everything
-  Boatdrill writes.
+  even a lock file is left in it; a Kopia repository through a connection made read-only, with its content
+  cache turned off, no log in the repository and no notifications, and kopia is never pointed at a folder
+  that holds no repository; an rclone remote is only listed and downloaded from; an archive is only opened
+  for reading. The opt-in canary file goes into your *source* folders only. [SECURITY.md](SECURITY.md)
+  lists everything Boatdrill writes.
 - It never phones home. There is no network code in the app at all.
 - It never pulls a cloud placeholder down from OneDrive or Dropbox to check it: an online-only copy in a
   backup is reported as exactly that, and an online-only file in your own folders is left out, and counted.

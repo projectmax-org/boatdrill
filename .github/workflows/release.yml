@@ -46,7 +46,8 @@ jobs:
             if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool is not on the PATH, so its tests would be skipped." }
           }
 
-      # The Kopia tests too, as on every push; without kopia they are skipped.
+      # The Kopia tests too: a pinned kopia, checked against its published SHA-256. The tests look for it where
+      # BOATDRILL_KOPIA says, and skip without one there, so the release stops if the download did not unpack to it.
       - name: Install kopia for the tests
         shell: pwsh
         env:
@@ -57,7 +58,9 @@ jobs:
           Invoke-WebRequest "https://github.com/kopia/kopia/releases/download/v$env:KOPIA_VERSION/kopia-$env:KOPIA_VERSION-windows-x64.zip" -OutFile $zip
           if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:KOPIA_SHA256) { throw 'The kopia download does not match its published SHA-256.' }
           Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
-          "BOATDRILL_KOPIA=$env:RUNNER_TEMP\kopia-$env:KOPIA_VERSION-windows-x64\kopia.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $kopia = Join-Path $env:RUNNER_TEMP "kopia-$env:KOPIA_VERSION-windows-x64\kopia.exe"
+          if (-not (Test-Path $kopia -PathType Leaf)) { throw "kopia.exe is not at $kopia, so its tests would be skipped." }
+          "BOATDRILL_KOPIA=$kopia" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Install Inno Setup
         shell: pwsh

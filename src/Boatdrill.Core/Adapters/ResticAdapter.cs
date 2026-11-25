@@ -72,8 +72,10 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             Problem = problem,
         };
 
+        // A restic that fails or stops answering has not said what the repository holds: that is not a repository
+        // that holds no copy, which is what one that answers and has no snapshot of the folder is.
         var listed = await RunAsync(destination, ["snapshots", "--json"], ListLimit, ct).ConfigureAwait(false);
-        if (listed.ExitCode != 0) return Unbound(Explain(destination, listed));
+        if (listed.ExitCode != 0) return Unbound(Explain(destination, listed)) with { CouldNotLook = true };
 
         if (Choose(ParseSnapshots(listed.Output), treeRoot) is not { } chosen)
         {
@@ -86,7 +88,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         {
             if (ParseNode(text) is { } node) index[node.Path] = node;
         }).ConfigureAwait(false);
-        if (listing.ExitCode != 0) return Unbound(Explain(destination, listing));
+        if (listing.ExitCode != 0) return Unbound(Explain(destination, listing)) with { CouldNotLook = true };
 
         var state = new State(snapshot, index, Path.Combine(scratchDirectory, $"restic-{destination.Id}-{sample.Source.Id}"), sourceRoot);
         if (purpose == BindPurpose.Read)
@@ -110,6 +112,9 @@ public sealed partial class ResticAdapter : IDestinationAdapter
     {
         var state = (State)binding.State!;
         var tree = TreePath(Path.Combine(state.SourceRoot, relativePath));
+
+        // A file is not known to be missing from a repository restic could not list; the binding's problem says why.
+        if (binding.CouldNotLook) return Task.FromResult(CopyLookup.Failed(tree, binding.Problem!));
         if (state.Snapshot is not { } snapshot) return Task.FromResult(CopyLookup.Missing(tree, binding.Problem));
 
         if (!state.Index.TryGetValue(tree, out var node))
@@ -132,6 +137,14 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         }
 
         var state = (State)binding.State!;
+
+        // Asked first: what a failed restore left of the file is no copy of it, should that still be in the stage
+        // (a restic stopped a moment ago may yet hold it open, and it could not be deleted).
+        if (state.RestoreErrors.TryGetValue(tree, out var failed))
+        {
+            return new ReadBack(false, 0, copy.FetchTime, null, failed.Detail) { Damaged = failed.Damaged };
+        }
+
         if (File.Exists(copy.Path))
         {
             // Restored by a batch, which was the read-back: move the file into place (a rename, in the same scratch
@@ -148,11 +161,6 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             {
                 return new ReadBack(false, 0, watch.Elapsed + copy.FetchTime, null, ex.Message);
             }
-        }
-
-        if (state.RestoreErrors.TryGetValue(tree, out var failed))
-        {
-            return new ReadBack(false, 0, copy.FetchTime, null, failed.Detail) { Damaged = failed.Damaged };
         }
 
         // A name the batches could not ask for: fetch this one file on its own.
@@ -218,7 +226,8 @@ public sealed partial class ResticAdapter : IDestinationAdapter
             // One whose metadata failed (a date, a Windows security descriptor) is left to the hash check.
             var general = Explain(destination, result);
             var named = new Dictionary<string, string>(PathComparer);
-            foreach (Match match in RestoreError().Matches(result.Error))
+            var errors = RestoreError().Matches(result.Error);
+            foreach (Match match in errors)
             {
                 // restic names the file from where the restore started, and on Windows with backslashes: \docs\a.txt,
                 // where its listing said /C/Users/max/Documents/docs/a.txt.
@@ -226,10 +235,20 @@ public sealed partial class ResticAdapter : IDestinationAdapter
                 if (!named.TryGetValue(path, out var known) || (!IsContentError(known) && IsContentError(why))) named[path] = why;
             }
 
+            // A restic that failed and named nothing did not carry on to the end: it was stopped for taking too long,
+            // or gave up on the repository. It writes each file in place, so one it was still writing is there under
+            // its own name with some of its bytes, and would read back as corruption. None of the batch is known to be
+            // whole, so none of it is kept.
+            var stopped = errors.Count == 0;
             foreach (var node in batch)
             {
                 var staged = StagedPath(state, node.Path);
-                if (named.TryGetValue(node.Path, out var why) && IsContentError(why))
+                if (stopped)
+                {
+                    Scratch.TryDeleteFile(staged);
+                    state.RestoreErrors[node.Path] = new Failure(general, IsDamage(general));
+                }
+                else if (named.TryGetValue(node.Path, out var why) && IsContentError(why))
                 {
                     Scratch.TryDeleteFile(staged);
                     state.RestoreErrors[node.Path] = new Failure(IsDamage(why) ? Damage(Said + why) : CouldNotRestore + why, IsDamage(why));
@@ -286,8 +305,16 @@ public sealed partial class ResticAdapter : IDestinationAdapter
         // restic masks the password in a repository URL when it names the repository, as Go does in its HTTP errors. A
         // message that quotes the URL some other way, such as one saying it cannot be parsed, is masked here, before
         // its words reach a report.
-        return result with { Error = Destination.Redact(result.Error) };
+        return result with { Error = Masked(result.Error) };
     }
+
+    /// <summary>
+    /// A message of restic's with the password of any URL in it masked, and with it what Go quotes of a URL it cannot
+    /// read. A password typed with a / in it leaves Go taking what comes before the slash for a port, and one with a
+    /// % that starts no escape taking the % and the two characters after it for one, and it says which: invalid port
+    /// ":hunter2" after host.
+    /// </summary>
+    internal static string Masked(string message) => QuotedByGo().Replace(Destination.Redact(message), "***");
 
     private static string Said => Language.Pick("restic said: ", "restic 메시지: ");
 
@@ -500,5 +527,9 @@ public sealed partial class ResticAdapter : IDestinationAdapter
 
     [GeneratedRegex(@"^restic (?<major>\d+)\.(?<minor>\d+)", RegexOptions.Multiline)]
     private static partial Regex VersionLine();
+
+    // What stands between the quotation marks, where Go writes a mark inside them as \".
+    [GeneratedRegex(@"(?<=invalid (?:port|URL escape) "")(?:[^""\\\r\n]|\\.)*(?="")")]
+    private static partial Regex QuotedByGo();
 
 }

@@ -152,6 +152,9 @@ public sealed class SettingsStoreTests
     [InlineData("rest:https://max:hunter2@nas:8000/restic", "hunter2")]
     [InlineData("rest:https://max:p@ss:w$rd@nas/", "p@ss:w$rd")]
     [InlineData("rest:https://max:p%40ss@nas:8000/", "p%40ss")]
+    [InlineData("rest:https://max:pa#ss@nas/", "pa#ss")]
+    [InlineData("rest:https://max:pa?ss@nas:8000/restic", "pa?ss")]
+    [InlineData("rest:https://max:pa/ss@nas/", "pa/ss")]
     public void APasswordInARepositoryUrl_IsSavedEncrypted_AndComesBackAsTyped(string url, string password)
     {
         using var data = new TempTree();
@@ -162,6 +165,11 @@ public sealed class SettingsStoreTests
 
         Assert.DoesNotContain(password, File.ReadAllText(path));
         var saved = Assert.Single(new SettingsStore(path, () => throw new InvalidOperationException("defaults must not be used"), Protect).Settings.Destinations);
+
+        // Masked in the folder that is shown and whole only in what is kept encrypted, also when the password was typed
+        // with a #, ? or / of its own, which restic will want written %23, %3F or %2F.
+        Assert.Equal(url.Replace(password, "***"), saved.Folder);
+        Assert.NotNull(saved.ProtectedLocation);
         Assert.Equal(Destination.Redact(url), saved.Folder);
         var destination = saved.ToDestination(Unprotect);
         Assert.Equal(url, destination.RootPath);

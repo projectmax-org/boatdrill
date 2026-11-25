@@ -15,10 +15,10 @@ namespace Boatdrill.Core.Adapters;
 /// configuration file (KopiaUI keeps its own as %APPDATA%\kopia\repository.config).
 /// <para>
 /// Boatdrill connects to the repository itself, read-only, in a folder of its own: kopia then refuses every write
-/// to the repository, and the user's own connection, cache and saved password are left alone. The connection keeps
-/// no cache, so every byte a drill reads comes from the repository, and the password travels in kopia's
-/// environment, never on its command line. kopia's update checks, its log in the repository and its error
-/// notifications are turned off for these runs.
+/// to the repository, and the user's own connection, cache and saved password are left alone. The connection's
+/// content cache is turned off, so that the bytes of the files a drill reads come from the repository, and the
+/// password travels in kopia's environment, never on its command line. kopia's update checks, its log in the
+/// repository and its error notifications are turned off for these runs.
 /// </para>
 /// <para>
 /// kopia is only asked to open a folder that holds a repository: opening a folder as a filesystem repository writes
@@ -92,11 +92,16 @@ public sealed class KopiaAdapter : IDestinationAdapter
             Problem = problem,
         };
 
+        // A kopia that fails or stops answering has not said what the repository holds: that is not a repository that
+        // holds no copy, which is what one that answers and has no snapshot of the folder is. One failure is the whole
+        // binding's, whatever was listed before it.
+        SourceBinding Failed(string problem) => Unbound(problem) with { CouldNotLook = true };
+
         // The connection lives in the scratch folder, which the drill, scan or rehearsal removes when it ends.
-        if (await EnsureConnectedAsync(destination, state, ct).ConfigureAwait(false) is { } refused) return Unbound(refused);
+        if (await EnsureConnectedAsync(destination, state, ct).ConfigureAwait(false) is { } refused) return Failed(refused);
 
         var listed = await RunAsync(destination, state.Connection, ["snapshot", "list", "--json", "--all"], ListLimit, ct).ConfigureAwait(false);
-        if (listed.ExitCode != 0) return Unbound(Explain(destination, listed));
+        if (listed.ExitCode != 0) return Failed(Explain(destination, listed));
 
         var picks = Choose(ParseSnapshots(listed.Output), sourceRoot);
         if (picks.Count == 0)
@@ -106,14 +111,14 @@ public sealed class KopiaAdapter : IDestinationAdapter
 
         foreach (var pick in picks)
         {
-            var (folder, problem) = await FindFolderAsync(destination, state, pick, ct).ConfigureAwait(false);
-            if (folder is null) return Unbound(problem!);
+            var (folder, problem, failed) = await FindFolderAsync(destination, state, pick, ct).ConfigureAwait(false);
+            if (folder is null) return failed ? Failed(problem!) : Unbound(problem!);
 
             var listing = await RunAsync(destination, state.Connection, ["ls", "-l", "-r", folder], ListLimit, ct, line: text =>
             {
                 if (ParseListLine(text) is { } node) state.Index[pick.Prefix.Length == 0 ? node.Path : pick.Prefix + "/" + node.Path] = node;
             }).ConfigureAwait(false);
-            if (listing.ExitCode != 0) return Unbound(Explain(destination, listing));
+            if (listing.ExitCode != 0) return Failed(Explain(destination, listing));
 
             state.Picks.Add(pick);
         }
@@ -132,6 +137,10 @@ public sealed class KopiaAdapter : IDestinationAdapter
     {
         var state = (State)binding.State!;
         var key = Key(relativePath);
+
+        // A file is not known to be missing from a repository kopia could not list, nor known to be in it by what was
+        // listed before kopia failed; the binding's problem says why.
+        if (binding.CouldNotLook) return Task.FromResult(CopyLookup.Failed(key, binding.Problem!));
         if (state.Picks.Count == 0) return Task.FromResult(CopyLookup.Missing(key, binding.Problem));
 
         if (!state.Index.TryGetValue(key, out var node))
@@ -178,14 +187,18 @@ public sealed class KopiaAdapter : IDestinationAdapter
         return new ReadBack(true, new FileInfo(scratchPath).Length, timer.Elapsed, hash, null);
     }
 
-    /// <summary>Walks from the snapshot's root down to the source folder, by name, and gives the folder's object ID.</summary>
-    private static async Task<(string? Folder, string? Problem)> FindFolderAsync(Destination destination, State state, Pick pick, CancellationToken ct)
+    /// <summary>
+    /// Walks from the snapshot's root down to the source folder, by name, and gives the folder's object ID. Without
+    /// one there is a problem to tell, and <c>Failed</c> says which kind: kopia could not show a folder on the way, or
+    /// it showed them all and the source folder is not in the snapshot.
+    /// </summary>
+    private static async Task<(string? Folder, string? Problem, bool Failed)> FindFolderAsync(Destination destination, State state, Pick pick, CancellationToken ct)
     {
         var folder = pick.Snapshot.RootObjectId;
         foreach (var name in pick.Below.Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
             var shown = await RunAsync(destination, state.Connection, ["show", folder], ListLimit, ct).ConfigureAwait(false);
-            if (shown.ExitCode != 0) return (null, Explain(destination, shown));
+            if (shown.ExitCode != 0) return (null, Explain(destination, shown), true);
 
             // The names below the snapshot's own path come from the disk; the source's spelling may differ in case.
             var entries = ParseDirectory(shown.Output).Where(e => e.IsFolder).ToList();
@@ -193,13 +206,13 @@ public sealed class KopiaAdapter : IDestinationAdapter
             if (next is null)
             {
                 return (null, Language.Pick($"{Describe(pick.Snapshot)} does not hold {state.SourceRoot}",
-                    $"{Describe(pick.Snapshot)}에 {Korean.Subject(state.SourceRoot)} 없습니다"));
+                    $"{Describe(pick.Snapshot)}에 {Korean.Subject(state.SourceRoot)} 없습니다"), false);
             }
 
             folder = next.ObjectId;
         }
 
-        return (folder, null);
+        return (folder, null, false);
     }
 
     // ---------------- kopia ----------------
@@ -216,7 +229,7 @@ public sealed class KopiaAdapter : IDestinationAdapter
 
     /// <summary>
     /// Makes Boatdrill's own connection in <paramref name="connection"/>: read-only, so kopia refuses any write to
-    /// the repository, and without a cache, so every read comes from the repository.
+    /// the repository, and with its content cache turned off, so that a file's bytes are read from the repository.
     /// </summary>
     private static Task<ToolRunner.Result> ConnectAsync(Destination destination, string connection, CancellationToken ct)
     {

@@ -53,7 +53,7 @@ drill says so and does not count as a pass.
 | Corrupt | A copy exists, is not older than the original, yet its bytes differ |
 | Missing | No copy where the layout says it should be |
 | Placeholder | A cloud placeholder: the name is on the disk, the bytes are not. Never downloaded |
-| Error | The copy or the original could not be read. When an rclone remote's list of files cannot be read (an expired sign-in, say), the files looked for there count here too, not as missing |
+| Error | The copy or the original could not be read. When a backup's list of files cannot be read (an rclone remote whose sign-in has expired, a restic or Kopia repository whose snapshots cannot be listed), the files looked for there count here too, not as missing |
 | Rotted | Found by a re-check, not the sample: a copy verified in an earlier drill now has other bytes under the same name, size and date |
 
 A copy a backup tool reports as damaged as it reads it (restic and Kopia check every piece they restore,

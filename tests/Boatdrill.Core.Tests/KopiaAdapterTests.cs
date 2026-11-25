@@ -288,7 +288,7 @@ public sealed class KopiaAdapterTests
     }
 
     /// <summary>A line as `kopia ls -l` prints it, with Go's "%v %12s %v %-34v %v": C#'s alignment pads the same way.</summary>
-    private static string Line(string mode, long size, DateTime local, string objectId, string name) =>
+    internal static string Line(string mode, long size, DateTime local, string objectId, string name) =>
         string.Format(CultureInfo.InvariantCulture, "{0} {1,12} {2} {3,-34} {4}", mode, size, local.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + " KST", objectId, name);
 
     [Fact]

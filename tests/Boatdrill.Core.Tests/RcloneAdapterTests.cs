@@ -152,6 +152,85 @@ public sealed class RcloneAdapterTests
         Assert.Equal("rclone has no remote named \"nosuchremote\"; set it up with rclone config first", unknown.ProbeDetail);
     }
 
+    [RcloneFact]
+    public async Task ARemoteWithoutTheFolder_HoldsNoCopyOfIt_WhichIsNotAListThatFailed()
+    {
+        using var source = new TempTree();
+        using var remote = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(source, 6);
+        remote.Write("elsewhere.txt", "another folder's backup", LastWeek);
+        var drive = Remote(remote.Root);
+
+        // The remote holds none of the files at its top, and has neither a folder named after the source nor one for
+        // its full path. Of those rclone says "directory not found", which is an answer, not a list it could not make.
+        var result = await DrillAsync(source, drive, scratch);
+
+        Assert.True(result.Reachable, result.ProbeDetail);
+        Assert.Equal((0, 6, 0), (result.Verified, result.Missing, result.Errors));
+        Assert.Null(Assert.Single(result.Bindings).Problem);
+        Assert.All(result.Findings, f => Assert.Equal("not on " + remote.Root, f.Detail));
+        Assert.Equal(
+            $"Drive would not restore. 0 of 6 sampled files read back correctly and 6 have no copy. No copy of Docs was found under {remote.Root}.",
+            result.Sentence);
+
+        // A scan has looked in it, and found nothing there.
+        var scan = await new OnlyHereScanner().ScanAsync([Source.FromPath(source.Root, "Docs")], [drive], scratch.Root);
+        Assert.Equal(["Drive"], scan.Checked);
+        Assert.Empty(scan.Unreachable);
+        Assert.Equal(6, Assert.Single(scan.Sources).NoCopyFiles);
+    }
+
+    [Fact]
+    public async Task AListThatFails_IsNotARemoteThatHoldsNothing()
+    {
+        using var source = new TempTree();
+        using var tool = new TempTree();
+        using var scratch = new TempTree();
+        WriteDocuments(source, 3);
+        var docs = Source.FromPath(source.Root, "Docs");
+
+        // rclone's listings are told apart by the word after "-q --ask-password=false lsjson": --max-depth for the first
+        // look at the remote, -R for the files in it. A .cmd counts --ask-password=false as two words.
+        var word = OperatingSystem.IsWindows() ? 5 : 4;
+
+        // rclone answers the first look and then cannot list the files, as when a sign-in has expired. A stand-in says
+        // so: a folder on this PC, which is what the other tests give the real rclone for a remote, does not fail that way.
+        const string said = "its files could not be listed: rclone said: Backups: error listing: couldn't list directory: oauth2: token expired and refresh token is not set";
+        var failing = Destination.Rclone("remote:Backups", name: "Drive", toolPath: StandIn.Write(tool, "rclone", word,
+        [
+            new("--max-depth", Output: "[]\n"),
+            new("-R", ExitCode: 1, Error: "2026/11/21 09:30:00 ERROR : Backups: error listing: couldn't list directory: oauth2: token expired and refresh token is not set\n"),
+        ]));
+
+        var result = await DrillAsync(source, failing, scratch);
+        Assert.True(result.Reachable, result.ProbeDetail);
+        Assert.Equal((0, 0, 3), (result.Verified, result.Missing, result.Errors));
+        Assert.All(result.Findings, f => Assert.Equal((FileOutcome.Error, said), (f.Outcome, f.Detail)));
+        Assert.Equal($"Drive would not restore. 0 of 3 sampled files read back correctly and 3 could not be read. Docs: {said}.", result.Sentence);
+
+        var scan = await new OnlyHereScanner().ScanAsync([docs], [failing], scratch.Root);
+        Assert.Empty(scan.Checked);
+        Assert.Equal($"Drive: {said}", Assert.Single(scan.Unreachable));
+        Assert.Equal(0, scan.OnlyHereFiles);
+
+        // Told "directory not found" for every place the copies could be, it has its answer: there is no copy.
+        var empty = Destination.Rclone("remote:Backups", name: "Drive", toolPath: StandIn.Write(tool, "rclone-empty", word,
+        [
+            new("--max-depth", Output: "[]\n"),
+            new("-R", ExitCode: 3, Error: "2026/11/21 09:30:00 ERROR : : error listing: directory not found\n"),
+        ]));
+
+        var none = await DrillAsync(source, empty, scratch);
+        Assert.Equal((0, 3, 0), (none.Verified, none.Missing, none.Errors));
+        Assert.Null(Assert.Single(none.Bindings).Problem);
+
+        var looked = await new OnlyHereScanner().ScanAsync([docs], [empty], scratch.Root);
+        Assert.Equal(["Drive"], looked.Checked);
+        Assert.Empty(looked.Unreachable);
+        Assert.Equal(3, Assert.Single(looked.Sources).NoCopyFiles);
+    }
+
     [Fact]
     public async Task ALocationThatIsOrHoldsTheProtectedFolder_IsNotLookedInForItsCopies()
     {

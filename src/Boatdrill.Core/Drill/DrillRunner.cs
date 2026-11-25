@@ -207,6 +207,9 @@ public sealed class DrillRunner
             // Judged for each source on its own: one folder's fresh copies must not hide another's stalled backup.
             var found = 0;
             DateTimeOffset? newestVerified = null, newestOtherCopy = null;
+
+            // When the originals last changed: those whose copy is older than they are, and those with no copy here.
+            var changed = new List<DateTimeOffset>();
             var notCopied = new List<DateTimeOffset>();
             foreach (var file in sample.Files)
             {
@@ -243,21 +246,26 @@ public sealed class DrillRunner
                 }
 
                 // The original as it was when this copy was judged: it may have been saved again during the drill.
-                if (finding.Outcome is FileOutcome.Missing or FileOutcome.Outdated or FileOutcome.Placeholder) notCopied.Add(finding.SourceWriteUtc);
+                if (finding.Outcome is FileOutcome.Outdated) changed.Add(finding.SourceWriteUtc);
+                if (finding.Outcome is FileOutcome.Missing or FileOutcome.Placeholder) notCopied.Add(finding.SourceWriteUtc);
                 if (finding.Outcome != FileOutcome.Verified) findings.Add(finding);
                 done++;
                 progress?.Report(new DrillProgress(Language.Pick("Reading back from " + destination.Name, destination.Name + "에서 다시 읽는 중"), destination.Name, done, total, bytesRead));
             }
 
             // Freshness looks only at changes newer than anything verified of this source: an old file that was never
-            // copied is a coverage hole, not a lag. A source with copies here, none of which verified, is measured
-            // from the newest version those copies hold instead, so it is behind since its oldest change after that:
-            // copies that are all older than the originals must not read as up to date, and an old file beside them
-            // that was never copied must not read as years of lag. If none of its files has a copy at all, the whole
-            // folder would be lost with the PC, which caps the score and is not a lag either.
+            // copied is a coverage hole, not a lag. A source with copies here, none of which verified, has nothing
+            // verified to measure from. There, every change the backup holds an older version of is one it has not
+            // taken, however old: copies that are all older than the originals must not read as up to date. A file
+            // with no copy counts when it was written after the newest version those copies hold, which is when the
+            // backup last took anything of the folder; an older one that was never copied is a coverage hole there
+            // too, not years of lag. If none of its files has a copy at all, the whole folder would be lost with the
+            // PC, which caps the score and is not a lag either.
             if (sample.Files.Count > 0 && found == 0) sourcesWithoutCopies++;
-            var floor = newestVerified ?? newestOtherCopy ?? DateTimeOffset.MinValue;
-            if (found > 0 && notCopied.Where(t => t > floor).Select(t => (DateTimeOffset?)t).Min() is { } sourceBehind &&
+            var behind = newestVerified is { } verifiedUpTo
+                ? changed.Concat(notCopied).Where(t => t > verifiedUpTo)
+                : changed.Concat(notCopied.Where(t => t > (newestOtherCopy ?? DateTimeOffset.MinValue)));
+            if (found > 0 && behind.Select(t => (DateTimeOffset?)t).Min() is { } sourceBehind &&
                 (behindSince is null || sourceBehind < behindSince))
             {
                 behindSince = sourceBehind;

@@ -63,9 +63,10 @@ public static class Program
         over the drills before it (boatdrill-report.html unless --html names the file).
 
         Exit codes: drill 0 when every destination would restore (fully or mostly), 1 otherwise; only-here 0
-        when every file has a current copy, 1 otherwise; rehearse 0 when every file that is on this PC came back
-        intact (online-only files are left out, and counted), 1 otherwise; report 0 when it wrote the report; 2
-        for bad arguments, a --source folder that does not exist and a refused scratch folder among them.
+        when every file that is on this PC has a current copy, 1 otherwise; rehearse 0 when every file that is
+        on this PC came back intact, 1 otherwise (for both, online-only files are left out, and counted);
+        report 0 when it wrote the report; 2 for bad arguments, a --source folder that does not exist and a
+        refused scratch folder among them.
         """;
 
     public static async Task<int> Main(string[] args)

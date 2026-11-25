@@ -206,11 +206,10 @@ public sealed class DestinationSetting
 
     /// <summary>
     /// Where the tool is to look: the location as typed, password and all, while it is the one <see cref="Folder"/>
-    /// shows, so that a hand edit of the folder is not overruled. Never the encrypted text itself. Both are masked
-    /// before they are compared, so that a folder saved by a version that masked differently still finds its URL.
+    /// shows, so that a hand edit of the folder is not overruled. Never the encrypted text itself.
     /// </summary>
     private string Location(Func<string?, string?>? unprotect) =>
-        unprotect?.Invoke(ProtectedLocation) is { } typed && Destination.Redact(typed) == Destination.Redact(Folder) ? typed : Folder;
+        unprotect?.Invoke(ProtectedLocation) is { } typed && Destination.Redact(typed) == Folder ? typed : Folder;
 
     /// <summary>
     /// Moves a password written into <see cref="Folder"/> out of it, into <see cref="ProtectedLocation"/> encrypted,

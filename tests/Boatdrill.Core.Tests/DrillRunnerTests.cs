@@ -294,6 +294,30 @@ public sealed class DrillRunnerTests
     }
 
     [Fact]
+    public async Task AChangeTheBackupHoldsAnOlderVersionOf_IsLag_HoweverNewAnotherFilesStaleCopyIs()
+    {
+        using var tree = new TempTree();
+        using var backup = new TempTree();
+        using var scratch = new TempTree();
+        var now = DateTimeOffset.UtcNow;
+        tree.Write("thesis/one.txt", "chapter one", now.AddDays(-30));
+        tree.Write("thesis/two.txt", "chapter two", now.AddDays(-2));
+        tree.MirrorTo(backup.Root);
+        var first = now.AddDays(-20);
+        tree.Write("thesis/one.txt", "chapter one, revised", first);
+        tree.Write("thesis/two.txt", "chapter two, revised", now.AddHours(-3));
+
+        var report = await new DrillRunner().RunAsync(Plan(scratch, Source.FromPath(tree.Root, "Thesis"), Destination.MirrorFolder(backup.Root, "USB drive")));
+
+        // Nothing verified. The second chapter's copy is two days old, newer than the first chapter's change, but the
+        // backup holds only an older version of the first chapter: it has been behind since that change, twenty days.
+        var result = Assert.Single(report.Destinations);
+        Assert.Equal((0, 2, 0), (result.Verified, result.Outdated, result.Missing));
+        Assert.Equal(first.UtcDateTime, result.BehindSince!.Value.UtcDateTime, TimeSpan.FromSeconds(1));
+        Assert.Equal((87, Verdict.WouldMostlyRestore), (result.Score.Total, result.Score.Verdict));
+    }
+
+    [Fact]
     public async Task AFolderWithNothingVerified_IsBehind_BesideOneWhoseCopiesAreAllCurrent()
     {
         using var tree = new TempTree();

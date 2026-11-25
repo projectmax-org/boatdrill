@@ -51,8 +51,8 @@ file it can read back, and once when drills cannot finish at all. Silence when e
 named after it, or a full-path mirror (`D:\Backup\C\Users\...`), the drill tries each layout against the
 sample and keeps the one that fits. Settings can fix the layout per destination. A backup folder that is
 the protected folder itself, or a junction or symbolic link to it, is refused rather than read back as a
-copy of itself. The same folder reached through a mapped or `subst` drive, or a share of this PC, and a
-hard link, are not seen through.
+copy of itself. The same folder reached through a mapped or `subst` drive, a share of this PC or a folder a
+volume is mounted in, and a hard link, are not seen through.
 
 **Tells corruption from lag.** A copy that is older than the original is *behind*; a copy that is not
 older yet has different bytes is *corrupt*, and any corruption keeps the score out of the green. A cloud
@@ -183,9 +183,10 @@ its words, and on its exit codes:
 - `drill` exits 0 when every destination would restore, fully or mostly, and 1 when one would not, needs
   attention, could not be reached or checked, or had nothing to check, or when a `--source` folder went
   missing while it ran;
-- `only-here` exits 0 when every file has a current copy in a backup, and 1 when some do not, when no
-  backup could be looked in, when a folder could not be compared with any backup, or when a `--source`
-  folder went missing while it ran;
+- `only-here` exits 0 when every file that is on this PC has a current copy in a backup, and 1 when some
+  do not, when no backup could be looked in, when a folder could not be compared with any backup, or when
+  a `--source` folder went missing while it ran; online-only files are left out and counted, and do not
+  make it exit 1, nor does a folder with no file on this PC;
 - `rehearse` exits 0 when every file that is on this PC came back intact, and 1 otherwise, including when
   nothing was restored (a `--folder` outside the source or not there, say, or one whose files are all online
   only); online-only files are left out and counted, as in a drill, and do not make it exit 1;

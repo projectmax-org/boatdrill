@@ -63,9 +63,13 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
         return new Destination(IdFor(DestinationKind.FileHistory, full), name ?? DefaultName(DestinationKind.FileHistory, full), DestinationKind.FileHistory, full);
     }
 
-    /// <exception cref="ArgumentException">The repository is a URL that cannot be read for certain; see <see cref="Ambiguity"/>.</exception>
+    /// <exception cref="ArgumentException">
+    /// The repository is an address restic would not take, or a URL that cannot be read for certain; see <see cref="Ambiguity"/>.
+    /// </exception>
     public static Destination Restic(string repository, string? password, string? name = null, string? toolPath = null)
     {
+        if (NotResticsAddress(repository) is { } how) throw new ArgumentException(how);
+
         var location = NormaliseLocation(DestinationKind.Restic, repository);
         if (IsRepositoryUrl(location) && Ambiguity(location) is { } why) throw new ArgumentException(why);
 
@@ -229,13 +233,42 @@ public sealed partial record Destination(string Id, string Name, DestinationKind
 
         var rest = repository.AsSpan(start + 3);
         var end = rest.IndexOfAny('/', '?', '#');
-        var unclear = rest.IndexOfAny(' ', '\t') >= 0 || (end >= 0 && rest[end..].Contains('@'));
+
+        // Any white space, not the space bar's alone: the patterns that mask a password stop at every kind.
+        var unclear = repository.Any(char.IsWhiteSpace) || (end >= 0 && rest[end..].Contains('@'));
         return unclear
             ? Language.Pick(
                 "This repository URL cannot be read for certain. Write a /, ? or # in its user name or password as %2F, %3F or %23, an @ in its path as %40, and a space as %20.",
                 "이 저장소 URL은 정확히 읽을 수 없습니다. 사용자 이름이나 암호에 들어 있는 /, ?, #은 %2F, %3F, %23으로, 경로에 들어 있는 @은 %40으로, 공백은 %20으로 적어 주세요.")
             : null;
     }
+
+    /// <summary>
+    /// What to write instead, for an address restic would not take as a repository, or null for one it would and for a
+    /// folder. A web address without rest: in front of it would be taken for a folder, and its password saved and
+    /// shown as part of a path; rest: without the http:// or https:// restic wants after it holds nothing by which a
+    /// password could be told.
+    /// </summary>
+    private static string? NotResticsAddress(string repository)
+    {
+        var typed = repository.Trim();
+        if (!IsRepositoryUrl(typed) && WebAddress().IsMatch(typed))
+        {
+            return Language.Pick(
+                "For a repository on a REST server, write rest: in front of its address, as in rest:https://host:8000/.",
+                "REST 서버의 저장소는 주소 앞에 rest:를 붙여 적어 주세요. 예: rest:https://host:8000/");
+        }
+
+        return typed.StartsWith("rest:", StringComparison.OrdinalIgnoreCase) && !typed.Contains("://", StringComparison.Ordinal)
+            ? Language.Pick(
+                "A REST server's address starts with rest:http:// or rest:https://, as in rest:https://host:8000/.",
+                "REST 서버의 주소는 rest:http:// 또는 rest:https://로 시작해야 합니다. 예: rest:https://host:8000/")
+            : null;
+    }
+
+    // A scheme of two characters or more before the ://, so that C://Backups is still a folder.
+    [GeneratedRegex(@"^[A-Za-z][A-Za-z0-9+.\-]+://")]
+    private static partial Regex WebAddress();
 
     /// <summary>Never shows the secret, whatever else prints a destination.</summary>
     public override string ToString() => $"{Kind} {Name} at {DisplayLocation}";

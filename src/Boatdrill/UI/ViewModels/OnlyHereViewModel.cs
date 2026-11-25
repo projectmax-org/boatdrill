@@ -167,6 +167,8 @@ public sealed class OnlyHereViewModel : ViewModelBase, IDisposable
             { OnlyHereFiles: 0, NotCompared.Count: > 0 } => (Language.Pick("Not every folder could be compared", "비교하지 못한 폴더가 있습니다"), VerdictStyle.Fair),
             // No file looked up is not every file having a copy: the folders are empty, or all their files are online only.
             { OnlyHereFiles: 0 } when report.Sources.Sum(s => s.Files) == 0 => (Language.Pick("There was no file to look up", "살펴볼 파일이 없었습니다"), VerdictStyle.None),
+            // With online-only files left out, "every file" is said of the files on this PC: nobody looked for a copy of the others.
+            { OnlyHereFiles: 0, OnlineOnlyFiles: > 0 } => (Language.Pick("Every file on this PC has a copy", "이 PC에 있는 파일은 모두 사본이 있습니다"), VerdictStyle.Good),
             { OnlyHereFiles: 0 } => (Language.Pick("Every file has a copy", "모든 파일에 사본이 있습니다"), VerdictStyle.Good),
             _ when noCopy == 0 => (korean
                 ? $"마지막으로 복사된 뒤에 바뀐 파일이 {report.OnlyHereFiles:N0}개 있습니다"

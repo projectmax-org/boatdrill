@@ -416,6 +416,8 @@ public sealed class ResticAdapterTests
     [InlineData("rest:https://us/er:hunter2@nas/")]
     [InlineData("rest:https://nas:8000/max@home/")]
     [InlineData("rest:https://max:pa ss@nas/")]
+    [InlineData("rest:https://Max Kim:hunter2@nas/")]
+    [InlineData("rest:https://Max　Kim:hunter2@nas/")]
     public void ARepositoryUrlThatCannotBeReadForCertain_IsRefused_BeforeItIsSavedOrShown(string url)
     {
         // An @ after the first slash, ? or # is the end of a password typed with that character in it, or part of a
@@ -444,22 +446,47 @@ public sealed class ResticAdapterTests
     }
 
     [Theory]
+    [InlineData("https://max:hunter2@nas:8000/")]
+    [InlineData("http://nas:8000/restic")]
+    [InlineData("rest:max:hunter2@nas:8000/")]
+    [InlineData("REST:nas:8000/")]
+    public void AnAddressResticWouldNotTake_IsRefused_RatherThanTakenForAFolder(string address)
+    {
+        // Taken for a folder, a web address without rest: in front of it had its password saved and shown as part of a
+        // path, and of the backup's name. rest: without http:// or https:// has nothing a password could be told by.
+        var refused = Assert.Throws<ArgumentException>(() => Destination.Restic(address, "repository-password"));
+        Assert.Contains("rest:https://host:8000/", refused.Message);
+        Assert.DoesNotContain("hunter2", refused.Message);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Backups\restic")]
+    [InlineData("C://Backups/restic")]
+    [InlineData("/srv/restic")]
+    [InlineData("backups/restic")]
+    public void AFolderOfARepository_IsStillAFolder(string folder) =>
+        Assert.Equal(Path.GetFullPath(folder), Destination.Restic(folder, "repository-password").RootPath);
+
+    [Theory]
     [InlineData("Fatal: parsing repository location failed: parse \"https://max:hunter2/x@nas/\": invalid port \":hunter2\" after host",
         "Fatal: parsing repository location failed: parse \"https://max:***@nas/\": invalid port \"***\" after host")]
     [InlineData("Get \"https://max:1234/5678@nas/config\": dial tcp: lookup max: no such host", "Get \"https://max:***@nas/config\": dial tcp: lookup max: no such host")]
-    [InlineData("Fatal: parsing repository location failed: parse \"https://max:hun\\\"ter2#x@nas/\": invalid port \":hun\\\"ter2\" after host",
+    [InlineData("Fatal: parsing repository location failed: parse \"https://max:hun\\\"ter2\": invalid port \":hun\\\"ter2\" after host",
+        "Fatal: parsing repository location failed: parse \"https://max:***\": invalid port \"***\" after host")]
+    [InlineData("Fatal: parsing repository location failed: parse \"https://max:pa\\\"ss/word@nas/\": invalid port \":pa\\\"ss\" after host",
         "Fatal: parsing repository location failed: parse \"https://max:***@nas/\": invalid port \"***\" after host")]
     [InlineData("Fatal: parsing repository location failed: parse \"https://max:50%off@nas/\": invalid URL escape \"%of\"",
         "Fatal: parsing repository location failed: parse \"https://max:***@nas/\": invalid URL escape \"***\"")]
     [InlineData("Fatal: parsing repository location failed: parse \"https://nas:80a0/\": invalid port \":80a0\" after host",
-        "Fatal: parsing repository location failed: parse \"https://nas:80a0/\": invalid port \"***\" after host")]
+        "Fatal: parsing repository location failed: parse \"https://nas:***\": invalid port \"***\" after host")]
     [InlineData("Fatal: unable to open config file: Stat: connection refused", "Fatal: unable to open config file: Stat: connection refused")]
     public void WhatGoQuotesOfAUrlItCannotRead_IsMaskedInResticsMessages(string said, string masked)
     {
         // Go names the part of a URL it cannot read, outside the URL it quotes: for a password with a / or # in it, the
-        // password up to there, taken for a port. A port that was only mistyped is masked with it, and is still to be
-        // read in the URL beside it. Inside the URL Go quotes, a password with a slash in it is masked to its last @:
-        // no such URL is taken for a new repository, but a settings file written by hand may hold one.
+        // password up to there, taken for a port. Inside the URL it quotes, a password with a slash in it is masked to
+        // its last @; one with a # ends the URL there for Go, with no @ left, and is masked as the port it was taken
+        // for, as is a port that was only mistyped. No such URL is taken for a new repository, but a settings file
+        // written by hand, or by an earlier version, may hold one.
         Assert.Equal(masked, ResticAdapter.Masked(said));
         Assert.Equal(masked, ResticAdapter.Masked(masked));
     }

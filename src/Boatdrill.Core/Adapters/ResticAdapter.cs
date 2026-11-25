@@ -315,7 +315,7 @@ public sealed partial class ResticAdapter : IDestinationAdapter
     /// ":hunter2" after host.
     /// </summary>
     internal static string Masked(string message) =>
-        QuotedByGo().Replace(QuotedUrlPassword().Replace(Destination.Redact(message), "***"), "***");
+        QuotedByGo().Replace(TakenForAPort().Replace(QuotedUrlPassword().Replace(Destination.Redact(message), "***"), "***"), "***");
 
     private static string Said => Language.Pick("restic said: ", "restic 메시지: ");
 
@@ -537,7 +537,13 @@ public sealed partial class ResticAdapter : IDestinationAdapter
     // That masks a password typed with a slash in it, which Destination.Redact leaves alone because it cannot tell it
     // from a path. No such URL is taken for a new repository, but a settings file written by hand may hold one, and
     // restic then says what it could not read of it.
-    [GeneratedRegex(@"(?<=""[A-Za-z][A-Za-z0-9+.\-]*://[^/:\s""]*:)[^""\r\n]+(?=@[^/@\s""]*[/""])")]
+    [GeneratedRegex(@"(?<=""[A-Za-z][A-Za-z0-9+.\-]*://[^/:\s""]*:)(?:[^""\\\r\n]|\\.)+(?=@[^/@\s""]*[/""])")]
     private static partial Regex QuotedUrlPassword();
+
+    // A password with a # in it: Go cuts a URL off at the # before it reads it, so what it quotes ends there, with no
+    // @ left to tell the password by, and it takes what follows the colon for a port. That is masked, and with it a
+    // port that was only mistyped, which cannot be told from one.
+    [GeneratedRegex(@"(?<=parse ""[A-Za-z][A-Za-z0-9+.\-]*://[^/:\s""]*:)(?:[^""\\\r\n@]|\\.)+(?="": invalid port )")]
+    private static partial Regex TakenForAPort();
 
 }
